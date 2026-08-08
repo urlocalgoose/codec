@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loud.local/schemas/loud-import.v1.schema.json",
+  "title": "Loud Import Manifest v1",
+  "type": "object",
+  "required": ["schema", "tracks"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "loud.import.v1" },
+    "source": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string" },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "base_path": {
+          "type": "string",
+          "description": "Relative to this manifest file. Track files are resolved under this folder unless they are absolute paths."
+        },
+        "spotify_source": { "type": "string" }
+      }
+    },
+    "tracks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/track" }
+    },
+    "playlists": {
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/$defs/playlist" }
+    }
+  },
+  "$defs": {
+    "identifiers": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": { "type": "string" },
+      "properties": {
+        "isrc": { "type": "string" },
+        "spotify_track_id": { "type": "string" },
+        "spotify_album_id": { "type": "string" },
+        "youtube_video_id": { "type": "string" },
+        "musicbrainz_recording_id": { "type": "string" }
+      }
+    },
+    "source_urls": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": { "type": "string" },
+      "properties": {
+        "spotify": { "type": "string" },
+        "youtube": { "type": "string" },
+        "musicbrainz": { "type": "string" }
+      }
+    },
+    "track": {
+      "type": "object",
+      "required": ["file"],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Path to an MP3. Relative paths are resolved from source.base_path, or from the manifest folder when base_path is omitted."
+        },
+        "title": { "type": "string" },
+        "artist": { "type": "string" },
+        "album": { "type": "string" },
+        "album_artist": { "type": "string" },
+        "genre": { "type": "string" },
+        "year": { "type": "integer", "minimum": 0, "maximum": 9999 },
+        "track_number": { "type": "integer", "minimum": 1 },
+        "disc_number": { "type": "integer", "minimum": 1 },
+        "duration_seconds": { "type": "number", "minimum": 0 },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "explicit": { "type": "boolean" },
+        "fingerprint": {
+          "type": "string",
+          "description": "Optional direct Loud identity. Kept for compatibility; identifiers is preferred for downloader output."
+        },
+        "identifiers": { "$ref": "#/$defs/identifiers" },
+        "source_urls": { "$ref": "#/$defs/source_urls" },
+        "liked": { "type": "boolean", "default": false },
+        "playlists": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string" },
+          "description": "Playlist names this track should be attached to."
+        }
+      }
+    },
+    "playlist_track_ref": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Back-compatible ref. Loud first treats this as tracks[].file, then as an identity alias."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "file": { "type": "string" },
+            "fingerprint": { "type": "string" },
+            "identifiers": { "$ref": "#/$defs/identifiers" }
+          },
+          "anyOf": [
+            { "required": ["file"] },
+            { "required": ["fingerprint"] },
+            { "required": ["identifiers"] }
+          ]
+        }
+      ]
+    },
+    "playlist": {
+      "type": "object",
+      "required": ["name", "tracks"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "mode": {
+          "enum": ["append", "replace"],
+          "default": "append",
+          "description": "append adds refs. replace clears Loud-managed refs for this playlist before adding these tracks."
+        },
+        "tracks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/playlist_track_ref" },
+          "description": "Refs matching tracks by file, fingerprint, or identifiers."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,4 @@
+CF_ACCESS_JWKS_URL=https://<team-name>.cloudflareaccess.com/cdn-cgi/access/certs
+CF_ACCESS_AUD=<cloudflare-access-audience-tag>
+CF_ACCESS_ISSUER=https://<team-name>.cloudflareaccess.com
+ALLOWED_ACCESS_EMAILS=<your-email@example.com>

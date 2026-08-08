@@ -1,0 +1,57 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "loud-sync",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-08-07",
+  "workers_dev": false,
+  "preview_urls": false,
+  "send_metrics": false,
+  "dependencies_instrumentation": {
+    "enabled": false
+  },
+  "routes": [
+    {
+      "pattern": "codec.example.com",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": "http://localhost:1420,http://127.0.0.1:1420,tauri://localhost,https://codec.example.com"
+  },
+  "secrets": {
+    "required": [
+      "CF_ACCESS_JWKS_URL",
+      "CF_ACCESS_AUD",
+      "CF_ACCESS_ISSUER",
+      "ALLOWED_ACCESS_EMAILS"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "loud-sync"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA_BUCKET",
+      "bucket_name": "loud-media"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PLAYBACK_ROOM",
+        "class_name": "PlaybackRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "PlaybackRoom"
+      ]
+    }
+  ]
+}

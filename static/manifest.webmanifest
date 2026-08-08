@@ -1,0 +1,19 @@
+{
+  "name": "Loud",
+  "short_name": "Loud",
+  "description": "Local-first music library with real downloads and sync.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#100f0c",
+  "theme_color": "#f47b3f",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

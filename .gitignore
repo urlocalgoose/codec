@@ -1,0 +1,26 @@
+.DS_Store
+
+# JS / SvelteKit
+node_modules
+/build
+/.svelte-kit
+/package
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Rust / Tauri
+/src-tauri/target
+/src-tauri/gen/schemas
+
+# Go sync server (local data: SQLite + media blobs)
+/sync-server/loud-sync-data
+
+# iOS
+/ios/LoudMobile/.build
+xcuserdata/
+DerivedData/
+
+# Secrets / env
+.env
+.env.*
+!.env.example
