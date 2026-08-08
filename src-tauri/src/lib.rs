@@ -1,6 +1,6 @@
 mod library;
 
-use library::{
+pub use library::{
     copy_track_to_liked_path, ensure_cached_artwork_thumbnail, import_library_manifest_path,
     merge_sync_library_state_path, remove_liked_track_path, rename_playlist_path,
     scan_library_path, set_track_playlist_memberships_path, CachedArtwork, ImportReport, Library,
@@ -28,6 +28,9 @@ struct WatchState {
 
 mod media_server;
 mod sync_transfer;
+
+// Exposed for the headless codec_import CLI (src/bin/codec_import.rs).
+pub use sync_transfer::{SyncFailure, SyncTransferReport};
 
 use media_server::*;
 use sync_transfer::*;
@@ -89,6 +92,16 @@ fn import_library_manifest(
 #[tauri::command(rename_all = "snake_case")]
 fn rename_playlist(root_path: String, playlist_id: String, name: String) -> Result<(), String> {
     rename_playlist_path(root_path, playlist_id, name)
+}
+
+/// Headless entry for the CLI: same body the Tauri command uses.
+pub fn sync_library_to_server_headless(
+    root_path: String,
+    server_url: String,
+    device_id: String,
+    auth_token: String,
+) -> Result<SyncTransferReport, String> {
+    sync_library_to_server(root_path, server_url, device_id, auth_token)
 }
 
 #[tauri::command(rename_all = "snake_case")]

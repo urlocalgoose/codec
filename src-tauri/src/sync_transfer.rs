@@ -3,20 +3,20 @@
 use super::*;
 
 #[derive(Clone, Debug, Default, Serialize)]
-pub(crate) struct SyncTransferReport {
-    pub(crate) tracks_uploaded: usize,
-    pub(crate) tracks_downloaded: usize,
-    pub(crate) tracks_skipped: usize,
-    pub(crate) artwork_uploaded: usize,
-    pub(crate) playlist_updates: usize,
-    pub(crate) liked_updates: usize,
-    pub(crate) failures: Vec<SyncFailure>,
+pub struct SyncTransferReport {
+    pub tracks_uploaded: usize,
+    pub tracks_downloaded: usize,
+    pub tracks_skipped: usize,
+    pub artwork_uploaded: usize,
+    pub playlist_updates: usize,
+    pub liked_updates: usize,
+    pub failures: Vec<SyncFailure>,
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct SyncFailure {
-    pub(crate) track: String,
-    pub(crate) reason: String,
+pub struct SyncFailure {
+    pub track: String,
+    pub reason: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
