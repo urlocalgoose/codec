@@ -135,12 +135,13 @@ struct ServerSettingsView: View {
                     Button("Reconnect") {
                         Task {
                             await app.connect()
-                            player.client = app.client
+                            app.syncPlayer(player)
                             dismiss()
                         }
                     }
                     Button("Disconnect", role: .destructive) {
                         app.disconnect()
+                        app.syncPlayer(player)
                         dismiss()
                     }
                 } footer: {

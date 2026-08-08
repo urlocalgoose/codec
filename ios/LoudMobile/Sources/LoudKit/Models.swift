@@ -44,6 +44,68 @@ public struct LoudLibrary: Codable, Equatable, Sendable {
         playlists = try container.decodeIfPresent([LoudPlaylist].self, forKey: .playlists) ?? []
         tracks = try container.decodeIfPresent([LoudTrack].self, forKey: .tracks) ?? []
     }
+
+    public init(
+        rootPath: String,
+        scannedAt: Int64,
+        stats: LoudLibraryStats,
+        artists: [LoudArtistSummary],
+        albums: [LoudAlbumSummary],
+        playlists: [LoudPlaylist],
+        tracks: [LoudTrack]
+    ) {
+        self.rootPath = rootPath
+        self.scannedAt = scannedAt
+        self.stats = stats
+        self.artists = artists
+        self.albums = albums
+        self.playlists = playlists
+        self.tracks = tracks
+    }
+
+    /// A copy of the library with every copy of the identified song
+    /// (un)liked and the Liked Songs playlist kept in step — the optimistic
+    /// local mirror of `PUT /api/v1/tracks/{fingerprint}/liked`.
+    public func settingLiked(fingerprint: String, liked: Bool) -> LoudLibrary {
+        var changedIDs = Set<String>()
+        let nextTracks = tracks.map { track -> LoudTrack in
+            guard track.fingerprint == fingerprint else {
+                return track
+            }
+            changedIDs.insert(track.id)
+            return track.withLiked(liked)
+        }
+
+        let nextPlaylists = playlists.map { playlist -> LoudPlaylist in
+            guard playlist.isLiked else {
+                return playlist
+            }
+            var ids = playlist.trackIDs.filter { !changedIDs.contains($0) }
+            if liked {
+                ids.append(contentsOf: changedIDs.sorted())
+            }
+            return LoudPlaylist(id: playlist.id, name: playlist.name, trackIDs: ids, isLiked: true)
+        }
+
+        let nextStats = LoudLibraryStats(
+            trackCount: stats.trackCount,
+            playlistCount: stats.playlistCount,
+            likedCount: nextTracks.filter(\.isLiked).count,
+            artistCount: stats.artistCount,
+            albumCount: stats.albumCount,
+            durationSeconds: stats.durationSeconds
+        )
+
+        return LoudLibrary(
+            rootPath: rootPath,
+            scannedAt: scannedAt,
+            stats: nextStats,
+            artists: artists,
+            albums: albums,
+            playlists: nextPlaylists,
+            tracks: nextTracks
+        )
+    }
 }
 
 public struct LoudLibraryStats: Codable, Equatable, Sendable {
@@ -119,6 +181,13 @@ public struct LoudPlaylist: Codable, Equatable, Sendable, Identifiable {
         trackIDs = try container.decodeIfPresent([String].self, forKey: .trackIDs) ?? []
         isLiked = try container.decodeIfPresent(Bool.self, forKey: .isLiked) ?? false
     }
+
+    public init(id: String, name: String, trackIDs: [String], isLiked: Bool) {
+        self.id = id
+        self.name = name
+        self.trackIDs = trackIDs
+        self.isLiked = isLiked
+    }
 }
 
 public struct LoudTrack: Codable, Equatable, Sendable, Identifiable, Hashable {
@@ -167,5 +236,53 @@ public struct LoudTrack: Codable, Equatable, Sendable, Identifiable, Hashable {
         addedAt = try container.decodeIfPresent(Int64.self, forKey: .addedAt)
         isLiked = try container.decodeIfPresent(Bool.self, forKey: .isLiked) ?? false
         fingerprint = try container.decode(String.self, forKey: .fingerprint)
+    }
+
+    public init(
+        id: String,
+        title: String,
+        artist: String,
+        album: String,
+        albumArtist: String? = nil,
+        trackNumber: Int? = nil,
+        durationSeconds: Double? = nil,
+        artworkURL: URL? = nil,
+        audioURL: URL? = nil,
+        playlistIDs: [String] = [],
+        addedAt: Int64? = nil,
+        isLiked: Bool = false,
+        fingerprint: String
+    ) {
+        self.id = id
+        self.title = title
+        self.artist = artist
+        self.album = album
+        self.albumArtist = albumArtist
+        self.trackNumber = trackNumber
+        self.durationSeconds = durationSeconds
+        self.artworkURL = artworkURL
+        self.audioURL = audioURL
+        self.playlistIDs = playlistIDs
+        self.addedAt = addedAt
+        self.isLiked = isLiked
+        self.fingerprint = fingerprint
+    }
+
+    public func withLiked(_ liked: Bool) -> LoudTrack {
+        LoudTrack(
+            id: id,
+            title: title,
+            artist: artist,
+            album: album,
+            albumArtist: albumArtist,
+            trackNumber: trackNumber,
+            durationSeconds: durationSeconds,
+            artworkURL: artworkURL,
+            audioURL: audioURL,
+            playlistIDs: playlistIDs,
+            addedAt: addedAt,
+            isLiked: liked,
+            fingerprint: fingerprint
+        )
     }
 }

@@ -107,6 +107,55 @@ final class AppModel {
         return error.localizedDescription
     }
 
+    /// Points the player at the current client and starts or stops shared
+    /// playback sync to match the connection state.
+    func syncPlayer(_ player: PlayerController) {
+        player.client = client
+        if isConnected, let client {
+            player.startSync(client: client)
+        } else {
+            player.stopSync()
+        }
+    }
+
+    // MARK: - Likes
+
+    /// Reads like state from the library (not a stale track copy), so hearts
+    /// update everywhere the moment a toggle lands.
+    func isLiked(_ track: LoudTrack) -> Bool {
+        library?.tracks.first { $0.fingerprint == track.fingerprint }?.isLiked ?? track.isLiked
+    }
+
+    /// Optimistic toggle: flip locally right away, tell the server, roll back
+    /// if the server says no.
+    func toggleLike(_ track: LoudTrack) {
+        guard let client, let current = library else {
+            errorMessage = "Connect to the server to like songs."
+            return
+        }
+
+        let nextLiked = !isLiked(track)
+        library = current.settingLiked(fingerprint: track.fingerprint, liked: nextLiked)
+
+        Task {
+            do {
+                try await client.setLiked(fingerprint: track.fingerprint, liked: nextLiked)
+                if let library {
+                    Self.writeCachedLibrary(library)
+                }
+            } catch {
+                library = current
+                errorMessage = friendlyMessage(for: error)
+            }
+        }
+    }
+
+    /// Resolves a `loud.playback.v2` track reference against the library.
+    func track(matching reference: LoudTrackReference) -> LoudTrack? {
+        tracks.first { $0.id == reference.id }
+            ?? tracks.first { $0.fingerprint == reference.fingerprint }
+    }
+
     // MARK: - Library slices
 
     var tracks: [LoudTrack] { library?.tracks ?? [] }

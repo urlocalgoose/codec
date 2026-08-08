@@ -189,6 +189,27 @@ func (s *Server) playlists(ctx context.Context) ([]Playlist, error) {
 	return nonNilPlaylists(playlists), rows.Err()
 }
 
+// setTrackLiked flips only the is_liked column, which is authoritative over
+// the metadata JSON when the library is read back.
+func (s *Server) setTrackLiked(ctx context.Context, fingerprint string, liked bool) error {
+	result, err := s.db.ExecContext(
+		ctx,
+		`UPDATE tracks SET is_liked = ?, updated_at = ? WHERE fingerprint = ?`,
+		boolInt(liked), s.now().Unix(), fingerprint,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Server) attachMediaPath(ctx context.Context, fingerprint, column, path string, size int64) error {
 	if column != "audio_path" && column != "artwork_path" {
 		return errors.New("invalid media column")

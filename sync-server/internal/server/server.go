@@ -81,6 +81,7 @@ func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
 	mux.HandleFunc("GET /api/v1/sync/snapshot", s.handleSnapshot)
 	mux.HandleFunc("POST /api/v1/sync/push", s.handlePush)
 	mux.HandleFunc("PUT /api/v1/tracks/{fingerprint}", s.handleTrackMetadata)
+	mux.HandleFunc("PUT /api/v1/tracks/{fingerprint}/liked", s.handleSetTrackLiked)
 	mux.HandleFunc("PUT /api/v1/tracks/{fingerprint}/audio", s.handlePutAudio)
 	mux.HandleFunc("GET /api/v1/tracks/{fingerprint}/audio", s.handleGetAudio)
 	mux.HandleFunc("HEAD /api/v1/tracks/{fingerprint}/audio", s.handleGetAudio)

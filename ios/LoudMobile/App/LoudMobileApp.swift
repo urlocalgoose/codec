@@ -17,9 +17,12 @@ struct LoudMobileApp: App {
                 .task {
                     player.downloads = downloads
                     player.client = app.client
+                    player.resolveTrack = { [weak app] reference in
+                        app?.track(matching: reference)
+                    }
                     if app.hasLibrary || !app.serverURLString.isEmpty {
                         await app.connect()
-                        player.client = app.client
+                        app.syncPlayer(player)
                     }
                 }
         }

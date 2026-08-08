@@ -589,3 +589,64 @@ func statusOf(res *http.Response) string {
 func errorsIsContextDone(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
+
+func TestSetTrackLikedTogglesLikeAndLikedPlaylist(t *testing.T) {
+	srv, httpServer := testServer(t)
+
+	track := Track{
+		ID:          "track_abc",
+		Title:       "Crystal Night",
+		Artist:      "1986 OMEGA TRIBE",
+		Album:       "Crystal Night",
+		Fingerprint: "abc",
+	}
+	if err := srv.upsertTrack(context.Background(), track); err != nil {
+		t.Fatal(err)
+	}
+
+	putLiked := func(fingerprint string, liked bool) *http.Response {
+		t.Helper()
+		body, _ := json.Marshal(map[string]bool{"liked": liked})
+		req, err := http.NewRequest(http.MethodPut, httpServer.URL+"/api/v1/tracks/"+fingerprint+"/liked", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { res.Body.Close() })
+		return res
+	}
+
+	if res := putLiked("abc", true); res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 liking a known track, got %d", res.StatusCode)
+	}
+
+	library, err := srv.snapshot(context.Background(), httpServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(library.Library.Tracks) != 1 || !library.Library.Tracks[0].IsLiked {
+		t.Fatalf("expected the track to be liked, got %+v", library.Library.Tracks)
+	}
+	likedPlaylist := library.Library.Playlists[0]
+	if !likedPlaylist.IsLiked || len(likedPlaylist.TrackIDs) != 1 {
+		t.Fatalf("expected liked playlist with one track, got %+v", likedPlaylist)
+	}
+
+	if res := putLiked("abc", false); res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 unliking, got %d", res.StatusCode)
+	}
+	library, err = srv.snapshot(context.Background(), httpServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if library.Library.Tracks[0].IsLiked {
+		t.Fatal("expected the track to be unliked")
+	}
+
+	if res := putLiked("missing", true); res.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown fingerprint, got %d", res.StatusCode)
+	}
+}

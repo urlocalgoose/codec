@@ -73,6 +73,7 @@ GET  /api/v1/library
 GET  /api/v1/sync/snapshot
 POST /api/v1/sync/push
 PUT  /api/v1/tracks/{fingerprint}
+PUT  /api/v1/tracks/{fingerprint}/liked
 PUT  /api/v1/tracks/{fingerprint}/audio
 GET  /api/v1/tracks/{fingerprint}/audio
 PUT  /api/v1/tracks/{fingerprint}/artwork

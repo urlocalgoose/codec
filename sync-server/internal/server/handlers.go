@@ -101,6 +101,31 @@ func (s *Server) handleTrackMetadata(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleSetTrackLiked(w http.ResponseWriter, r *http.Request) {
+	fingerprint := cleanFingerprint(r.PathValue("fingerprint"))
+	var req struct {
+		Liked bool `json:"liked"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	if err := s.setTrackLiked(r.Context(), fingerprint, req.Liked); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, errors.New("unknown track"))
+			return
+		}
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"fingerprint": fingerprint,
+		"liked":       req.Liked,
+	})
+}
+
 func (s *Server) handlePlaylist(w http.ResponseWriter, r *http.Request) {
 	var playlist Playlist
 	if err := decodeJSON(r, &playlist); err != nil {

@@ -23,23 +23,31 @@ struct NowPlayingView: View {
             ArtworkView(track: player.currentTrack, size: 290, cornerRadius: 8)
                 .shadow(color: Color.black.opacity(0.5), radius: 30, x: 0, y: 18)
 
-            VStack(spacing: 6) {
-                Text(player.currentTrack?.title ?? "Nothing playing")
-                    .font(.system(size: 22, weight: .heavy))
-                    .foregroundStyle(LoudColor.text)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(player.currentTrack?.title ?? "Nothing playing")
+                        .font(.system(size: 22, weight: .heavy))
+                        .foregroundStyle(LoudColor.text)
+                        .lineLimit(2)
 
-                HStack(spacing: 6) {
-                    if let track = player.currentTrack, track.isLiked {
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 13))
-                            .foregroundStyle(LoudColor.accent)
-                    }
                     Text(player.currentTrack?.artist ?? "Pick a track")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(LoudColor.muted)
                         .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let track = player.currentTrack {
+                    Button {
+                        app.toggleLike(track)
+                    } label: {
+                        Image(systemName: app.isLiked(track) ? "heart.fill" : "heart")
+                            .font(.system(size: 22, weight: .heavy))
+                            .foregroundStyle(app.isLiked(track) ? LoudColor.accent : LoudColor.subtle)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 24)
@@ -131,6 +139,34 @@ struct NowPlayingView: View {
                 }
             }
             .padding(.horizontal, 28)
+
+            if player.syncEnabled {
+                Menu {
+                    ForEach(player.deviceOptions) { device in
+                        Button {
+                            player.transferPlayback(to: device.deviceID)
+                        } label: {
+                            if device.deviceID == player.deviceID {
+                                Label("\(device.name) (this iPhone)", systemImage: "iphone")
+                            } else {
+                                Label(device.name, systemImage: "hifispeaker")
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: player.remoteDeviceIsActive ? "hifispeaker.fill" : "iphone")
+                        Text("Playing on \(player.activeDeviceName)")
+                    }
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(player.remoteDeviceIsActive ? LoudColor.accent : LoudColor.subtle)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(LoudColor.panel)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(LoudColor.line, lineWidth: 1))
+                }
+            }
 
             Spacer(minLength: 20)
         }

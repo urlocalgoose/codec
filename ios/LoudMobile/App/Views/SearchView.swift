@@ -27,6 +27,14 @@ struct SearchView: View {
                         .buttonStyle(.plain)
                         .contextMenu {
                             Button {
+                                app.toggleLike(track)
+                            } label: {
+                                Label(
+                                    app.isLiked(track) ? "Unlike" : "Like",
+                                    systemImage: app.isLiked(track) ? "heart.slash" : "heart"
+                                )
+                            }
+                            Button {
                                 player.playNext(track)
                             } label: {
                                 Label("Add to Queue", systemImage: "text.badge.plus")

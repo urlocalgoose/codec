@@ -60,7 +60,7 @@ struct ConnectView: View {
                     Button {
                         Task {
                             await app.connect()
-                            player.client = app.client
+                            app.syncPlayer(player)
                         }
                     } label: {
                         HStack(spacing: 8) {

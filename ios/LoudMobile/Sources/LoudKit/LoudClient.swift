@@ -62,6 +62,70 @@ public struct LoudClient: Sendable {
         return try? endpointURL(path: "/api/v1/tracks/\(encoded)/\(kind)", encodedPath: true)
     }
 
+    // MARK: - Likes
+
+    public func setLiked(fingerprint: String, liked: Bool) async throws {
+        guard let encoded = fingerprint.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else {
+            throw LoudClientError.invalidBaseURL
+        }
+        var request = URLRequest(url: try endpointURL(path: "/api/v1/tracks/\(encoded)/liked", encodedPath: true))
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["liked": liked])
+        for (name, value) in authHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        _ = try await sendExpectingSuccess(request)
+    }
+
+    // MARK: - Shared playback (loud.playback.v2)
+
+    public func playbackState() async throws -> PlaybackState? {
+        let request = try request(method: "GET", path: "/api/v2/playback")
+        let data = try await sendExpectingSuccess(request)
+        guard !data.isEmpty, String(decoding: data, as: UTF8.self) != "null" else {
+            return nil
+        }
+        return try decoder.decode(PlaybackState.self, from: data)
+    }
+
+    public func sendPlaybackCommand(_ command: PlaybackCommand) async throws -> PlaybackState {
+        var request = try request(method: "POST", path: "/api/v2/playback/commands")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(command)
+        let data = try await sendExpectingSuccess(request)
+        return try decoder.decode(PlaybackState.self, from: data)
+    }
+
+    public func playbackDevices() async throws -> [LoudPlaybackDevice] {
+        let request = try request(method: "GET", path: "/api/v1/playback/devices")
+        let data = try await sendExpectingSuccess(request)
+        return (try? decoder.decode([LoudPlaybackDevice].self, from: data)) ?? []
+    }
+
+    public func publishPlaybackDevice(_ device: LoudPlaybackDevice) async throws {
+        guard let encoded = device.deviceID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else {
+            throw LoudClientError.invalidBaseURL
+        }
+        var request = URLRequest(url: try endpointURL(path: "/api/v1/playback/devices/\(encoded)", encodedPath: true))
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(device)
+        for (name, value) in authHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        _ = try await sendExpectingSuccess(request)
+    }
+
+    /// Request for the `loud.playback.v2` SSE stream; callers own the
+    /// long-lived connection.
+    public func playbackEventsRequest() throws -> URLRequest {
+        var request = try request(method: "GET", path: "/api/v2/playback/events")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 3600
+        return request
+    }
+
     public func request(method: String, path: String) throws -> URLRequest {
         let url = try endpointURL(path: path, encodedPath: false)
         var request = URLRequest(url: url)
@@ -70,6 +134,17 @@ public struct LoudClient: Sendable {
             request.setValue(value, forHTTPHeaderField: name)
         }
         return request
+    }
+
+    private func sendExpectingSuccess(_ request: URLRequest) async throws -> Data {
+        let (data, response) = try await transport.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw LoudClientError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw LoudClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        }
+        return data
     }
 
     private func endpointURL(path: String, encodedPath: Bool) throws -> URL {
