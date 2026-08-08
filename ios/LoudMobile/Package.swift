@@ -9,11 +9,10 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
-        .library(name: "LoudSecureSync", targets: ["LoudSecureSync"])
+        .library(name: "LoudKit", targets: ["LoudKit"])
     ],
     targets: [
-        .target(name: "LoudSecureSync"),
-        .testTarget(name: "LoudSecureSyncTests", dependencies: ["LoudSecureSync"])
+        .target(name: "LoudKit"),
+        .testTarget(name: "LoudKitTests", dependencies: ["LoudKit"])
     ]
 )
-

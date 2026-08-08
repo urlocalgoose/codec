@@ -25,6 +25,10 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Loud connects to your sync server to stream and sync your music.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

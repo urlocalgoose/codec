@@ -1,0 +1,180 @@
+import Foundation
+import Observation
+
+/// Connection + library state for the whole app.
+@MainActor
+@Observable
+final class AppModel {
+    enum Connection: Equatable {
+        case disconnected
+        case connecting
+        case connected
+        case offline
+    }
+
+    private enum StorageKey {
+        static let serverURL = "loud.serverURL"
+        static let token = "loud.serverToken"
+    }
+
+    var serverURLString: String {
+        didSet { UserDefaults.standard.set(serverURLString, forKey: StorageKey.serverURL) }
+    }
+    var token: String {
+        didSet { UserDefaults.standard.set(token, forKey: StorageKey.token) }
+    }
+
+    var connection: Connection = .disconnected
+    var library: LoudLibrary?
+    var errorMessage = ""
+
+    private(set) var client: LoudClient?
+
+    init() {
+        serverURLString = UserDefaults.standard.string(forKey: StorageKey.serverURL) ?? ""
+        token = UserDefaults.standard.string(forKey: StorageKey.token) ?? ""
+        if let cached = Self.readCachedLibrary() {
+            library = cached
+            connection = .offline
+        }
+        client = makeClient()
+    }
+
+    var isConnected: Bool { connection == .connected }
+    var hasLibrary: Bool { library != nil }
+
+    func connect() async {
+        errorMessage = ""
+        serverURLString = normalizeServerURLString(serverURLString)
+        guard let nextClient = makeClient() else {
+            errorMessage = "Enter a server URL like http://192.168.1.20:8787."
+            return
+        }
+
+        connection = .connecting
+        do {
+            _ = try await nextClient.health()
+            let nextLibrary = try await nextClient.library()
+            client = nextClient
+            library = nextLibrary
+            connection = .connected
+            Self.writeCachedLibrary(nextLibrary)
+        } catch {
+            connection = library != nil ? .offline : .disconnected
+            errorMessage = friendlyMessage(for: error)
+        }
+    }
+
+    func refresh() async {
+        guard let client else {
+            return
+        }
+        do {
+            let nextLibrary = try await client.library()
+            library = nextLibrary
+            connection = .connected
+            Self.writeCachedLibrary(nextLibrary)
+        } catch {
+            connection = .offline
+        }
+    }
+
+    func disconnect() {
+        connection = .disconnected
+        library = nil
+        client = nil
+        serverURLString = ""
+        token = ""
+        Self.deleteCachedLibrary()
+    }
+
+    private func makeClient() -> LoudClient? {
+        let normalized = normalizeServerURLString(serverURLString)
+        guard !normalized.isEmpty, let url = URL(string: normalized), url.host() != nil else {
+            return nil
+        }
+        return LoudClient(baseURL: url, token: token)
+    }
+
+    private func friendlyMessage(for error: Error) -> String {
+        if let clientError = error as? LoudClientError {
+            return clientError.errorDescription ?? String(describing: clientError)
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == -1022 {
+            return "iOS blocked this HTTP server. Use an HTTPS URL or rebuild the app."
+        }
+        return error.localizedDescription
+    }
+
+    // MARK: - Library slices
+
+    var tracks: [LoudTrack] { library?.tracks ?? [] }
+
+    var likedTracks: [LoudTrack] { tracks.filter(\.isLiked) }
+
+    var userPlaylists: [LoudPlaylist] {
+        library?.playlists.filter { !$0.isLiked } ?? []
+    }
+
+    var recentlyAdded: [LoudTrack] {
+        tracks
+            .sorted { ($0.addedAt ?? 0) > ($1.addedAt ?? 0) }
+            .prefix(24)
+            .map { $0 }
+    }
+
+    func tracks(in playlist: LoudPlaylist) -> [LoudTrack] {
+        let ids = Set(playlist.trackIDs)
+        return tracks.filter { ids.contains($0.id) }
+    }
+
+    func tracks(inAlbum album: LoudAlbumSummary) -> [LoudTrack] {
+        tracks
+            .filter { $0.album == album.name && $0.artist == album.artist }
+            .sorted { ($0.trackNumber ?? Int.max) < ($1.trackNumber ?? Int.max) }
+    }
+
+    func tracks(byArtist artist: LoudArtistSummary) -> [LoudTrack] {
+        tracks.filter { $0.artist == artist.name }
+    }
+
+    func searchTracks(_ query: String) -> [LoudTrack] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else {
+            return []
+        }
+        return tracks.filter { track in
+            track.title.lowercased().contains(needle)
+                || track.artist.lowercased().contains(needle)
+                || track.album.lowercased().contains(needle)
+        }
+    }
+
+    // MARK: - Offline library cache
+
+    private static var cacheURL: URL {
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "Loud", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appending(path: "library.json")
+    }
+
+    private static func readCachedLibrary() -> LoudLibrary? {
+        guard let data = try? Data(contentsOf: cacheURL) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(LoudLibrary.self, from: data)
+    }
+
+    private static func writeCachedLibrary(_ library: LoudLibrary) {
+        guard let data = try? JSONEncoder().encode(library) else {
+            return
+        }
+        try? data.write(to: cacheURL, options: .atomic)
+    }
+
+    private static func deleteCachedLibrary() {
+        try? FileManager.default.removeItem(at: cacheURL)
+    }
+}

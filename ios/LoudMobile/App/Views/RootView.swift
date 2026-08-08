@@ -1,0 +1,100 @@
+import SwiftUI
+
+struct RootView: View {
+    @Environment(AppModel.self) private var app
+    @Environment(PlayerController.self) private var player
+
+    @State private var showNowPlaying = false
+
+    var body: some View {
+        if !app.hasLibrary {
+            ConnectView()
+        } else {
+            TabView {
+                HomeView()
+                    .tabItem {
+                        Label("Home", systemImage: "house.fill")
+                    }
+                SearchView()
+                    .tabItem {
+                        Label("Search", systemImage: "magnifyingglass")
+                    }
+                LibraryView()
+                    .tabItem {
+                        Label("Library", systemImage: "square.stack.fill")
+                    }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if player.currentTrack != nil {
+                    MiniPlayerBar {
+                        showNowPlaying = true
+                    }
+                }
+            }
+            .sheet(isPresented: $showNowPlaying) {
+                NowPlayingView()
+            }
+            .background(LoudColor.bg)
+        }
+    }
+}
+
+/// The always-visible strip above the tab bar: tap for the full player.
+struct MiniPlayerBar: View {
+    @Environment(PlayerController.self) private var player
+
+    let onOpen: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ArtworkView(track: player.currentTrack, size: 40)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(player.currentTrack?.title ?? "")
+                    .font(.system(size: 14, weight: .heavy))
+                    .foregroundStyle(LoudColor.text)
+                    .lineLimit(1)
+                Text(player.currentTrack?.artist ?? "")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LoudColor.muted)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 10)
+
+            Button {
+                player.togglePlayback()
+            } label: {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 17, weight: .heavy))
+                    .foregroundStyle(LoudColor.text)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(LoudColor.panel)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(LoudColor.line)
+                .frame(height: 1)
+        }
+        .overlay(alignment: .bottom) {
+            ProgressView(value: progress)
+                .progressViewStyle(.linear)
+                .tint(LoudColor.accent)
+                .frame(height: 2)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onOpen)
+    }
+
+    private var progress: Double {
+        guard player.duration > 0 else {
+            return 0
+        }
+        return min(max(player.currentTime / player.duration, 0), 1)
+    }
+}
