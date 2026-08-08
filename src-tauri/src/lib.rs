@@ -96,6 +96,7 @@ fn sync_library_to_server(
     root_path: String,
     server_url: String,
     device_id: String,
+    auth_token: String,
 ) -> Result<SyncTransferReport, String> {
     let root = PathBuf::from(&root_path)
         .canonicalize()
@@ -106,7 +107,7 @@ fn sync_library_to_server(
 
     let server_url = normalize_server_url(&server_url)?;
     let device_id = clean_device_id(&device_id);
-    let client = sync_http_client()?;
+    let client = sync_http_client(&auth_token)?;
     let library = scan_library_path(&root)?;
     let push_response = client
         .post(format!("{server_url}/api/v1/sync/push"))
@@ -159,6 +160,7 @@ fn sync_library_to_server(
 fn sync_library_from_server(
     root_path: String,
     server_url: String,
+    auth_token: String,
 ) -> Result<SyncTransferReport, String> {
     let root = PathBuf::from(&root_path)
         .canonicalize()
@@ -168,7 +170,7 @@ fn sync_library_from_server(
     }
 
     let server_url = normalize_server_url(&server_url)?;
-    let client = sync_http_client()?;
+    let client = sync_http_client(&auth_token)?;
     let snapshot = client
         .get(format!("{server_url}/api/v1/sync/snapshot"))
         .send()

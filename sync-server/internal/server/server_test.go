@@ -650,3 +650,40 @@ func TestSetTrackLikedTogglesLikeAndLikedPlaylist(t *testing.T) {
 		t.Fatalf("expected 404 for unknown fingerprint, got %d", res.StatusCode)
 	}
 }
+
+func TestQueryAccessTokenAuthorizesHeaderlessClients(t *testing.T) {
+	srv, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(srv.HandlerWithOptions(HandlerOptions{AuthToken: "sesame"}))
+	t.Cleanup(func() {
+		httpServer.Close()
+		if err := srv.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	get := func(path string) int {
+		t.Helper()
+		res, err := http.Get(httpServer.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+
+	if status := get("/api/v1/library"); status != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without credentials, got %d", status)
+	}
+	if status := get("/api/v1/library?access_token=wrong"); status != http.StatusUnauthorized {
+		t.Fatalf("expected 401 with a wrong token, got %d", status)
+	}
+	if status := get("/api/v1/library?access_token=sesame"); status != http.StatusOK {
+		t.Fatalf("expected 200 with the query token, got %d", status)
+	}
+	if status := get("/api/v2/playback/events?access_token=sesame"); status != http.StatusOK {
+		t.Fatalf("expected 200 for SSE with the query token, got %d", status)
+	}
+}

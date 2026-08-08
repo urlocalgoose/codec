@@ -10,6 +10,39 @@ import type {
 
 export const SYNC_SCHEMA = "loud.sync.v1";
 
+/// Shared auth token for token-protected servers (`LOUD_AUTH_TOKEN`).
+/// API calls send it as a Bearer header; media and SSE URLs — which cannot
+/// carry headers — embed it as an `access_token` query parameter that the
+/// server accepts and never logs.
+let syncAuthToken = "";
+
+export function setSyncAuthToken(token: string): void {
+  syncAuthToken = token.trim();
+}
+
+function authorizedFetch(
+  fetcher: typeof fetch,
+  url: string,
+  init?: RequestInit
+): ReturnType<typeof fetch> {
+  if (!syncAuthToken) {
+    return fetcher(url, init);
+  }
+
+  const headers = new Headers(init?.headers);
+  headers.set("Authorization", `Bearer ${syncAuthToken}`);
+  return fetcher(url, { ...init, headers });
+}
+
+function withAccessToken(url: string): string {
+  if (!syncAuthToken) {
+    return url;
+  }
+
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}access_token=${encodeURIComponent(syncAuthToken)}`;
+}
+
 export interface SyncSnapshot {
   schema: typeof SYNC_SCHEMA;
   server_id: string;
@@ -146,15 +179,17 @@ export function normalizeServerUrl(value: string): string {
 }
 
 export function trackAudioUrl(serverUrl: string, fingerprint: string): string {
-  return `${normalizeServerUrl(serverUrl)}/api/v1/tracks/${encodeURIComponent(fingerprint)}/audio`;
+  return withAccessToken(
+    `${normalizeServerUrl(serverUrl)}/api/v1/tracks/${encodeURIComponent(fingerprint)}/audio`
+  );
 }
 
 export function playbackEventsUrl(serverUrl: string): string {
-  return `${normalizeServerUrl(serverUrl)}/api/v1/playback/events`;
+  return withAccessToken(`${normalizeServerUrl(serverUrl)}/api/v1/playback/events`);
 }
 
 export function playbackEventsV2Url(serverUrl: string): string {
-  return `${normalizeServerUrl(serverUrl)}/api/v2/playback/events`;
+  return withAccessToken(`${normalizeServerUrl(serverUrl)}/api/v2/playback/events`);
 }
 
 function serverOrigin(serverUrl: string): string {
@@ -199,14 +234,14 @@ function syncApiError(action: string, serverUrl: string, response: Response): Er
 }
 
 export async function validateSyncServer(serverUrl: string, fetcher: typeof fetch = fetch): Promise<void> {
-  const response = await fetcher(`${normalizeServerUrl(serverUrl)}/health`);
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/health`);
   if (!response.ok) {
     throw syncApiError("Could not reach Codec sync server", serverUrl, response);
   }
 }
 
 export async function fetchRemoteLibrary(serverUrl: string, fetcher: typeof fetch = fetch): Promise<MusicLibrary> {
-  const response = await fetcher(`${normalizeServerUrl(serverUrl)}/api/v1/library`);
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/library`);
   if (!response.ok) {
     throw syncApiError("Could not load sync library", serverUrl, response);
   }
@@ -253,7 +288,7 @@ export async function pushLibrarySnapshot(
   library: MusicLibrary,
   fetcher: typeof fetch = fetch
 ): Promise<SyncReport> {
-  const response = await fetcher(`${normalizeServerUrl(serverUrl)}/api/v1/sync/push`, {
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/sync/push`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -279,7 +314,7 @@ export async function saveRemotePlaybackSession<TSession>(
   savedAt: number,
   fetcher: typeof fetch = fetch
 ): Promise<void> {
-  const response = await fetcher(
+  const response = await authorizedFetch(fetcher, 
     `${normalizeServerUrl(serverUrl)}/api/v1/playback-session/${encodeURIComponent(deviceId)}`,
     {
       method: "PUT",
@@ -303,7 +338,7 @@ export async function fetchLatestPlaybackSession<TSession>(
   serverUrl: string,
   fetcher: typeof fetch = fetch
 ): Promise<RemotePlaybackSession<TSession> | null> {
-  const response = await fetcher(`${normalizeServerUrl(serverUrl)}/api/v1/playback-session/latest`);
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/playback-session/latest`);
   if (response.status === 404) {
     return null;
   }
@@ -318,7 +353,7 @@ export async function updatePlaybackDevice(
   device: PlaybackDevice,
   fetcher: typeof fetch = fetch
 ): Promise<void> {
-  const response = await fetcher(
+  const response = await authorizedFetch(fetcher, 
     `${normalizeServerUrl(serverUrl)}/api/v1/playback/devices/${encodeURIComponent(device.device_id)}`,
     {
       method: "PUT",
@@ -338,7 +373,7 @@ export async function fetchPlaybackDevices(
   serverUrl: string,
   fetcher: typeof fetch = fetch
 ): Promise<PlaybackDevice[]> {
-  const response = await fetcher(`${normalizeServerUrl(serverUrl)}/api/v1/playback/devices`);
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/playback/devices`);
   if (!response.ok) {
     throw syncApiError("Could not load playback devices", serverUrl, response);
   }
@@ -351,7 +386,7 @@ export async function fetchActivePlayback(
   serverUrl: string,
   fetcher: typeof fetch = fetch
 ): Promise<ActivePlayback | null> {
-  const response = await fetcher(`${normalizeServerUrl(serverUrl)}/api/v1/playback/active`);
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/playback/active`);
   if (response.status === 404) {
     return null;
   }
@@ -366,7 +401,7 @@ export async function fetchPlaybackStateV2(
   serverUrl: string,
   fetcher: typeof fetch = fetch
 ): Promise<PlaybackStateV2 | null> {
-  const response = await fetcher(`${normalizeServerUrl(serverUrl)}/api/v2/playback`);
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v2/playback`);
   if (!response.ok) {
     throw syncApiError("Could not load playback state", serverUrl, response);
   }
@@ -379,7 +414,7 @@ export async function sendPlaybackCommandV2(
   command: PlaybackCommandV2,
   fetcher: typeof fetch = fetch
 ): Promise<PlaybackStateV2> {
-  const response = await fetcher(`${normalizeServerUrl(serverUrl)}/api/v2/playback/commands`, {
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v2/playback/commands`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -471,7 +506,7 @@ export async function transferPlayback(
   transfer: PlaybackTransfer,
   fetcher: typeof fetch = fetch
 ): Promise<ActivePlayback> {
-  const response = await fetcher(`${normalizeServerUrl(serverUrl)}/api/v1/playback/transfer`, {
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/playback/transfer`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json"

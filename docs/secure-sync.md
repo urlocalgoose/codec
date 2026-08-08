@@ -19,8 +19,14 @@ When a token is set:
 
 - Browser access uses HTTP Basic auth.
 - API clients may use `Authorization: Bearer <token>`.
+- Clients that cannot set headers (`<audio>` elements, EventSource/SSE) may
+  send `?access_token=<token>` instead; the request log never prints query
+  strings, so tokens stay out of logs.
 - `/health` stays public so uptime checks and tunnels can verify the server.
 - The app, API, artwork, and audio media are protected by the same server.
+
+The desktop app and iOS app both have an optional auth-token field next to
+the server URL; set it to the same value as `LOUD_AUTH_TOKEN`.
 
 For public use, this must sit behind HTTPS. Cloudflare can provide DNS, HTTPS,
 Tunnel, and Access in front of the Go server, but Cloudflare is not a second

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AlertCircle, CloudDownload, FolderOpen, LoaderCircle, Music2, Server } from "lucide-svelte";
+  import { AlertCircle, CloudDownload, FolderOpen, KeyRound, LoaderCircle, Music2, Server } from "lucide-svelte";
   import type { ThemeId } from "$lib/themes";
 
   let {
@@ -8,6 +8,7 @@
     loading,
     errorMessage,
     syncServerDraft = $bindable(),
+    syncTokenDraft = $bindable(),
     onChooseFolder,
     onConnect
   }: {
@@ -16,6 +17,7 @@
     loading: boolean;
     errorMessage: string;
     syncServerDraft: string;
+    syncTokenDraft: string;
     onChooseFolder: () => void;
     onConnect: () => void;
   } = $props();
@@ -60,6 +62,15 @@
             bind:value={syncServerDraft}
             placeholder="http://192.168.1.20:8787"
             type="url"
+          />
+        </label>
+        <label class="sync-url-field">
+          <KeyRound size={17} />
+          <input
+            bind:value={syncTokenDraft}
+            placeholder="Auth token (optional)"
+            type="password"
+            autocomplete="off"
           />
         </label>
         <button class="primary-action" disabled={loading || !syncServerDraft.trim()} type="button" onclick={onConnect}>
