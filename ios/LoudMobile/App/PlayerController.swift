@@ -72,6 +72,15 @@ final class PlayerController {
 
     private static let previousDoubleTapWindowMS: Int64 = 3000
     private var lastPreviousTapMS: Int64 = 0
+    /// While set in the future, remote clock ticks may not overwrite
+    /// currentTime — prevents scrub rubber-banding until the server confirms.
+    fileprivate var suppressClockUntilMS: Int64 = 0
+
+    /// True when this phone is the device that should be making sound —
+    /// which means transport taps can act locally first and sync after.
+    var isActiveSyncDevice: Bool {
+        !syncEnabled || syncState?.activeDeviceID == deviceID || syncState?.activeDeviceID == nil
+    }
 
     fileprivate var clockOffsetMS: Int64 = 0
     fileprivate var eventsTask: Task<Void, Never>?
@@ -224,6 +233,19 @@ final class PlayerController {
 
     func togglePlayback() {
         if syncEnabled {
+            // Instant local flip when this phone is the speaker; the server
+            // command follows in the background instead of gating the tap.
+            if isActiveSyncDevice, player != nil, currentTrack != nil {
+                if isPlaying {
+                    player?.pause()
+                    isPlaying = false
+                } else {
+                    configureAudioSession()
+                    player?.play()
+                    isPlaying = true
+                }
+                updateNowPlayingPlaybackState()
+            }
             syncTogglePlayback()
             return
         }
@@ -248,7 +270,20 @@ final class PlayerController {
 
     func next() {
         if syncEnabled {
-            sendSyncCommand("next", position: syncedPosition())
+            guard isActiveSyncDevice else {
+                sendSyncCommand("next", position: syncedPosition())
+                return
+            }
+            // Advance locally for instant audio, then tell the server the
+            // outcome as an explicit play (a bare "next" would advance the
+            // server's copy a second time).
+            let before = currentTrack?.id
+            advance()
+            if let track = currentTrack, track.id != before {
+                sendSyncCommand("play", track: track, position: 0)
+            } else {
+                sendSyncCommand("next", position: syncedPosition())
+            }
             return
         }
         advance()
@@ -263,11 +298,20 @@ final class PlayerController {
         lastPreviousTapMS = now
 
         if syncEnabled {
-            if steppingBack {
-                // Position 0 guarantees the server pops history instead of
-                // treating it as a mid-track restart.
-                sendSyncCommand("previous", position: 0)
+            guard isActiveSyncDevice else {
+                sendSyncCommand(steppingBack ? "previous" : "seek", position: 0)
+                return
+            }
+
+            if steppingBack, let previous = history.popLast() {
+                if let index = source.firstIndex(where: { $0.id == previous.id }) {
+                    sourceIndex = index
+                }
+                currentTrack = previous
+                startPlayback(at: 0)
+                sendSyncCommand("play", track: previous, position: 0)
             } else {
+                seekLocally(to: 0)
                 sendSyncCommand("seek", position: 0)
             }
             return
@@ -287,7 +331,13 @@ final class PlayerController {
 
     func seek(to seconds: Double) {
         if syncEnabled {
-            currentTime = seconds
+            if isActiveSyncDevice {
+                seekLocally(to: seconds)
+            } else {
+                currentTime = seconds
+            }
+            // Hold the remote clock off the slider until the server confirms.
+            suppressClockUntilMS = Self.nowMS() + 1500
             sendSyncCommand("seek", position: seconds)
             return
         }
@@ -444,7 +494,7 @@ final class PlayerController {
         }
 
         timeObserver = nextPlayer.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
             Task { @MainActor in
@@ -748,7 +798,9 @@ extension PlayerController {
             }
         }
 
-        currentTime = state.position(atClientTimeMS: Self.nowMS(), clockOffsetMS: clockOffsetMS)
+        if Self.nowMS() >= suppressClockUntilMS {
+            currentTime = state.position(atClientTimeMS: Self.nowMS(), clockOffsetMS: clockOffsetMS)
+        }
 
         if state.activeDeviceID == deviceID, let track = currentTrack {
             remoteClockTask?.cancel()
@@ -795,7 +847,9 @@ extension PlayerController {
                 guard let self, self.remoteDeviceIsActive, self.syncState?.isPlaying == true else {
                     return
                 }
-                self.currentTime = self.syncedPosition()
+                if Self.nowMS() >= self.suppressClockUntilMS {
+                    self.currentTime = self.syncedPosition()
+                }
                 try? await Task.sleep(for: .milliseconds(400))
             }
         }

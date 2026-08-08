@@ -25,8 +25,21 @@ final class AppModel {
     }
 
     var connection: Connection = .disconnected
-    var library: LoudLibrary?
+    var library: LoudLibrary? {
+        didSet { rebuildTrackIndexes() }
+    }
     var errorMessage = ""
+
+    /// O(1) lookups for resolving playback-context references; a 700-track
+    /// context resolved by linear scans was enough to jank the main thread.
+    private var tracksByID: [String: LoudTrack] = [:]
+    private var tracksByFingerprint: [String: LoudTrack] = [:]
+
+    private func rebuildTrackIndexes() {
+        let tracks = library?.tracks ?? []
+        tracksByID = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        tracksByFingerprint = Dictionary(tracks.map { ($0.fingerprint, $0) }, uniquingKeysWith: { first, _ in first })
+    }
 
     private(set) var client: LoudClient?
 
@@ -38,6 +51,8 @@ final class AppModel {
             connection = .offline
         }
         client = makeClient()
+        // didSet does not fire during init; index the cached library.
+        rebuildTrackIndexes()
     }
 
     var isConnected: Bool { connection == .connected }
@@ -123,7 +138,7 @@ final class AppModel {
     /// Reads like state from the library (not a stale track copy), so hearts
     /// update everywhere the moment a toggle lands.
     func isLiked(_ track: LoudTrack) -> Bool {
-        library?.tracks.first { $0.fingerprint == track.fingerprint }?.isLiked ?? track.isLiked
+        tracksByFingerprint[track.fingerprint]?.isLiked ?? track.isLiked
     }
 
     /// Optimistic toggle: flip locally right away, tell the server, roll back
@@ -152,8 +167,7 @@ final class AppModel {
 
     /// Resolves a `loud.playback.v2` track reference against the library.
     func track(matching reference: LoudTrackReference) -> LoudTrack? {
-        tracks.first { $0.id == reference.id }
-            ?? tracks.first { $0.fingerprint == reference.fingerprint }
+        tracksByID[reference.id] ?? tracksByFingerprint[reference.fingerprint]
     }
 
     // MARK: - Library slices
