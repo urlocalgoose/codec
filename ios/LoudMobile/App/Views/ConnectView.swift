@@ -21,7 +21,8 @@ struct ConnectView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 4))
 
                         Text("Codec")
-                            .font(LoudFont.hand(28))
+                            .font(.system(size: 20, weight: .black))
+                            .tracking(-0.5)
                             .foregroundStyle(theme.text)
                     }
 

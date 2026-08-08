@@ -10,10 +10,11 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             List {
-                // Handwritten label on the mixtape: the one place the hand
-                // font appears per screen.
+                // Faceplate badge: heaviest weight SF Pro ships, tightened
+                // like a receiver logo.
                 Text("Codec")
-                    .font(LoudFont.hand(46))
+                    .font(.system(size: 42, weight: .black))
+                    .tracking(-1)
                     .foregroundStyle(theme.text)
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                     .listRowBackground(Color.clear)
