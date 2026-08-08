@@ -16,7 +16,7 @@ const STATE_FILE_NAME: &str = "state.json";
 const MANAGED_AUDIO_DIR_NAME: &str = "audio";
 const CACHE_DIR_NAME: &str = "cache";
 const ARTWORK_DIR_NAME: &str = "artwork";
-const ARTWORK_THUMBNAIL_SIZE: u32 = 96;
+const ARTWORK_THUMBNAIL_SIZE: u32 = 640;
 const IMPORT_SCHEMA: &str = "loud.import.v1";
 
 #[derive(Clone, Debug, Serialize)]

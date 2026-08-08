@@ -46,9 +46,9 @@ struct LibraryView: View {
                     .listRowBackground(theme.panel)
                 }
 
-                if let albums = app.library?.albums, !albums.isEmpty {
+                if !app.fullAlbums.isEmpty {
                     Section {
-                        ForEach(albums) { album in
+                        ForEach(app.fullAlbums) { album in
                             NavigationLink {
                                 TrackListView(title: album.name, tracks: app.tracks(inAlbum: album))
                             } label: {

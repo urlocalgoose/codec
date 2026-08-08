@@ -73,6 +73,10 @@ enum LoudFont {
 // stay seated 4pt down while their state is on — the same travel the
 // desktop encodes as --button-press-y / --button-latched-y.
 
+/// The exact desktop keycap: the dark bottom edge is INSIDE the key
+/// (inset 0 -5px), with a 1px glint along the top face. Pressing collapses
+/// the edge to 1px while the whole key travels down — no detached drop
+/// shadow anywhere.
 private struct DeckKeySurface: ViewModifier {
     let theme: LoudTheme
     let down: Bool
@@ -84,17 +88,15 @@ private struct DeckKeySurface: ViewModifier {
         content
             .frame(maxWidth: .infinity, minHeight: 52)
             .background(fill)
-            .overlay(alignment: .top) {
-                // Machined top edge: a glint that dims while the key is down.
-                Rectangle()
-                    .fill(theme.glint)
-                    .frame(height: 1.5)
-                    .opacity(down ? 0.35 : 1)
-            }
             .overlay(alignment: .bottom) {
                 Rectangle()
                     .fill(theme.buttonShadow)
-                    .frame(height: down ? 1 : 0)
+                    .frame(height: down ? 1 : 5)
+            }
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(theme.glint)
+                    .frame(height: 1)
             }
             .clipShape(
                 UnevenRoundedRectangle(
@@ -104,11 +106,11 @@ private struct DeckKeySurface: ViewModifier {
                     topTrailingRadius: rightRadius ? 3 : 0
                 )
             )
-            .shadow(color: down ? .clear : theme.buttonShadow, radius: 0, x: 0, y: 5)
     }
 }
 
 /// Momentary key: down while pressed, springs back on release.
+/// Travel: 5pt (the desktop's --button-press-y).
 struct DeckButtonStyle: ButtonStyle {
     @Environment(\.loudTheme) private var theme
 
@@ -129,7 +131,7 @@ struct DeckButtonStyle: ButtonStyle {
             .modifier(DeckKeySurface(
                 theme: theme,
                 down: down,
-                fill: primary ? theme.accent : (down ? theme.buttonHover : theme.button),
+                fill: primary ? theme.accent : (down ? theme.buttonActive : theme.button),
                 leftRadius: leftRadius,
                 rightRadius: rightRadius
             ))
@@ -142,7 +144,8 @@ struct DeckButtonStyle: ButtonStyle {
 }
 
 /// Latching key: stays seated while `isOn`, like the play key on a cassette
-/// deck. The latch lands with a heavier clunk than a momentary press.
+/// deck. Seated travel is 4pt (--button-latched-y); the latch lands with a
+/// heavier clunk than a momentary press.
 struct DeckToggleButtonStyle: ButtonStyle {
     @Environment(\.loudTheme) private var theme
 
@@ -151,6 +154,7 @@ struct DeckToggleButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         let down = isOn || configuration.isPressed
+        let travel: CGFloat = configuration.isPressed ? 5 : (isOn ? 4 : 0)
         return configuration.label
             .foregroundStyle(primary ? theme.accentText : (isOn ? theme.text : theme.muted))
             .modifier(DeckKeySurface(
@@ -160,7 +164,7 @@ struct DeckToggleButtonStyle: ButtonStyle {
                 leftRadius: true,
                 rightRadius: true
             ))
-            .offset(y: isOn ? 4 : (configuration.isPressed ? 5 : 0))
+            .offset(y: travel)
             .animation(.easeOut(duration: 0.09), value: down)
             .sensoryFeedback(.impact(flexibility: .rigid, intensity: 0.9), trigger: isOn)
     }

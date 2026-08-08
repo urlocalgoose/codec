@@ -61,17 +61,27 @@ struct HomeView: View {
                             .padding(.horizontal, 20)
 
                         LazyVGrid(columns: grid, spacing: 18) {
-                            ForEach(app.recentlyAdded) { track in
-                                Button {
-                                    if player.currentTrack?.id == track.id {
-                                        player.togglePlayback()
-                                    } else {
-                                        player.play(track, from: app.recentlyAdded)
+                            ForEach(app.recentItems) { item in
+                                switch item {
+                                case .album(let album, let cover):
+                                    NavigationLink {
+                                        TrackListView(title: album.name, tracks: app.tracks(inAlbum: album))
+                                    } label: {
+                                        AlbumTile(album: album, cover: cover)
                                     }
-                                } label: {
-                                    RecentTile(track: track)
+                                    .buttonStyle(.plain)
+                                case .single(let track):
+                                    Button {
+                                        if player.currentTrack?.id == track.id {
+                                            player.togglePlayback()
+                                        } else {
+                                            player.play(track, from: app.recentlyAdded)
+                                        }
+                                    } label: {
+                                        RecentTile(track: track)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal, 20)
@@ -135,6 +145,37 @@ private struct PlaylistCard: View {
                 .foregroundStyle(theme.subtle)
         }
         .frame(width: 128, alignment: .leading)
+    }
+}
+
+private struct AlbumTile: View {
+    @Environment(\.loudTheme) private var theme
+
+    let album: LoudAlbumSummary
+    let cover: LoudTrack?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GeometryReader { proxy in
+                ArtworkView(track: cover, size: proxy.size.width, cornerRadius: 10)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(theme.border, lineWidth: 1)
+                    )
+            }
+            .aspectRatio(1, contentMode: .fit)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(album.name)
+                    .font(.system(size: 13, weight: .heavy))
+                    .foregroundStyle(theme.text)
+                    .lineLimit(1)
+                Text("Album · \(album.artist)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.muted)
+                    .lineLimit(1)
+            }
+        }
     }
 }
 

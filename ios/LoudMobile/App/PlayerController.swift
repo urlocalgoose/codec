@@ -121,7 +121,16 @@ final class PlayerController {
         play(first, from: tracks)
     }
 
+    /// Jumps the line: plays right after the current track.
     func playNext(_ track: LoudTrack) {
+        manualQueue.insert(track, at: 0)
+        if currentTrack == nil {
+            advance()
+        }
+    }
+
+    /// Joins the end of the manual queue.
+    func playLater(_ track: LoudTrack) {
         manualQueue.append(track)
         if currentTrack == nil {
             advance()
@@ -141,6 +150,59 @@ final class PlayerController {
 
     func clearQueue() {
         manualQueue = []
+    }
+
+    /// Upcoming tracks from the source, paired with their real indices so
+    /// the queue screen can jump to or remove them.
+    var upcomingFromSource: [(index: Int, track: LoudTrack)] {
+        guard sourceIndex + 1 < source.count else {
+            return []
+        }
+        return (sourceIndex + 1..<source.count).map { ($0, source[$0]) }
+    }
+
+    /// Tap a manual-queue entry: it plays now, everything queued before it
+    /// is consumed.
+    func jumpToManualQueue(at index: Int) {
+        guard manualQueue.indices.contains(index) else {
+            return
+        }
+        let track = manualQueue[index]
+        manualQueue.removeSubrange(0...index)
+        if let playing = currentTrack {
+            history.append(playing)
+        }
+        currentTrack = track
+        if syncEnabled {
+            sendSyncCommand("play", track: track, position: 0)
+        } else {
+            startPlayback(at: 0)
+        }
+    }
+
+    /// Tap an up-next entry: skip straight to it in the source; the manual
+    /// queue keeps its place for afterwards.
+    func jumpToUpcoming(sourceIndex index: Int) {
+        guard source.indices.contains(index), index > sourceIndex else {
+            return
+        }
+        if let playing = currentTrack {
+            history.append(playing)
+        }
+        sourceIndex = index
+        currentTrack = source[index]
+        if syncEnabled {
+            sendSyncCommand("play", track: currentTrack, position: 0)
+        } else {
+            startPlayback(at: 0)
+        }
+    }
+
+    func removeUpcoming(sourceIndex index: Int) {
+        guard source.indices.contains(index), index > sourceIndex else {
+            return
+        }
+        source.remove(at: index)
     }
 
     // MARK: - Transport

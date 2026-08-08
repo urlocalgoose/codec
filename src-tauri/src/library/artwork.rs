@@ -13,12 +13,15 @@ pub(super) fn cached_artwork_ref(
         .ok()
         .and_then(system_time_to_unix)
         .unwrap_or(0);
+    // The size is part of the key so bumping ARTWORK_THUMBNAIL_SIZE
+    // regenerates stale small thumbnails instead of reusing them.
     let cache_key = stable_id(&format!(
-        "{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}",
         relative_path_key(root, path),
         modified,
         metadata.len(),
-        picture.data().len()
+        picture.data().len(),
+        ARTWORK_THUMBNAIL_SIZE
     ));
 
     CachedArtwork {
@@ -47,10 +50,19 @@ pub fn ensure_cached_artwork_thumbnail(artwork: &CachedArtwork) -> Result<PathBu
         .ok_or_else(|| "Artwork source has no embedded image.".to_string())?;
     let image = image::load_from_memory(picture.data())
         .map_err(|err| format!("Could not decode artwork: {err}"))?;
-    let thumbnail = image.thumbnail(ARTWORK_THUMBNAIL_SIZE, ARTWORK_THUMBNAIL_SIZE);
+    // Lanczos for quality; never upscale a source smaller than the target.
+    let thumbnail = if image.width() > ARTWORK_THUMBNAIL_SIZE || image.height() > ARTWORK_THUMBNAIL_SIZE {
+        image.resize(
+            ARTWORK_THUMBNAIL_SIZE,
+            ARTWORK_THUMBNAIL_SIZE,
+            image::imageops::FilterType::Lanczos3,
+        )
+    } else {
+        image
+    };
     let rgb = thumbnail.to_rgb8();
     let mut bytes = Vec::new();
-    let mut encoder = JpegEncoder::new_with_quality(&mut bytes, 82);
+    let mut encoder = JpegEncoder::new_with_quality(&mut bytes, 85);
     encoder
         .encode(&rgb, rgb.width(), rgb.height(), ColorType::Rgb8.into())
         .map_err(|err| format!("Could not encode artwork thumbnail: {err}"))?;

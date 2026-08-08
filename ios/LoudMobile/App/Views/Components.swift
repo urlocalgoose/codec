@@ -135,9 +135,16 @@ struct PlayableTrackRow: View {
             Button {
                 player.playNext(track)
             } label: {
-                Label("Queue", systemImage: "text.badge.plus")
+                Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
             }
             .tint(theme.accent)
+
+            Button {
+                player.playLater(track)
+            } label: {
+                Label("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward")
+            }
+            .tint(theme.surfaceHover)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button {
@@ -185,7 +192,13 @@ struct PlayableTrackRow: View {
         Button {
             player.playNext(track)
         } label: {
-            Label("Add to Queue", systemImage: "text.badge.plus")
+            Label("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward")
+        }
+
+        Button {
+            player.playLater(track)
+        } label: {
+            Label("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward")
         }
 
         if downloads.isDownloaded(track) {

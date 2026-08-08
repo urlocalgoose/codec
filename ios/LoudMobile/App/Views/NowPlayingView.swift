@@ -234,15 +234,20 @@ struct QueueView: View {
                 if !player.manualQueue.isEmpty {
                     Section("In Queue") {
                         ForEach(Array(player.manualQueue.enumerated()), id: \.offset) { index, track in
-                            TrackRow(track: track, showsDownloadState: false)
-                                .listRowBackground(theme.panel)
-                                .swipeActions {
-                                    Button(role: .destructive) {
-                                        player.removeFromQueue(at: index)
-                                    } label: {
-                                        Label("Remove", systemImage: "trash")
-                                    }
+                            Button {
+                                player.jumpToManualQueue(at: index)
+                            } label: {
+                                TrackRow(track: track, showsDownloadState: false)
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(theme.panel)
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    player.removeFromQueue(at: index)
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
                                 }
+                            }
                         }
                         .onMove { source, destination in
                             player.moveInQueue(from: source, to: destination)
@@ -250,12 +255,24 @@ struct QueueView: View {
                     }
                 }
 
-                let upcoming = player.upNext.dropFirst(player.manualQueue.count)
+                let upcoming = player.upcomingFromSource
                 if !upcoming.isEmpty {
                     Section("Up Next") {
-                        ForEach(Array(upcoming.prefix(50).enumerated()), id: \.offset) { _, track in
-                            TrackRow(track: track, showsDownloadState: false)
-                                .listRowBackground(theme.panel)
+                        ForEach(upcoming.prefix(50), id: \.index) { entry in
+                            Button {
+                                player.jumpToUpcoming(sourceIndex: entry.index)
+                            } label: {
+                                TrackRow(track: entry.track, showsDownloadState: false)
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(theme.panel)
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    player.removeUpcoming(sourceIndex: entry.index)
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                 }

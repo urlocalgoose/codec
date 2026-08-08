@@ -134,11 +134,9 @@ fn sync_library_to_server(
         }
 
         if let Some(artwork) = track.artwork.clone() {
+            // Artwork always re-uploads: it is small, and skipping would
+            // leave old low-resolution thumbnails on the server forever.
             let artwork_url = sync_track_media_url(&server_url, &track.fingerprint, "artwork");
-            if sync_remote_exists(&client, &artwork_url) {
-                continue;
-            }
-
             match ensure_cached_artwork_thumbnail(&artwork)
                 .map_err(|err| err.to_string())
                 .and_then(|path| upload_file(&client, &artwork_url, &path, "image/jpeg"))

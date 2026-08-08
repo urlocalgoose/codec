@@ -173,15 +173,67 @@ final class AppModel {
             .map { $0 }
     }
 
+    /// Albums we actually have, not one stray song tagged with an album name.
+    var fullAlbums: [LoudAlbumSummary] {
+        library?.albums.filter { $0.trackCount >= 2 } ?? []
+    }
+
+    /// What the Home grid shows: newest first, grouped into album tiles when
+    /// we have the album, single-track tiles otherwise, capped so "recently
+    /// added" never means "the whole library".
+    enum RecentItem: Identifiable {
+        case album(LoudAlbumSummary, cover: LoudTrack)
+        case single(LoudTrack)
+
+        var id: String {
+            switch self {
+            case .album(let album, _): return "album:\(album.id)"
+            case .single(let track): return "track:\(track.id)"
+            }
+        }
+    }
+
+    var recentItems: [RecentItem] {
+        let albumsByKey = Dictionary(
+            (library?.albums ?? []).map { (albumKey(artist: $0.artist, name: $0.name), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let sorted = tracks.sorted { ($0.addedAt ?? 0) > ($1.addedAt ?? 0) }
+
+        var seenAlbums = Set<String>()
+        var items: [RecentItem] = []
+        for track in sorted {
+            if items.count >= 12 {
+                break
+            }
+            let key = albumKey(artist: track.albumArtist ?? track.artist, name: track.album)
+            if let album = albumsByKey[key], album.trackCount >= 2 {
+                if seenAlbums.insert(key).inserted {
+                    items.append(.album(album, cover: track))
+                }
+            } else {
+                items.append(.single(track))
+            }
+        }
+        return items
+    }
+
     func tracks(in playlist: LoudPlaylist) -> [LoudTrack] {
         let ids = Set(playlist.trackIDs)
         return tracks.filter { ids.contains($0.id) }
     }
 
     func tracks(inAlbum album: LoudAlbumSummary) -> [LoudTrack] {
-        tracks
-            .filter { $0.album == album.name && $0.artist == album.artist }
+        let key = albumKey(artist: album.artist, name: album.name)
+        return tracks
+            .filter { albumKey(artist: $0.albumArtist ?? $0.artist, name: $0.album) == key }
             .sorted { ($0.trackNumber ?? Int.max) < ($1.trackNumber ?? Int.max) }
+    }
+
+    /// Mirrors the server's album bucketing: album artist falls back to
+    /// track artist, compared case-insensitively.
+    private func albumKey(artist: String, name: String) -> String {
+        "\(artist)|\(name)".lowercased()
     }
 
     func tracks(byArtist artist: LoudArtistSummary) -> [LoudTrack] {
