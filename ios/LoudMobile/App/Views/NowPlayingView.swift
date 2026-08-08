@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Full-screen player, Apple-Music style: big artwork that breathes with
-/// playback, monochrome transport, one accent nowhere.
+/// Full-screen player: sleek bones (breathing artwork, clean layout) with
+/// the deck's transport — latching keys, haptics, themed everything.
 struct NowPlayingView: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
     @Environment(DownloadStore.self) private var downloads
@@ -14,23 +15,27 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 24)
 
-            ArtworkView(track: player.currentTrack, size: 330, cornerRadius: 12)
-                .shadow(color: .black.opacity(0.3), radius: 24, x: 0, y: 12)
-                .scaleEffect(player.isPlaying ? 1 : 0.82)
+            ArtworkView(track: player.currentTrack, size: 320, cornerRadius: 10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(theme.border, lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.35), radius: 26, x: 0, y: 14)
+                .scaleEffect(player.isPlaying ? 1 : 0.84)
                 .animation(.spring(response: 0.45, dampingFraction: 0.7), value: player.isPlaying)
 
-            Spacer(minLength: 28)
+            Spacer(minLength: 26)
 
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(player.currentTrack?.title ?? "Not Playing")
-                        .font(.title3)
-                        .fontWeight(.semibold)
+                        .font(.system(size: 20, weight: .heavy))
+                        .foregroundStyle(theme.text)
                         .lineLimit(1)
 
-                    Text(player.currentTrack?.artist ?? "")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
+                    Text(player.currentTrack?.artist ?? "Pick a track")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(theme.muted)
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -41,7 +46,7 @@ struct NowPlayingView: View {
                     } label: {
                         Image(systemName: app.isLiked(track) ? "heart.fill" : "heart")
                             .font(.title3)
-                            .foregroundStyle(app.isLiked(track) ? .pink : .secondary)
+                            .foregroundStyle(app.isLiked(track) ? theme.accent : theme.subtle)
                             .contentTransition(.symbolEffect(.replace))
                             .frame(width: 40, height: 40)
                             .contentShape(Rectangle())
@@ -49,7 +54,7 @@ struct NowPlayingView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 26)
 
             VStack(spacing: 4) {
                 Slider(
@@ -64,9 +69,11 @@ struct NowPlayingView: View {
                         scrubTime = nil
                     }
                 }
+                .tint(theme.accent)
                 .disabled(player.currentTrack == nil)
 
                 HStack {
+                    // Tape-counter digits.
                     Text(formatDuration(scrubTime ?? player.currentTime))
                         .contentTransition(.numericText(countsDown: false))
                         .animation(.snappy(duration: 0.2), value: Int(scrubTime ?? player.currentTime))
@@ -75,77 +82,61 @@ struct NowPlayingView: View {
                 }
                 .font(.caption)
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.subtle)
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 14)
+            .padding(.horizontal, 26)
+            .padding(.top, 12)
 
-            HStack {
+            // The deck: latching shuffle/play/repeat, momentary skips.
+            HStack(spacing: 1) {
                 Button {
                     player.toggleShuffle()
                 } label: {
                     Image(systemName: "shuffle")
-                        .font(.body)
-                        .foregroundStyle(player.shuffle ? .primary : .secondary)
-                        .frame(width: 44, height: 44)
+                        .font(.system(size: 16, weight: .heavy))
                 }
-                .buttonStyle(.plain)
-
-                Spacer()
+                .buttonStyle(DeckToggleButtonStyle(isOn: player.shuffle))
 
                 Button {
                     player.previous()
                 } label: {
                     Image(systemName: "backward.fill")
-                        .font(.title)
-                        .frame(width: 56, height: 56)
-                        .contentShape(Rectangle())
+                        .font(.system(size: 19, weight: .heavy))
                 }
-                .buttonStyle(.plain)
-
-                Spacer()
+                .buttonStyle(DeckButtonStyle(leftRadius: false, rightRadius: false))
 
                 Button {
                     player.togglePlayback()
                 } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 42))
+                        .font(.system(size: 24, weight: .heavy))
                         .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 72, height: 72)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-
-                Spacer()
+                .buttonStyle(DeckToggleButtonStyle(isOn: player.isPlaying))
 
                 Button {
                     player.next()
                 } label: {
                     Image(systemName: "forward.fill")
-                        .font(.title)
-                        .frame(width: 56, height: 56)
-                        .contentShape(Rectangle())
+                        .font(.system(size: 19, weight: .heavy))
                 }
-                .buttonStyle(.plain)
-
-                Spacer()
+                .buttonStyle(DeckButtonStyle(leftRadius: false, rightRadius: false))
 
                 Button {
                     player.cycleRepeat()
                 } label: {
                     Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
-                        .font(.body)
-                        .foregroundStyle(player.repeatMode != .off ? .primary : .secondary)
-                        .frame(width: 44, height: 44)
+                        .font(.system(size: 16, weight: .heavy))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(DeckToggleButtonStyle(isOn: player.repeatMode != .off))
             }
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .padding(.horizontal, 24)
-            .padding(.top, 10)
+            .padding(.top, 16)
 
             Spacer(minLength: 12)
 
-            HStack(spacing: 24) {
+            HStack(spacing: 20) {
                 if player.syncEnabled {
                     Menu {
                         ForEach(player.deviceOptions) { device in
@@ -161,8 +152,8 @@ struct NowPlayingView: View {
                         }
                     } label: {
                         Label(player.activeDeviceName, systemImage: player.remoteDeviceIsActive ? "hifispeaker.fill" : "iphone")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 12, weight: .heavy))
+                            .foregroundStyle(player.remoteDeviceIsActive ? theme.accent : theme.subtle)
                     }
                 }
 
@@ -177,14 +168,15 @@ struct NowPlayingView: View {
                 } label: {
                     Image(systemName: "list.bullet")
                         .font(.body)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.subtle)
                         .frame(width: 40, height: 40)
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 28)
-            .padding(.bottom, 24)
+            .padding(.horizontal, 26)
+            .padding(.bottom, 22)
         }
+        .background(theme.bg.ignoresSafeArea())
         .presentationDragIndicator(.visible)
         .sheet(isPresented: $showQueue) {
             QueueView()
@@ -200,12 +192,13 @@ struct NowPlayingView: View {
             } label: {
                 Image(systemName: "arrow.down.circle.fill")
                     .font(.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.accent)
                     .frame(width: 40, height: 40)
             }
             .buttonStyle(.plain)
         case .downloading:
             ProgressView()
+                .tint(theme.accent)
                 .frame(width: 40, height: 40)
         case nil:
             Button {
@@ -215,7 +208,7 @@ struct NowPlayingView: View {
             } label: {
                 Image(systemName: "arrow.down.circle")
                     .font(.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(theme.subtle)
                     .frame(width: 40, height: 40)
             }
             .buttonStyle(.plain)
@@ -224,6 +217,7 @@ struct NowPlayingView: View {
 }
 
 struct QueueView: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(PlayerController.self) private var player
     @Environment(\.dismiss) private var dismiss
 
@@ -233,6 +227,7 @@ struct QueueView: View {
                 if let current = player.currentTrack {
                     Section("Now Playing") {
                         TrackRow(track: current, showsDownloadState: false)
+                            .listRowBackground(theme.panel2)
                     }
                 }
 
@@ -240,6 +235,7 @@ struct QueueView: View {
                     Section("In Queue") {
                         ForEach(Array(player.manualQueue.enumerated()), id: \.offset) { index, track in
                             TrackRow(track: track, showsDownloadState: false)
+                                .listRowBackground(theme.panel)
                                 .swipeActions {
                                     Button(role: .destructive) {
                                         player.removeFromQueue(at: index)
@@ -259,10 +255,13 @@ struct QueueView: View {
                     Section("Up Next") {
                         ForEach(Array(upcoming.prefix(50).enumerated()), id: \.offset) { _, track in
                             TrackRow(track: track, showsDownloadState: false)
+                                .listRowBackground(theme.panel)
                         }
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(theme.bg)
             .navigationTitle("Queue")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

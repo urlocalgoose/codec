@@ -1,10 +1,12 @@
 import SwiftUI
 
 struct HomeView: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
 
     @State private var showSettings = false
+    @State private var showThemePicker = false
 
     private let grid = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
 
@@ -12,18 +14,27 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    // Faceplate badge.
+                    Text("Codec")
+                        .font(.system(size: 40, weight: .black))
+                        .tracking(-1)
+                        .foregroundStyle(theme.text)
+                        .padding(.horizontal, 20)
+
                     if app.connection == .offline {
-                        Label("Offline — playing downloads", systemImage: "wifi.slash")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        Label("Offline — playing downloads and cache", systemImage: "wifi.slash")
+                            .font(.system(size: 12, weight: .heavy))
+                            .foregroundStyle(theme.accentText)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(theme.accent)
+                            .clipShape(Capsule())
                             .padding(.horizontal, 20)
                     }
 
                     if !app.userPlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Playlists")
-                                .font(.title3)
-                                .fontWeight(.semibold)
+                            SectionLabel("Playlists")
                                 .padding(.horizontal, 20)
 
                             ScrollView(.horizontal, showsIndicators: false) {
@@ -46,9 +57,7 @@ struct HomeView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Recently Added")
-                            .font(.title3)
-                            .fontWeight(.semibold)
+                        SectionLabel("Recently added")
                             .padding(.horizontal, 20)
 
                         LazyVGrid(columns: grid, spacing: 18) {
@@ -71,48 +80,66 @@ struct HomeView: View {
                 .padding(.top, 4)
                 .padding(.bottom, 16)
             }
+            .background(theme.bg)
             .refreshable {
                 await app.refresh()
             }
-            .navigationTitle("Codec")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showThemePicker = true
+                    } label: {
+                        Image(systemName: "paintpalette")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showSettings = true
                     } label: {
-                        Image(systemName: "person.crop.circle")
+                        Image(systemName: "server.rack")
                     }
                 }
             }
             .sheet(isPresented: $showSettings) {
                 ServerSettingsView()
             }
+            .sheet(isPresented: $showThemePicker) {
+                ThemePickerView()
+            }
         }
     }
 }
 
 private struct PlaylistCard: View {
+    @Environment(\.loudTheme) private var theme
+
     let playlist: LoudPlaylist
     let cover: LoudTrack?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ArtworkView(track: cover, size: 128, cornerRadius: 10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(theme.border, lineWidth: 1)
+                )
 
             Text(playlist.name)
-                .font(.subheadline)
-                .fontWeight(.medium)
+                .font(.system(size: 14, weight: .heavy))
+                .foregroundStyle(theme.text)
                 .lineLimit(1)
 
             Text("\(playlist.trackIDs.count) songs")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(theme.subtle)
         }
         .frame(width: 128, alignment: .leading)
     }
 }
 
 private struct RecentTile: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(PlayerController.self) private var player
 
     let track: LoudTrack
@@ -121,6 +148,10 @@ private struct RecentTile: View {
         VStack(alignment: .leading, spacing: 8) {
             GeometryReader { proxy in
                 ArtworkView(track: track, size: proxy.size.width, cornerRadius: 10)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(theme.border, lineWidth: 1)
+                    )
             }
             .aspectRatio(1, contentMode: .fit)
 
@@ -128,16 +159,17 @@ private struct RecentTile: View {
                 if player.currentTrack?.id == track.id {
                     Image(systemName: "waveform")
                         .font(.caption2)
+                        .foregroundStyle(theme.accent)
                         .symbolEffect(.variableColor.iterative, isActive: player.isPlaying)
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(track.title)
-                        .font(.footnote)
-                        .fontWeight(.medium)
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundStyle(player.currentTrack?.id == track.id ? theme.accent : theme.text)
                         .lineLimit(1)
                     Text(track.artist)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(theme.muted)
                         .lineLimit(1)
                 }
             }
