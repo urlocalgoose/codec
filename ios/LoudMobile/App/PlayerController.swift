@@ -135,6 +135,10 @@ final class PlayerController {
         manualQueue.remove(at: index)
     }
 
+    func moveInQueue(from source: IndexSet, to destination: Int) {
+        manualQueue.move(fromOffsets: source, toOffset: destination)
+    }
+
     func clearQueue() {
         manualQueue = []
     }

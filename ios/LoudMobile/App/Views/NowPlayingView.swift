@@ -3,6 +3,7 @@ import SwiftUI
 /// Full-screen player. The transport is a tape deck: play latches down while
 /// playing, skip keys are momentary.
 struct NowPlayingView: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
     @Environment(DownloadStore.self) private var downloads
@@ -14,7 +15,7 @@ struct NowPlayingView: View {
     var body: some View {
         VStack(spacing: 24) {
             Capsule()
-                .fill(LoudColor.surface)
+                .fill(theme.surface)
                 .frame(width: 44, height: 5)
                 .padding(.top, 10)
 
@@ -27,12 +28,12 @@ struct NowPlayingView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(player.currentTrack?.title ?? "Nothing playing")
                         .font(.system(size: 22, weight: .heavy))
-                        .foregroundStyle(LoudColor.text)
+                        .foregroundStyle(theme.text)
                         .lineLimit(2)
 
                     Text(player.currentTrack?.artist ?? "Pick a track")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(LoudColor.muted)
+                        .foregroundStyle(theme.muted)
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -43,7 +44,7 @@ struct NowPlayingView: View {
                     } label: {
                         Image(systemName: app.isLiked(track) ? "heart.fill" : "heart")
                             .font(.system(size: 22, weight: .heavy))
-                            .foregroundStyle(app.isLiked(track) ? LoudColor.accent : LoudColor.subtle)
+                            .foregroundStyle(app.isLiked(track) ? theme.accent : theme.subtle)
                             .frame(width: 44, height: 44)
                             .contentShape(Rectangle())
                     }
@@ -65,16 +66,20 @@ struct NowPlayingView: View {
                         scrubTime = nil
                     }
                 }
-                .tint(LoudColor.accent)
+                .tint(theme.accent)
                 .disabled(player.currentTrack == nil)
 
                 HStack {
+                    // Tape-counter digits: the elapsed time rolls like an
+                    // odometer instead of flickering.
                     Text(formatDuration(scrubTime ?? player.currentTime))
+                        .contentTransition(.numericText(countsDown: false))
+                        .animation(.snappy(duration: 0.2), value: Int(scrubTime ?? player.currentTime))
                     Spacer()
                     Text(formatDuration(player.duration))
                 }
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(LoudColor.subtle)
+                .foregroundStyle(theme.subtle)
             }
             .padding(.horizontal, 24)
 
@@ -129,7 +134,7 @@ struct NowPlayingView: View {
                 } label: {
                     Label("Queue", systemImage: "list.triangle")
                         .font(.system(size: 13, weight: .heavy))
-                        .foregroundStyle(LoudColor.muted)
+                        .foregroundStyle(theme.muted)
                 }
 
                 Spacer()
@@ -159,18 +164,18 @@ struct NowPlayingView: View {
                         Text("Playing on \(player.activeDeviceName)")
                     }
                     .font(.system(size: 12, weight: .heavy))
-                    .foregroundStyle(player.remoteDeviceIsActive ? LoudColor.accent : LoudColor.subtle)
+                    .foregroundStyle(player.remoteDeviceIsActive ? theme.accent : theme.subtle)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
-                    .background(LoudColor.panel)
+                    .background(theme.panel)
                     .clipShape(Capsule())
-                    .overlay(Capsule().stroke(LoudColor.line, lineWidth: 1))
+                    .overlay(Capsule().stroke(theme.line, lineWidth: 1))
                 }
             }
 
             Spacer(minLength: 20)
         }
-        .background(LoudColor.bg.ignoresSafeArea())
+        .background(theme.bg.ignoresSafeArea())
         .presentationDragIndicator(.hidden)
         .sheet(isPresented: $showQueue) {
             QueueView()
@@ -186,15 +191,15 @@ struct NowPlayingView: View {
             } label: {
                 Label("Downloaded", systemImage: "arrow.down.circle.fill")
                     .font(.system(size: 13, weight: .heavy))
-                    .foregroundStyle(LoudColor.accent)
+                    .foregroundStyle(theme.accent)
             }
         case .downloading:
             HStack(spacing: 6) {
                 ProgressView()
-                    .tint(LoudColor.accent)
+                    .tint(theme.accent)
                 Text("Downloading")
                     .font(.system(size: 13, weight: .heavy))
-                    .foregroundStyle(LoudColor.muted)
+                    .foregroundStyle(theme.muted)
             }
         case nil:
             Button {
@@ -204,13 +209,14 @@ struct NowPlayingView: View {
             } label: {
                 Label("Download", systemImage: "arrow.down.circle")
                     .font(.system(size: 13, weight: .heavy))
-                    .foregroundStyle(LoudColor.muted)
+                    .foregroundStyle(theme.muted)
             }
         }
     }
 }
 
 struct QueueView: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(PlayerController.self) private var player
     @Environment(\.dismiss) private var dismiss
 
@@ -222,7 +228,7 @@ struct QueueView: View {
                         TrackRow(track: current, showsDownloadState: false)
                             .listRowInsets(EdgeInsets())
                     }
-                    .listRowBackground(LoudColor.panel2)
+                    .listRowBackground(theme.panel2)
                 }
 
                 if !player.manualQueue.isEmpty {
@@ -238,8 +244,11 @@ struct QueueView: View {
                                     }
                                 }
                         }
+                        .onMove { source, destination in
+                            player.moveInQueue(from: source, to: destination)
+                        }
                     }
-                    .listRowBackground(LoudColor.panel)
+                    .listRowBackground(theme.panel)
                 }
 
                 let upcoming = player.upNext.dropFirst(player.manualQueue.count)
@@ -250,11 +259,11 @@ struct QueueView: View {
                                 .listRowInsets(EdgeInsets())
                         }
                     }
-                    .listRowBackground(LoudColor.panel)
+                    .listRowBackground(theme.panel)
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(LoudColor.bg)
+            .background(theme.bg)
             .navigationTitle("Queue")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -272,6 +281,5 @@ struct QueueView: View {
                 }
             }
         }
-        .preferredColorScheme(.dark)
     }
 }

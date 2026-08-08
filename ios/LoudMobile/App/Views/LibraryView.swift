@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct LibraryView: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(DownloadStore.self) private var downloads
 
@@ -30,7 +31,7 @@ struct LibraryView: View {
                         row(icon: "arrow.down.circle.fill", title: "Downloads", detail: "\(downloads.downloadedCount)")
                     }
                 }
-                .listRowBackground(LoudColor.panel)
+                .listRowBackground(theme.panel)
 
                 if !app.userPlaylists.isEmpty {
                     Section("Playlists") {
@@ -42,7 +43,7 @@ struct LibraryView: View {
                             }
                         }
                     }
-                    .listRowBackground(LoudColor.panel)
+                    .listRowBackground(theme.panel)
                 }
 
                 if let albums = app.library?.albums, !albums.isEmpty {
@@ -55,7 +56,7 @@ struct LibraryView: View {
                             }
                         }
                     }
-                    .listRowBackground(LoudColor.panel)
+                    .listRowBackground(theme.panel)
                 }
 
                 if let artists = app.library?.artists, !artists.isEmpty {
@@ -68,11 +69,11 @@ struct LibraryView: View {
                             }
                         }
                     }
-                    .listRowBackground(LoudColor.panel)
+                    .listRowBackground(theme.panel)
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(LoudColor.bg)
+            .background(theme.bg)
             .navigationTitle("Library")
             .safeAreaPadding(.bottom, 60)
         }
@@ -82,19 +83,19 @@ struct LibraryView: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(LoudColor.accent)
+                .foregroundStyle(theme.accent)
                 .frame(width: 26)
 
             Text(title)
                 .font(.system(size: 15, weight: .heavy))
-                .foregroundStyle(LoudColor.text)
+                .foregroundStyle(theme.text)
                 .lineLimit(1)
 
             Spacer(minLength: 10)
 
             Text(detail)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(LoudColor.subtle)
+                .foregroundStyle(theme.subtle)
                 .lineLimit(1)
         }
         .padding(.vertical, 3)

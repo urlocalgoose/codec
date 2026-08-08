@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct SearchView: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
-    @Environment(PlayerController.self) private var player
 
     @State private var query = ""
 
@@ -12,50 +12,20 @@ struct SearchView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(results) { track in
-                        Button {
-                            if player.currentTrack?.id == track.id {
-                                player.togglePlayback()
-                            } else {
-                                player.play(track, from: results)
-                            }
-                        } label: {
-                            TrackRow(track: track)
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button {
-                                app.toggleLike(track)
-                            } label: {
-                                Label(
-                                    app.isLiked(track) ? "Unlike" : "Like",
-                                    systemImage: app.isLiked(track) ? "heart.slash" : "heart"
-                                )
-                            }
-                            Button {
-                                player.playNext(track)
-                            } label: {
-                                Label("Add to Queue", systemImage: "text.badge.plus")
-                            }
-                        }
-                    }
-
-                    if !query.isEmpty && results.isEmpty {
-                        VStack(spacing: 10) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 30, weight: .bold))
-                            Text("Nothing matches \"\(query)\".")
-                                .font(.system(size: 14, weight: .semibold))
-                        }
-                        .foregroundStyle(LoudColor.subtle)
-                        .padding(.top, 80)
-                    }
+            List {
+                ForEach(results) { track in
+                    PlayableTrackRow(track: track, collection: results)
                 }
-                .padding(.bottom, 130)
             }
-            .background(LoudColor.bg)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(theme.bg)
+            .overlay {
+                if !query.isEmpty && results.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                        .background(theme.bg)
+                }
+            }
             .navigationTitle("Search")
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Songs, artists, albums")
         }

@@ -5,6 +5,7 @@ struct LoudMobileApp: App {
     @State private var app = AppModel()
     @State private var player = PlayerController()
     @State private var downloads = DownloadStore()
+    @State private var themeStore = ThemeStore()
 
     var body: some Scene {
         WindowGroup {
@@ -12,8 +13,10 @@ struct LoudMobileApp: App {
                 .environment(app)
                 .environment(player)
                 .environment(downloads)
-                .preferredColorScheme(.dark)
-                .tint(LoudColor.accent)
+                .environment(themeStore)
+                .environment(\.loudTheme, themeStore.theme)
+                .preferredColorScheme(themeStore.theme.isLight ? .light : .dark)
+                .tint(themeStore.theme.accent)
                 .task {
                     player.downloads = downloads
                     player.client = app.client

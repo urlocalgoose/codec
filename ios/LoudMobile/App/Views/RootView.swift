@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct RootView: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
 
@@ -30,7 +31,7 @@ struct RootView: View {
             .sheet(isPresented: $showNowPlaying) {
                 NowPlayingView()
             }
-            .background(LoudColor.bg)
+            .background(theme.bg)
         }
     }
 
@@ -58,6 +59,7 @@ private struct MiniPlayerInset: ViewModifier {
 
 /// The always-visible strip above the tab bar: tap for the full player.
 struct MiniPlayerBar: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(PlayerController.self) private var player
 
     let onOpen: () -> Void
@@ -69,11 +71,11 @@ struct MiniPlayerBar: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(player.currentTrack?.title ?? "")
                     .font(.system(size: 14, weight: .heavy))
-                    .foregroundStyle(LoudColor.text)
+                    .foregroundStyle(theme.text)
                     .lineLimit(1)
                 Text(player.currentTrack?.artist ?? "")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(LoudColor.muted)
+                    .foregroundStyle(theme.muted)
                     .lineLimit(1)
             }
 
@@ -84,7 +86,7 @@ struct MiniPlayerBar: View {
             } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 17, weight: .heavy))
-                    .foregroundStyle(LoudColor.text)
+                    .foregroundStyle(theme.text)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
@@ -92,16 +94,16 @@ struct MiniPlayerBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(LoudColor.panel)
+        .background(theme.panel)
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(LoudColor.line)
+                .fill(theme.line)
                 .frame(height: 1)
         }
         .overlay(alignment: .bottom) {
             ProgressView(value: progress)
                 .progressViewStyle(.linear)
-                .tint(LoudColor.accent)
+                .tint(theme.accent)
                 .frame(height: 2)
         }
         .contentShape(Rectangle())

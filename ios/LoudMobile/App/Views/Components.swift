@@ -1,31 +1,7 @@
 import SwiftUI
 
-/// Tape-deck toggle: while `isOn` the button stays pressed down, like the
-/// play key on an old cassette deck. Momentary buttons use DeckButtonStyle.
-struct DeckToggleButtonStyle: ButtonStyle {
-    let isOn: Bool
-    var primary = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        let down = isOn || configuration.isPressed
-        return configuration.label
-            .foregroundStyle(primary ? LoudColor.accentText : (isOn ? LoudColor.text : LoudColor.muted))
-            .frame(maxWidth: .infinity, minHeight: 52)
-            .background(primary ? LoudColor.accent : (down ? LoudColor.buttonPressed : LoudColor.button))
-            .clipShape(RoundedRectangle(cornerRadius: 3))
-            .shadow(color: down ? .clear : LoudColor.shadow, radius: 0, x: 0, y: 5)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(LoudColor.shadow)
-                    .frame(height: down ? 1 : 0)
-                    .opacity(down ? 1 : 0)
-            }
-            .offset(y: down ? 5 : 0)
-            .animation(.easeOut(duration: 0.09), value: down)
-    }
-}
-
 struct SectionLabel: View {
+    @Environment(\.loudTheme) private var theme
     let text: String
 
     init(_ text: String) {
@@ -35,12 +11,13 @@ struct SectionLabel: View {
     var body: some View {
         Text(text.uppercased())
             .font(.system(size: 11, weight: .heavy))
-            .foregroundStyle(LoudColor.subtle)
+            .foregroundStyle(theme.subtle)
     }
 }
 
 /// Artwork with auth headers and an in-memory cache.
 struct ArtworkView: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
 
     let track: LoudTrack?
@@ -51,7 +28,7 @@ struct ArtworkView: View {
 
     var body: some View {
         ZStack {
-            LoudColor.panel2
+            theme.panel2
             if let image {
                 Image(uiImage: image)
                     .resizable()
@@ -59,7 +36,7 @@ struct ArtworkView: View {
             } else {
                 Image(systemName: "music.note")
                     .font(.system(size: size * 0.36, weight: .bold))
-                    .foregroundStyle(LoudColor.subtle)
+                    .foregroundStyle(theme.subtle)
             }
         }
         .frame(width: size, height: size)
@@ -75,6 +52,7 @@ struct ArtworkView: View {
 }
 
 struct TrackRow: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(PlayerController.self) private var player
     @Environment(DownloadStore.self) private var downloads
 
@@ -88,18 +66,18 @@ struct TrackRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(track.title)
                     .font(.system(size: 15, weight: .heavy))
-                    .foregroundStyle(player.currentTrack?.id == track.id ? LoudColor.accent : LoudColor.text)
+                    .foregroundStyle(player.currentTrack?.id == track.id ? theme.accent : theme.text)
                     .lineLimit(1)
 
                 HStack(spacing: 5) {
                     if showsDownloadState, downloads.isDownloaded(track) {
                         Image(systemName: "arrow.down.circle.fill")
                             .font(.system(size: 11))
-                            .foregroundStyle(LoudColor.accent)
+                            .foregroundStyle(theme.accent)
                     }
                     Text(track.artist)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(LoudColor.muted)
+                        .foregroundStyle(theme.muted)
                         .lineLimit(1)
                 }
             }
@@ -108,101 +86,83 @@ struct TrackRow: View {
 
             Text(formatDuration(track.durationSeconds))
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(LoudColor.subtle)
+                .foregroundStyle(theme.subtle)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 9)
         .contentShape(Rectangle())
-        .background(player.currentTrack?.id == track.id ? LoudColor.panel2 : Color.clear)
+        .background(player.currentTrack?.id == track.id ? theme.panel2 : Color.clear)
     }
 }
 
-/// One list of playable tracks with Play/Shuffle actions on top.
-struct TrackListView: View {
+/// A track row wired for a List: tap to play, swipe right to queue, swipe
+/// left to like or download, long-press for the full menu.
+struct PlayableTrackRow: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
     @Environment(DownloadStore.self) private var downloads
 
-    let title: String
-    let tracks: [LoudTrack]
-    var showsDownloadAll = true
+    let track: LoudTrack
+    let collection: [LoudTrack]
+    var showsDownloadState = true
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0, pinnedViews: []) {
-                HStack(spacing: 10) {
-                    Button {
-                        player.playCollection(tracks)
-                    } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: "play.fill")
-                            Text("Play")
-                        }
-                        .font(.system(size: 14, weight: .heavy))
-                    }
-                    .buttonStyle(DeckButtonStyle(primary: true))
-
-                    Button {
-                        player.playCollection(tracks, shuffled: true)
-                    } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: "shuffle")
-                            Text("Shuffle")
-                        }
-                        .font(.system(size: 14, weight: .heavy))
-                    }
-                    .buttonStyle(DeckButtonStyle())
-
-                    if showsDownloadAll, let client = app.client {
-                        Button {
-                            downloads.downloadAll(tracks, using: client)
-                        } label: {
-                            Image(systemName: "arrow.down.to.line")
-                                .font(.system(size: 15, weight: .heavy))
-                        }
-                        .buttonStyle(DeckButtonStyle())
-                        .frame(width: 62)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-
-                ForEach(tracks) { track in
-                    Button {
-                        if player.currentTrack?.id == track.id {
-                            player.togglePlayback()
-                        } else {
-                            player.play(track, from: tracks)
-                        }
-                    } label: {
-                        TrackRow(track: track)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        trackMenu(track)
-                    }
-                }
-
-                if tracks.isEmpty {
-                    VStack(spacing: 10) {
-                        Image(systemName: "music.note")
-                            .font(.system(size: 30, weight: .bold))
-                        Text("No tracks here.")
-                            .font(.system(size: 14, weight: .semibold))
-                    }
-                    .foregroundStyle(LoudColor.subtle)
-                    .padding(.top, 60)
-                }
+        Button {
+            if player.currentTrack?.id == track.id {
+                player.togglePlayback()
+            } else {
+                player.play(track, from: collection)
             }
-            .padding(.bottom, 130)
+        } label: {
+            TrackRow(track: track, showsDownloadState: showsDownloadState)
         }
-        .background(LoudColor.bg)
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.large)
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+        .listRowSeparatorTint(theme.line)
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                player.playNext(track)
+            } label: {
+                Label("Queue", systemImage: "text.badge.plus")
+            }
+            .tint(theme.accent)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button {
+                app.toggleLike(track)
+            } label: {
+                Label(
+                    app.isLiked(track) ? "Unlike" : "Like",
+                    systemImage: app.isLiked(track) ? "heart.slash.fill" : "heart.fill"
+                )
+            }
+            .tint(theme.accent)
+
+            if downloads.isDownloaded(track) {
+                Button {
+                    downloads.remove(track)
+                } label: {
+                    Label("Remove", systemImage: "trash")
+                }
+                .tint(theme.danger)
+            } else if let client = app.client {
+                Button {
+                    downloads.download(track, using: client)
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle.fill")
+                }
+                .tint(theme.subtle)
+            }
+        }
+        .contextMenu {
+            trackMenu
+        }
     }
 
     @ViewBuilder
-    private func trackMenu(_ track: LoudTrack) -> some View {
+    private var trackMenu: some View {
         Button {
             app.toggleLike(track)
         } label: {
@@ -231,6 +191,77 @@ struct TrackListView: View {
                 Label("Download", systemImage: "arrow.down.circle")
             }
         }
+    }
+}
+
+/// One list of playable tracks with Play/Shuffle actions on top.
+struct TrackListView: View {
+    @Environment(\.loudTheme) private var theme
+    @Environment(AppModel.self) private var app
+    @Environment(PlayerController.self) private var player
+    @Environment(DownloadStore.self) private var downloads
+
+    let title: String
+    let tracks: [LoudTrack]
+    var showsDownloadAll = true
+
+    var body: some View {
+        List {
+            HStack(spacing: 10) {
+                Button {
+                    player.playCollection(tracks)
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "play.fill")
+                        Text("Play")
+                    }
+                    .font(.system(size: 14, weight: .heavy))
+                }
+                .buttonStyle(DeckButtonStyle(primary: true))
+
+                Button {
+                    player.playCollection(tracks, shuffled: true)
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "shuffle")
+                        Text("Shuffle")
+                    }
+                    .font(.system(size: 14, weight: .heavy))
+                }
+                .buttonStyle(DeckButtonStyle())
+
+                if showsDownloadAll, let client = app.client {
+                    Button {
+                        downloads.downloadAll(tracks, using: client)
+                    } label: {
+                        Image(systemName: "arrow.down.to.line")
+                            .font(.system(size: 15, weight: .heavy))
+                    }
+                    .buttonStyle(DeckButtonStyle())
+                    .frame(width: 62)
+                }
+            }
+            .padding(.vertical, 6)
+            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+
+            ForEach(tracks) { track in
+                PlayableTrackRow(track: track, collection: tracks)
+            }
+
+            if tracks.isEmpty {
+                ContentUnavailableView("No tracks here", systemImage: "music.note")
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .foregroundStyle(theme.subtle)
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(theme.bg)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.large)
     }
 }
 

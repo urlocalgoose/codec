@@ -2,6 +2,7 @@ import SwiftUI
 
 /// First-run screen: server URL + optional token, deck style.
 struct ConnectView: View {
+    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
 
@@ -14,28 +15,28 @@ struct ConnectView: View {
                     HStack(spacing: 12) {
                         Image(systemName: "music.note")
                             .font(.system(size: 25, weight: .bold))
-                            .foregroundStyle(LoudColor.accentText)
+                            .foregroundStyle(theme.accentText)
                             .frame(width: 52, height: 52)
-                            .background(LoudColor.accent)
+                            .background(theme.accent)
                             .clipShape(RoundedRectangle(cornerRadius: 4))
 
                         Text("Loud")
-                            .font(.system(size: 17, weight: .heavy))
-                            .foregroundStyle(LoudColor.text)
+                            .font(LoudFont.hand(28))
+                            .foregroundStyle(theme.text)
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
                         SectionLabel("iPhone")
-                            .foregroundStyle(LoudColor.accent)
+                            .foregroundStyle(theme.accent)
 
                         Text("Connect your Loud server.")
                             .font(.system(size: 38, weight: .heavy))
-                            .foregroundStyle(LoudColor.text)
+                            .foregroundStyle(theme.text)
 
                         Text("Paste the URL printed by the sync server. Add the auth token if the server uses one.")
                             .font(.system(size: 16, weight: .semibold))
                             .lineSpacing(2)
-                            .foregroundStyle(LoudColor.muted)
+                            .foregroundStyle(theme.muted)
                     }
 
                     VStack(alignment: .leading, spacing: 14) {
@@ -66,7 +67,7 @@ struct ConnectView: View {
                         HStack(spacing: 8) {
                             if app.connection == .connecting {
                                 ProgressView()
-                                    .tint(LoudColor.accentText)
+                                    .tint(theme.accentText)
                             } else {
                                 Image(systemName: "antenna.radiowaves.left.and.right")
                             }
@@ -80,15 +81,15 @@ struct ConnectView: View {
                     if !app.errorMessage.isEmpty {
                         Text(app.errorMessage)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(LoudColor.danger)
+                            .foregroundStyle(theme.danger)
                     }
                 }
                 .padding(24)
-                .background(LoudColor.panel.opacity(0.82))
+                .background(theme.panel.opacity(0.82))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(LoudColor.line, lineWidth: 1)
+                        .stroke(theme.line, lineWidth: 1)
                 )
                 .shadow(color: Color.black.opacity(0.38), radius: 48, x: 0, y: 24)
             }
@@ -96,7 +97,7 @@ struct ConnectView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 60)
         }
-        .background(LoudColor.bg.ignoresSafeArea())
+        .background(theme.bg.ignoresSafeArea())
         .scrollDismissesKeyboard(.interactively)
     }
 
@@ -104,20 +105,20 @@ struct ConnectView: View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(LoudColor.subtle)
+                .foregroundStyle(theme.subtle)
                 .frame(width: 22)
 
             content()
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(LoudColor.text)
+                .foregroundStyle(theme.text)
         }
         .padding(.horizontal, 12)
         .frame(height: 48)
-        .background(LoudColor.bg.opacity(0.72))
+        .background(theme.bg.opacity(0.72))
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .overlay(
             RoundedRectangle(cornerRadius: 4)
-                .stroke(LoudColor.line, lineWidth: 1)
+                .stroke(theme.line, lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.22), radius: 0, x: 0, y: 2)
     }
