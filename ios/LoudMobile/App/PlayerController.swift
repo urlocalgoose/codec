@@ -70,6 +70,9 @@ final class PlayerController {
     /// Set by the app so context references resolve against the library.
     var resolveTrack: ((LoudTrackReference) -> LoudTrack?)?
 
+    private static let previousDoubleTapWindowMS: Int64 = 3000
+    private var lastPreviousTapMS: Int64 = 0
+
     fileprivate var clockOffsetMS: Int64 = 0
     fileprivate var eventsTask: Task<Void, Never>?
     fileprivate var presenceTask: Task<Void, Never>?
@@ -251,27 +254,35 @@ final class PlayerController {
         advance()
     }
 
+    /// Tape-deck rewind semantics: the first press restarts the track; a
+    /// second press within the window steps to the previous song (and keeps
+    /// stepping back on further presses).
     func previous() {
+        let now = Self.nowMS()
+        let steppingBack = now - lastPreviousTapMS < Self.previousDoubleTapWindowMS
+        lastPreviousTapMS = now
+
         if syncEnabled {
-            sendSyncCommand("previous", position: syncedPosition())
+            if steppingBack {
+                // Position 0 guarantees the server pops history instead of
+                // treating it as a mid-track restart.
+                sendSyncCommand("previous", position: 0)
+            } else {
+                sendSyncCommand("seek", position: 0)
+            }
             return
         }
 
-        if currentTime > 4 {
-            seek(to: 0)
+        if steppingBack, let previous = history.popLast() {
+            if let index = source.firstIndex(where: { $0.id == previous.id }) {
+                sourceIndex = index
+            }
+            currentTrack = previous
+            startPlayback(at: 0)
             return
         }
 
-        guard let previous = history.popLast() else {
-            seek(to: 0)
-            return
-        }
-
-        if let index = source.firstIndex(where: { $0.id == previous.id }) {
-            sourceIndex = index
-        }
-        currentTrack = previous
-        startPlayback(at: 0)
+        seekLocally(to: 0)
     }
 
     func seek(to seconds: Double) {
@@ -709,7 +720,7 @@ extension PlayerController {
             playbackSource: source.map(LoudTrackReference.init(track:)),
             playbackIndex: max(0, min(sourceIndex, max(source.count - 1, 0))),
             queuedTracks: manualQueue.map(LoudTrackReference.init(track:)),
-            playHistory: [],
+            playHistory: history.map(LoudTrackReference.init(track:)),
             shuffle: shuffleOverride ?? shuffle,
             repeatMode: repeatOverride ?? repeatMode.rawValue
         )
@@ -730,6 +741,7 @@ extension PlayerController {
         if let resolveTrack {
             source = state.context.playbackSource.compactMap(resolveTrack)
             manualQueue = state.context.queuedTracks.compactMap(resolveTrack)
+            history = state.context.playHistory.compactMap(resolveTrack)
             sourceIndex = max(0, min(state.context.playbackIndex, max(source.count - 1, 0)))
             if let reference = state.track, let resolved = resolveTrack(reference) {
                 currentTrack = resolved
