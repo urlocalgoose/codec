@@ -550,9 +550,17 @@ final class PlayerController {
                 return
             }
             var current = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-            current[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            current[MPMediaItemPropertyArtwork] = Self.lockScreenArtwork(for: image)
             MPNowPlayingInfoCenter.default().nowPlayingInfo = current
         }
+    }
+
+    /// MediaPlayer invokes the artwork request handler on its own queue, so
+    /// the closure must be built OUTSIDE MainActor isolation — a MainActor
+    /// closure there trips Swift 6's runtime isolation check the moment the
+    /// lock screen renders artwork (SIGTRAP in dispatch_assert_queue).
+    nonisolated private static func lockScreenArtwork(for image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in image }
     }
 
     private func updateNowPlayingPlaybackState() {
