@@ -1,5 +1,6 @@
 #[allow(dead_code)]
-#[path = "../library.rs"]
+#[path = "../library/mod.rs"]
+#[allow(dead_code, unused_imports)]
 mod library;
 
 fn main() -> Result<(), String> {
