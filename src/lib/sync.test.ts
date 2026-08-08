@@ -12,8 +12,6 @@ import {
   pushLibrarySnapshot,
   saveRemotePlaybackSession,
   sendPlaybackCommandV2,
-  securePlaybackEventsUrl,
-  secureTrackAudioUrl,
   trackAudioUrl,
   transferPlayback,
   updatePlaybackDevice,
@@ -65,17 +63,11 @@ describe("sync client helpers", () => {
     expect(trackAudioUrl("localhost:8787", "isrc:US/TEST")).toBe(
       "http://localhost:8787/api/v1/tracks/isrc%3AUS%2FTEST/audio"
     );
-    expect(secureTrackAudioUrl("https://codec.example.com", "isrc:US/TEST")).toBe(
-      "https://codec.example.com/api/v3/tracks/isrc%3AUS%2FTEST/audio"
-    );
     expect(playbackEventsUrl("localhost:8787/")).toBe(
       "http://localhost:8787/api/v1/playback/events"
     );
     expect(playbackEventsV2Url("localhost:8787/")).toBe(
       "http://localhost:8787/api/v2/playback/events"
-    );
-    expect(securePlaybackEventsUrl("https://codec.example.com/")).toBe(
-      "https://codec.example.com/api/v3/playback/events"
     );
   });
 
@@ -83,11 +75,11 @@ describe("sync client helpers", () => {
     const fetcher = (async (_input: RequestInfo | URL, _init?: RequestInit) =>
       new Response(null, { status: 404 })) as typeof fetch;
 
-    await expect(validateSyncServer("http://100.103.211.30:1420", fetcher)).rejects.toThrow(
+    await expect(validateSyncServer("http://192.168.1.20:1420", fetcher)).rejects.toThrow(
       "web app dev server"
     );
-    await expect(fetchRemoteLibrary("http://100.103.211.30:1420", fetcher)).rejects.toThrow(
-      "Use http://100.103.211.30:8787 instead"
+    await expect(fetchRemoteLibrary("http://192.168.1.20:1420", fetcher)).rejects.toThrow(
+      "Use http://192.168.1.20:8787 instead"
     );
   });
 

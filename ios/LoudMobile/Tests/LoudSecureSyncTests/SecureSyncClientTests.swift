@@ -11,14 +11,14 @@ struct SecureSyncClientTests {
             data: Data(#"{"ok":true,"schema":"loud.sync.v3","playback_schema":"loud.playback.v2"}"#.utf8),
             statusCode: 200
         )
-        let client = SecureSyncClient(baseURL: URL(string: "https://codec.example.com/base")!, transport: transport)
+        let client = SecureSyncClient(baseURL: URL(string: "https://loud.example.com/base")!, transport: transport)
 
         let health = try await client.health()
 
         #expect(health.schema == "loud.sync.v3")
         #expect(health.playbackSchema == "loud.playback.v2")
         #expect(transport.requests.count == 1)
-        #expect(transport.requests[0].url?.absoluteString == "https://codec.example.com/base/health")
+        #expect(transport.requests[0].url?.absoluteString == "https://loud.example.com/base/health")
         #expect(transport.requests[0].value(forHTTPHeaderField: "x-loud-signature") == nil)
     }
 
@@ -58,7 +58,7 @@ struct SecureSyncClientTests {
     @Test
     func signedJSONRequestAddsDeviceHeaders() throws {
         let signer = SecureSyncSigner(deviceID: "phone-1", privateKey: P256.Signing.PrivateKey())
-        let client = SecureSyncClient(baseURL: URL(string: "https://codec.example.com")!, signer: signer)
+        let client = SecureSyncClient(baseURL: URL(string: "https://loud.example.com")!, signer: signer)
         let enrollment = try client.enrollmentRequest(name: "iPhone", platform: "ios")
         let request = try client.makeJSONRequest(
             method: "PUT",
@@ -68,7 +68,7 @@ struct SecureSyncClientTests {
         )
 
         #expect(request.httpMethod == "PUT")
-        #expect(request.url?.absoluteString == "https://codec.example.com/api/v3/sync/push?b=2&a=1")
+        #expect(request.url?.absoluteString == "https://loud.example.com/api/v3/sync/push?b=2&a=1")
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
         #expect(request.value(forHTTPHeaderField: "x-loud-device-id") == "phone-1")
         #expect(request.value(forHTTPHeaderField: "x-loud-timestamp")?.isEmpty == false)

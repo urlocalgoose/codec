@@ -9,7 +9,6 @@ import type {
 } from "./types";
 
 export const SYNC_SCHEMA = "loud.sync.v1";
-export const SECURE_SYNC_SCHEMA = "loud.sync.v3";
 
 export interface SyncSnapshot {
   schema: typeof SYNC_SCHEMA;
@@ -150,20 +149,12 @@ export function trackAudioUrl(serverUrl: string, fingerprint: string): string {
   return `${normalizeServerUrl(serverUrl)}/api/v1/tracks/${encodeURIComponent(fingerprint)}/audio`;
 }
 
-export function secureTrackAudioUrl(serverUrl: string, fingerprint: string): string {
-  return `${normalizeServerUrl(serverUrl)}/api/v3/tracks/${encodeURIComponent(fingerprint)}/audio`;
-}
-
 export function playbackEventsUrl(serverUrl: string): string {
   return `${normalizeServerUrl(serverUrl)}/api/v1/playback/events`;
 }
 
 export function playbackEventsV2Url(serverUrl: string): string {
   return `${normalizeServerUrl(serverUrl)}/api/v2/playback/events`;
-}
-
-export function securePlaybackEventsUrl(serverUrl: string): string {
-  return `${normalizeServerUrl(serverUrl)}/api/v3/playback/events`;
 }
 
 function serverOrigin(serverUrl: string): string {

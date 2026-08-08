@@ -33,11 +33,11 @@ sync backend.
 - Disk stores media blobs under the server data directory.
 - The Svelte app is served from the built `build/` directory.
 
-## Parked Work
+## History
 
-The old `cloudflare/` Worker code is parked. It should not be extended unless
-we explicitly decide to make a Worker-compatible adapter later. The active
-product path is:
+An earlier Cloudflare Worker sync backend (with a device-key `loud.sync.v3`
+protocol) was removed; it lives in git history if ever needed. The product
+path is:
 
 ```text
 Svelte UI -> Go server -> SQLite + media directory

@@ -7,7 +7,7 @@ import Testing
 struct SecureSyncSignerTests {
     @Test
     func canonicalRequestMatchesWorkerFormat() {
-        let url = URL(string: "https://codec.example.com/api/v3/library?z=2&a=2&a=1")!
+        let url = URL(string: "https://loud.example.com/api/v3/library?z=2&a=2&a=1")!
         let bodyHash = SecureSyncSigner.sha256Base64URL(Data("body".utf8))
         let message = SecureSyncSigner.canonicalRequest(
             method: "post",
@@ -24,7 +24,7 @@ struct SecureSyncSignerTests {
     @Test
     func signerProducesRawP256SignatureAndJWK() throws {
         let signer = SecureSyncSigner(deviceID: " phone 1 / weird ", privateKey: P256.Signing.PrivateKey())
-        let url = URL(string: "https://codec.example.com/api/v3/library")!
+        let url = URL(string: "https://loud.example.com/api/v3/library")!
         let headers = try signer.signedHeaders(method: "GET", url: url, timestamp: 123, nonce: "nonce")
         let jwk = try signer.publicKeyJWK()
 

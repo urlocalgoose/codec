@@ -2958,7 +2958,7 @@
               <Server size={17} />
               <input
                 bind:value={syncServerDraft}
-                placeholder="http://100.103.211.30:8787"
+                placeholder="http://192.168.1.20:8787"
                 type="url"
               />
             </label>
