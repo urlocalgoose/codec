@@ -1,15 +1,17 @@
 <script lang="ts">
-  import { Server, X } from "lucide-svelte";
+  import { KeyRound, Server, X } from "lucide-svelte";
 
   let {
     syncServerUrl,
     syncServerDraft = $bindable(),
+    syncTokenDraft = $bindable(),
     onClose,
     onDisconnect,
     onApply
   }: {
     syncServerUrl: string;
     syncServerDraft: string;
+    syncTokenDraft: string;
     onClose: () => void;
     onDisconnect: () => void;
     onApply: () => void;
@@ -65,8 +67,18 @@
           type="url"
         />
       </label>
+      <label class="sync-url-field modal-field">
+        <KeyRound size={17} />
+        <input
+          bind:value={syncTokenDraft}
+          placeholder="Auth token (optional)"
+          type="password"
+          autocomplete="off"
+        />
+      </label>
       <p class="sync-server-help">
         On phone, use the network address printed by the sync server, not localhost.
+        The token matches the server's LOUD_AUTH_TOKEN.
       </p>
 
       <footer class="modal-actions">

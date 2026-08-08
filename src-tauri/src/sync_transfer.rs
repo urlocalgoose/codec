@@ -88,9 +88,20 @@ pub(crate) fn clean_device_id(device_id: &str) -> String {
     }
 }
 
-pub(crate) fn sync_http_client() -> Result<reqwest::blocking::Client, String> {
-    reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(180))
+pub(crate) fn sync_http_client(auth_token: &str) -> Result<reqwest::blocking::Client, String> {
+    let mut builder = reqwest::blocking::Client::builder().timeout(Duration::from_secs(180));
+
+    let token = auth_token.trim();
+    if !token.is_empty() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        let mut value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+            .map_err(|err| format!("Auth token is not a valid header value: {err}"))?;
+        value.set_sensitive(true);
+        headers.insert(reqwest::header::AUTHORIZATION, value);
+        builder = builder.default_headers(headers);
+    }
+
+    builder
         .build()
         .map_err(|err| format!("Could not create sync HTTP client: {err}"))
 }

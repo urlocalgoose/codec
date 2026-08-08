@@ -214,6 +214,12 @@ func authorizedRequest(r *http.Request, token string) bool {
 		return true
 	}
 
+	// Fallback for clients that cannot set headers: <audio> elements and
+	// EventSource. The request log prints only the path, never the query.
+	if value := r.URL.Query().Get("access_token"); value != "" && constantTimeString(value, token) {
+		return true
+	}
+
 	return false
 }
 

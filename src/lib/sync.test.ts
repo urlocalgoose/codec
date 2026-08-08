@@ -321,3 +321,33 @@ describe("sync client helpers", () => {
     expect(position).toBe(12);
   });
 });
+
+describe("auth token", () => {
+  test("adds Bearer headers to API calls and access_token to media/SSE urls", async () => {
+    const { setSyncAuthToken } = await import("./sync");
+    const requests: { url: string; auth: string | null }[] = [];
+    const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      requests.push({ url: String(input), auth: headers.get("Authorization") });
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+
+    setSyncAuthToken("  sesame ");
+    try {
+      await validateSyncServer("localhost:8787", fetcher);
+      expect(requests[0].auth).toBe("Bearer sesame");
+      expect(trackAudioUrl("localhost:8787", "abc")).toBe(
+        "http://localhost:8787/api/v1/tracks/abc/audio?access_token=sesame"
+      );
+      expect(playbackEventsV2Url("localhost:8787")).toBe(
+        "http://localhost:8787/api/v2/playback/events?access_token=sesame"
+      );
+    } finally {
+      setSyncAuthToken("");
+    }
+
+    await validateSyncServer("localhost:8787", fetcher);
+    expect(requests[1].auth).toBeNull();
+    expect(trackAudioUrl("localhost:8787", "abc")).toBe("http://localhost:8787/api/v1/tracks/abc/audio");
+  });
+});

@@ -51,6 +51,7 @@
     normalizeLibrary,
     playbackEventsV2Url,
     pushLibrarySnapshot,
+    setSyncAuthToken,
     sendPlaybackCommandV2,
     trackAudioUrl,
     updatePlaybackDevice,
@@ -92,6 +93,7 @@
   const REPEAT_STORAGE_KEY = "loud.repeat";
   const THEME_STORAGE_KEY = "loud.theme";
   const SYNC_SERVER_STORAGE_KEY = "loud.syncServer";
+  const SYNC_TOKEN_STORAGE_KEY = "loud.syncToken";
   const SYNC_DEVICE_ID_STORAGE_KEY = "loud.deviceId";
   const SYNC_DEVICE_NAME_STORAGE_KEY = "loud.deviceName";
   const SYNC_SELECTED_DEVICE_STORAGE_KEY = "loud.selectedPlaybackDevice";
@@ -151,6 +153,7 @@
   let theme: ThemeId = "oxide";
   let syncServerUrl = "";
   let syncServerDraft = "";
+  let syncTokenDraft = "";
   let syncServerReady = false;
   let deviceId = "";
   let deviceName = "";
@@ -261,6 +264,8 @@
       localStorage.getItem(SYNC_SERVER_STORAGE_KEY) ?? defaultSyncServerUrl(DEFAULT_SYNC_SERVER_URL)
     );
     syncServerDraft = syncServerUrl;
+    syncTokenDraft = localStorage.getItem(SYNC_TOKEN_STORAGE_KEY) ?? "";
+    setSyncAuthToken(syncTokenDraft);
     deviceId = localStorage.getItem(SYNC_DEVICE_ID_STORAGE_KEY) ?? createDeviceId();
     deviceName = localStorage.getItem(SYNC_DEVICE_NAME_STORAGE_KEY) ?? defaultDeviceName();
     selectedPlaybackDeviceId = localStorage.getItem(SYNC_SELECTED_DEVICE_STORAGE_KEY) ?? "";
@@ -724,6 +729,15 @@
       localStorage.removeItem(SYNC_SERVER_STORAGE_KEY);
       stopPlaybackDevicePolling();
     }
+
+    syncTokenDraft = syncTokenDraft.trim();
+    setSyncAuthToken(syncTokenDraft);
+    if (syncTokenDraft) {
+      localStorage.setItem(SYNC_TOKEN_STORAGE_KEY, syncTokenDraft);
+    } else {
+      localStorage.removeItem(SYNC_TOKEN_STORAGE_KEY);
+    }
+
     return nextUrl;
   }
 
@@ -743,7 +757,8 @@
         const report = await invoke<SyncTransferReport>("sync_library_to_server", {
           root_path: rootPath,
           server_url: serverUrl,
-          device_id: deviceId
+          device_id: deviceId,
+          auth_token: syncTokenDraft
         });
         syncMessage = syncReportText("Uploaded", report);
       } else {
@@ -776,7 +791,8 @@
       if (hasNativeBridge() && rootPath && !isRemoteRoot(rootPath)) {
         const report = await invoke<SyncTransferReport>("sync_library_from_server", {
           root_path: rootPath,
-          server_url: serverUrl
+          server_url: serverUrl,
+          auth_token: syncTokenDraft
         });
         syncMessage = syncReportText("Pulled", report);
         await loadLibrary(rootPath, true);
@@ -856,6 +872,9 @@
     syncServerDraft = "";
     syncServerUrl = "";
     syncServerReady = false;
+    syncTokenDraft = "";
+    setSyncAuthToken("");
+    localStorage.removeItem(SYNC_TOKEN_STORAGE_KEY);
     localStorage.removeItem(SYNC_SERVER_STORAGE_KEY);
     localStorage.removeItem(SYNC_SELECTED_DEVICE_STORAGE_KEY);
     selectedPlaybackDeviceId = "";
@@ -2101,6 +2120,7 @@
     {loading}
     {errorMessage}
     bind:syncServerDraft
+    bind:syncTokenDraft
     onChooseFolder={() => void chooseFolder()}
     onConnect={() => void loadRemoteLibrary(false)}
   />
@@ -2206,6 +2226,7 @@
       <SyncServerModal
         {syncServerUrl}
         bind:syncServerDraft
+        bind:syncTokenDraft
         onClose={closeSyncServerModal}
         onDisconnect={disconnectSyncServer}
         onApply={() => void applySyncServerChange()}
