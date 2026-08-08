@@ -1,124 +1,146 @@
 import SwiftUI
 
 struct HomeView: View {
-    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
+    @Environment(PlayerController.self) private var player
 
     @State private var showSettings = false
-    @State private var showThemePicker = false
+
+    private let grid = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
 
     var body: some View {
         NavigationStack {
-            List {
-                // Faceplate badge: heaviest weight SF Pro ships, tightened
-                // like a receiver logo.
-                Text("Codec")
-                    .font(.system(size: 42, weight: .black))
-                    .tracking(-1)
-                    .foregroundStyle(theme.text)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    if app.connection == .offline {
+                        Label("Offline — playing downloads", systemImage: "wifi.slash")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 20)
+                    }
 
-                if app.connection == .offline {
-                    Label("Offline — playing downloads and cache", systemImage: "wifi.slash")
-                        .font(.system(size: 12, weight: .heavy))
-                        .foregroundStyle(theme.accentText)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(theme.accent)
-                        .clipShape(Capsule())
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 6, trailing: 16))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                }
+                    if !app.userPlaylists.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Playlists")
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                                .padding(.horizontal, 20)
 
-                if !app.userPlaylists.isEmpty {
-                    Section {
-                        playlistRail
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                    } header: {
-                        SectionLabel("Playlists")
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(app.userPlaylists) { playlist in
+                                        NavigationLink {
+                                            TrackListView(title: playlist.name, tracks: app.tracks(in: playlist))
+                                        } label: {
+                                            PlaylistCard(
+                                                playlist: playlist,
+                                                cover: app.tracks(in: playlist).first
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Recently Added")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .padding(.horizontal, 20)
+
+                        LazyVGrid(columns: grid, spacing: 18) {
+                            ForEach(app.recentlyAdded) { track in
+                                Button {
+                                    if player.currentTrack?.id == track.id {
+                                        player.togglePlayback()
+                                    } else {
+                                        player.play(track, from: app.recentlyAdded)
+                                    }
+                                } label: {
+                                    RecentTile(track: track)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 20)
                     }
                 }
-
-                Section {
-                    ForEach(app.recentlyAdded) { track in
-                        PlayableTrackRow(track: track, collection: app.recentlyAdded)
-                    }
-                } header: {
-                    SectionLabel("Recently added")
-                }
+                .padding(.top, 4)
+                .padding(.bottom, 16)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(theme.bg)
             .refreshable {
                 await app.refresh()
             }
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Codec")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showThemePicker = true
-                    } label: {
-                        Image(systemName: "paintpalette")
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showSettings = true
                     } label: {
-                        Image(systemName: "server.rack")
+                        Image(systemName: "person.crop.circle")
                     }
                 }
             }
             .sheet(isPresented: $showSettings) {
                 ServerSettingsView()
             }
-            .sheet(isPresented: $showThemePicker) {
-                ThemePickerView()
-            }
         }
     }
+}
 
-    private var playlistRail: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(app.userPlaylists) { playlist in
-                    NavigationLink {
-                        TrackListView(title: playlist.name, tracks: app.tracks(in: playlist))
-                    } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Image(systemName: "music.note.list")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(theme.accent)
-                            Spacer(minLength: 0)
-                            Text(playlist.name)
-                                .font(.system(size: 14, weight: .heavy))
-                                .foregroundStyle(theme.text)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.leading)
-                            Text("\(playlist.trackIDs.count) tracks")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(theme.subtle)
-                        }
-                        .padding(12)
-                        .frame(width: 132, height: 116, alignment: .leading)
-                        .background(theme.panel)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(theme.border, lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
+private struct PlaylistCard: View {
+    let playlist: LoudPlaylist
+    let cover: LoudTrack?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ArtworkView(track: cover, size: 128, cornerRadius: 10)
+
+            Text(playlist.name)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .lineLimit(1)
+
+            Text("\(playlist.trackIDs.count) songs")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(width: 128, alignment: .leading)
+    }
+}
+
+private struct RecentTile: View {
+    @Environment(PlayerController.self) private var player
+
+    let track: LoudTrack
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GeometryReader { proxy in
+                ArtworkView(track: track, size: proxy.size.width, cornerRadius: 10)
+            }
+            .aspectRatio(1, contentMode: .fit)
+
+            HStack(spacing: 5) {
+                if player.currentTrack?.id == track.id {
+                    Image(systemName: "waveform")
+                        .font(.caption2)
+                        .symbolEffect(.variableColor.iterative, isActive: player.isPlaying)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(track.title)
+                        .font(.footnote)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                    Text(track.artist)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
     }
 }

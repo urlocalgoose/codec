@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct RootView: View {
-    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
 
@@ -31,7 +30,6 @@ struct RootView: View {
             .sheet(isPresented: $showNowPlaying) {
                 NowPlayingView()
             }
-            .background(theme.bg)
         }
     }
 
@@ -40,9 +38,8 @@ struct RootView: View {
     }
 }
 
-/// Insets each tab's content with the mini player so it sits above the tab
-/// bar instead of covering it (a bottom inset on the TabView itself would
-/// draw over the bar).
+/// Insets each tab's content with the mini player so it floats above the tab
+/// bar instead of covering it.
 private struct MiniPlayerInset: ViewModifier {
     @Environment(PlayerController.self) private var player
 
@@ -57,63 +54,52 @@ private struct MiniPlayerInset: ViewModifier {
     }
 }
 
-/// The always-visible strip above the tab bar: tap for the full player.
+/// Floating material card, Apple-Music style.
 struct MiniPlayerBar: View {
-    @Environment(\.loudTheme) private var theme
     @Environment(PlayerController.self) private var player
 
     let onOpen: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            ArtworkView(track: player.currentTrack, size: 40)
+            ArtworkView(track: player.currentTrack, size: 40, cornerRadius: 8)
+                .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 1)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(player.currentTrack?.title ?? "")
-                    .font(.system(size: 14, weight: .heavy))
-                    .foregroundStyle(theme.text)
-                    .lineLimit(1)
-                Text(player.currentTrack?.artist ?? "")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(theme.muted)
-                    .lineLimit(1)
-            }
+            Text(player.currentTrack?.title ?? "")
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .lineLimit(1)
 
-            Spacer(minLength: 10)
+            Spacer(minLength: 8)
 
             Button {
                 player.togglePlayback()
             } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 17, weight: .heavy))
-                    .foregroundStyle(theme.text)
-                    .frame(width: 44, height: 44)
+                    .font(.title3)
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 40, height: 40)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                player.next()
+            } label: {
+                Image(systemName: "forward.fill")
+                    .font(.title3)
+                    .frame(width: 40, height: 40)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(theme.panel)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(theme.line)
-                .frame(height: 1)
-        }
-        .overlay(alignment: .bottom) {
-            ProgressView(value: progress)
-                .progressViewStyle(.linear)
-                .tint(theme.accent)
-                .frame(height: 2)
-        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 4)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
-    }
-
-    private var progress: Double {
-        guard player.duration > 0 else {
-            return 0
-        }
-        return min(max(player.currentTime / player.duration, 0), 1)
     }
 }

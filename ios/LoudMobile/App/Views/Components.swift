@@ -1,46 +1,30 @@
 import SwiftUI
 
-struct SectionLabel: View {
-    @Environment(\.loudTheme) private var theme
-    let text: String
-
-    init(_ text: String) {
-        self.text = text
-    }
-
-    var body: some View {
-        Text(text.uppercased())
-            .font(.system(size: 11, weight: .heavy))
-            .foregroundStyle(theme.subtle)
-    }
-}
-
 /// Artwork with auth headers and an in-memory cache.
 struct ArtworkView: View {
-    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
 
     let track: LoudTrack?
-    var size: CGFloat = 44
-    var cornerRadius: CGFloat = 4
+    var size: CGFloat = 48
+    var cornerRadius: CGFloat = 6
 
     @State private var image: UIImage?
 
     var body: some View {
         ZStack {
-            theme.panel2
+            Color(.secondarySystemBackground)
             if let image {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
             } else {
                 Image(systemName: "music.note")
-                    .font(.system(size: size * 0.36, weight: .bold))
-                    .foregroundStyle(theme.subtle)
+                    .font(.system(size: size * 0.34, weight: .medium))
+                    .foregroundStyle(.tertiary)
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .task(id: track?.fingerprint) {
             image = nil
             guard let track, let client = app.client, let url = client.artworkURL(for: track) else {
@@ -52,53 +36,60 @@ struct ArtworkView: View {
 }
 
 struct TrackRow: View {
-    @Environment(\.loudTheme) private var theme
     @Environment(PlayerController.self) private var player
     @Environment(DownloadStore.self) private var downloads
 
     let track: LoudTrack
     var showsDownloadState = true
 
+    private var isCurrent: Bool {
+        player.currentTrack?.id == track.id
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             ArtworkView(track: track)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(track.title)
-                    .font(.system(size: 15, weight: .heavy))
-                    .foregroundStyle(player.currentTrack?.id == track.id ? theme.accent : theme.text)
+                    .font(.body)
+                    .fontWeight(isCurrent ? .semibold : .regular)
                     .lineLimit(1)
 
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     if showsDownloadState, downloads.isDownloaded(track) {
                         Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundStyle(theme.accent)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                     Text(track.artist)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(theme.muted)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
 
             Spacer(minLength: 12)
 
-            Text(formatDuration(track.durationSeconds))
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(theme.subtle)
+            if isCurrent {
+                Image(systemName: player.isPlaying ? "waveform" : "pause")
+                    .font(.footnote)
+                    .symbolEffect(.variableColor.iterative, isActive: player.isPlaying)
+            } else {
+                Text(formatDuration(track.durationSeconds))
+                    .font(.footnote)
+                    .monospacedDigit()
+                    .foregroundStyle(.tertiary)
+            }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 9)
+        .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .background(player.currentTrack?.id == track.id ? theme.panel2 : Color.clear)
     }
 }
 
 /// A track row wired for a List: tap to play, swipe right to queue, swipe
 /// left to like or download, long-press for the full menu.
 struct PlayableTrackRow: View {
-    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
     @Environment(DownloadStore.self) private var downloads
@@ -118,16 +109,13 @@ struct PlayableTrackRow: View {
             TrackRow(track: track, showsDownloadState: showsDownloadState)
         }
         .buttonStyle(.plain)
-        .listRowInsets(EdgeInsets())
-        .listRowBackground(Color.clear)
-        .listRowSeparatorTint(theme.line)
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 player.playNext(track)
             } label: {
                 Label("Queue", systemImage: "text.badge.plus")
             }
-            .tint(theme.accent)
+            .tint(.orange)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button {
@@ -138,7 +126,7 @@ struct PlayableTrackRow: View {
                     systemImage: app.isLiked(track) ? "heart.slash.fill" : "heart.fill"
                 )
             }
-            .tint(theme.accent)
+            .tint(.pink)
 
             if downloads.isDownloaded(track) {
                 Button {
@@ -146,14 +134,14 @@ struct PlayableTrackRow: View {
                 } label: {
                     Label("Remove", systemImage: "trash")
                 }
-                .tint(theme.danger)
+                .tint(.red)
             } else if let client = app.client {
                 Button {
                     downloads.download(track, using: client)
                 } label: {
                     Label("Download", systemImage: "arrow.down.circle.fill")
                 }
-                .tint(theme.subtle)
+                .tint(.gray)
             }
         }
         .contextMenu {
@@ -194,9 +182,8 @@ struct PlayableTrackRow: View {
     }
 }
 
-/// One list of playable tracks with Play/Shuffle actions on top.
+/// One list of playable tracks with the Apple-Music-style capsule actions.
 struct TrackListView: View {
-    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
     @Environment(DownloadStore.self) private var downloads
@@ -207,43 +194,15 @@ struct TrackListView: View {
 
     var body: some View {
         List {
-            HStack(spacing: 10) {
-                Button {
+            HStack(spacing: 12) {
+                capsuleButton("Play", systemImage: "play.fill") {
                     player.playCollection(tracks)
-                } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "play.fill")
-                        Text("Play")
-                    }
-                    .font(.system(size: 14, weight: .heavy))
                 }
-                .buttonStyle(DeckButtonStyle(primary: true))
-
-                Button {
+                capsuleButton("Shuffle", systemImage: "shuffle") {
                     player.playCollection(tracks, shuffled: true)
-                } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "shuffle")
-                        Text("Shuffle")
-                    }
-                    .font(.system(size: 14, weight: .heavy))
-                }
-                .buttonStyle(DeckButtonStyle())
-
-                if showsDownloadAll, let client = app.client {
-                    Button {
-                        downloads.downloadAll(tracks, using: client)
-                    } label: {
-                        Image(systemName: "arrow.down.to.line")
-                            .font(.system(size: 15, weight: .heavy))
-                    }
-                    .buttonStyle(DeckButtonStyle())
-                    .frame(width: 62)
                 }
             }
-            .padding(.vertical, 6)
-            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 10, trailing: 20))
             .listRowSeparator(.hidden)
 
             ForEach(tracks) { track in
@@ -251,17 +210,37 @@ struct TrackListView: View {
             }
 
             if tracks.isEmpty {
-                ContentUnavailableView("No tracks here", systemImage: "music.note")
-                    .listRowBackground(Color.clear)
+                ContentUnavailableView("No Tracks", systemImage: "music.note")
                     .listRowSeparator(.hidden)
-                    .foregroundStyle(theme.subtle)
             }
         }
         .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(theme.bg)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            if showsDownloadAll, let client = app.client {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        downloads.downloadAll(tracks, using: client)
+                    } label: {
+                        Image(systemName: "arrow.down.circle")
+                    }
+                }
+            }
+        }
+    }
+
+    private func capsuleButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+        }
+        .buttonStyle(.plain)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .disabled(tracks.isEmpty)
     }
 }
 

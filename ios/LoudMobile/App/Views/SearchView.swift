@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct SearchView: View {
-    @Environment(\.loudTheme) private var theme
     @Environment(AppModel.self) private var app
 
     @State private var query = ""
@@ -18,12 +17,9 @@ struct SearchView: View {
                 }
             }
             .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(theme.bg)
             .overlay {
                 if !query.isEmpty && results.isEmpty {
                     ContentUnavailableView.search(text: query)
-                        .background(theme.bg)
                 }
             }
             .navigationTitle("Search")
