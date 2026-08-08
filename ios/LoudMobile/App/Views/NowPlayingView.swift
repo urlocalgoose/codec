@@ -159,6 +159,9 @@ struct NowPlayingView: View {
 
                 Spacer()
 
+                AudioRoutePicker(tint: theme.subtle, activeTint: theme.accent)
+                    .frame(width: 40, height: 40)
+
                 if let track = player.currentTrack {
                     downloadButton(track)
                 }

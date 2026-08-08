@@ -1,4 +1,23 @@
+import AVKit
 import SwiftUI
+
+/// The system output picker: AirPods, Bluetooth speakers, AirPlay, CarPlay.
+/// Wraps AVRoutePickerView since SwiftUI has no native equivalent.
+struct AudioRoutePicker: UIViewRepresentable {
+    var tint: Color
+    var activeTint: Color
+
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.backgroundColor = .clear
+        return picker
+    }
+
+    func updateUIView(_ picker: AVRoutePickerView, context: Context) {
+        picker.tintColor = UIColor(tint)
+        picker.activeTintColor = UIColor(activeTint)
+    }
+}
 
 struct SectionLabel: View {
     @Environment(\.loudTheme) private var theme
