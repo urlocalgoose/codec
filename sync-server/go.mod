@@ -1,4 +1,4 @@
-module loud-sync-server
+module codec-sync-server
 
 go 1.26
 

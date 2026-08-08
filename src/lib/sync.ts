@@ -186,10 +186,10 @@ function syncApiError(action: string, serverUrl: string, response: Response): Er
     const port = serverPort(serverUrl);
     const hint =
       port === "1420" || port === "5173"
-        ? `${serverOrigin(serverUrl)} is the Loud web app dev server, not the sync server. Use http://${serverHost(
+        ? `${serverOrigin(serverUrl)} is the Codec web app dev server, not the sync server. Use http://${serverHost(
             serverUrl
           )}:8787 instead.`
-        : `No Loud sync API answered at ${serverOrigin(
+        : `No Codec sync API answered at ${serverOrigin(
             serverUrl
           )}. Make sure this is the sync server address, usually http://${serverHost(serverUrl)}:8787.`;
     return new Error(`${action}. ${hint}`);
@@ -201,7 +201,7 @@ function syncApiError(action: string, serverUrl: string, response: Response): Er
 export async function validateSyncServer(serverUrl: string, fetcher: typeof fetch = fetch): Promise<void> {
   const response = await fetcher(`${normalizeServerUrl(serverUrl)}/health`);
   if (!response.ok) {
-    throw syncApiError("Could not reach Loud sync server", serverUrl, response);
+    throw syncApiError("Could not reach Codec sync server", serverUrl, response);
   }
 }
 

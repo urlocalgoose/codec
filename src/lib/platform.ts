@@ -40,7 +40,7 @@ export function createDeviceId(): string {
 
 export function defaultDeviceName(): string {
   if (hasNativeBridge()) {
-    return "Loud Desktop";
+    return "Codec Desktop";
   }
 
   const userAgent = navigator.userAgent;
@@ -56,5 +56,5 @@ export function defaultDeviceName(): string {
   if (/Mac/i.test(userAgent)) {
     return "Mac Web";
   }
-  return "Loud Web";
+  return "Codec Web";
 }

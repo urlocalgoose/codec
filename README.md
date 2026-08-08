@@ -1,6 +1,6 @@
-# Loud
+# Codec
 
-Your music, your files, your server. Loud is an open-source, folder-first music
+Your music, your files, your server. Codec is an open-source, folder-first music
 ecosystem: a desktop player, a portable sync server, a mobile web app, and an
 iOS app — all speaking one simple contract, all backed by real MP3 files you
 own.
@@ -62,9 +62,9 @@ The server is one binary with three flags and one environment variable:
 
 ```bash
 cd sync-server
-go build -o loud-sync-server ./cmd/loud-sync-server
+go build -o codec-sync-server ./cmd/codec-sync-server
 
-LOUD_AUTH_TOKEN='long-random-secret' ./loud-sync-server \
+LOUD_AUTH_TOKEN='long-random-secret' ./codec-sync-server \
   --addr :8787 \
   --data /srv/loud \
   --web /srv/loud-web
@@ -98,7 +98,7 @@ See [docs/loud-sync.md](docs/loud-sync.md) for the API surface.
 
 ## Importing music from other tools
 
-Downloaders can hand Loud a `loud.import.v1` manifest (JSON + MP3s) and Loud
+Downloaders can hand Codec a `loud.import.v1` manifest (JSON + MP3s) and Codec
 will import new tracks, match existing ones by identity, and apply likes and
 playlists. Spec: [docs/loud-import-v1.md](docs/loud-import-v1.md), JSON schema:
 [docs/loud-import.schema.json](docs/loud-import.schema.json).
@@ -124,6 +124,13 @@ sync-server/          Go sync server (SQLite + media on disk)
 ios/LoudMobile/       SwiftUI iOS app
 docs/                 contracts and guides
 ```
+
+## A note on names
+
+Codec used to be called Loud. The wire schemas (`loud.sync.v1`,
+`loud.playback.v2`, `loud.import.v1`), the `.loud/` state folder, and the
+`LOUD_AUTH_TOKEN` variable keep the original prefix so existing libraries and
+synced devices never break. Treat them as protocol identifiers, not branding.
 
 ## License
 

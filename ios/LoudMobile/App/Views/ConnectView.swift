@@ -20,7 +20,7 @@ struct ConnectView: View {
                             .background(theme.accent)
                             .clipShape(RoundedRectangle(cornerRadius: 4))
 
-                        Text("Loud")
+                        Text("Codec")
                             .font(LoudFont.hand(28))
                             .foregroundStyle(theme.text)
                     }
@@ -29,7 +29,7 @@ struct ConnectView: View {
                         SectionLabel("iPhone")
                             .foregroundStyle(theme.accent)
 
-                        Text("Connect your Loud server.")
+                        Text("Connect your Codec server.")
                             .font(.system(size: 38, weight: .heavy))
                             .foregroundStyle(theme.text)
 

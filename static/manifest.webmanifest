@@ -1,6 +1,6 @@
 {
-  "name": "Loud",
-  "short_name": "Loud",
+  "name": "Codec",
+  "short_name": "Codec",
   "description": "Local-first music library with real downloads and sync.",
   "start_url": "/",
   "scope": "/",

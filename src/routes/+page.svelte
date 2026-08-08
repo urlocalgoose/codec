@@ -387,7 +387,7 @@
   async function chooseFolder() {
     errorMessage = "";
     if (!hasNativeBridge()) {
-      errorMessage = "Open Loud in the Tauri app to choose a music folder.";
+      errorMessage = "Open Codec in the Tauri app to choose a music folder.";
       return;
     }
 
@@ -406,7 +406,7 @@
   async function chooseImportManifest() {
     errorMessage = "";
     if (!hasNativeBridge()) {
-      errorMessage = "Open Loud in the Tauri app to import a playlist manifest.";
+      errorMessage = "Open Codec in the Tauri app to import a playlist manifest.";
       return;
     }
 
@@ -418,8 +418,8 @@
     const selected = await open({
       directory: false,
       multiple: false,
-      title: "Import Loud playlist manifest",
-      filters: [{ name: "Loud import manifest", extensions: ["json"] }]
+      title: "Import Codec playlist manifest",
+      filters: [{ name: "Codec import manifest", extensions: ["json"] }]
     });
 
     if (typeof selected !== "string") {
@@ -445,7 +445,7 @@
     errorMessage = "";
     if (!hasNativeBridge()) {
       loading = false;
-      errorMessage = "Open Loud in the Tauri app to load your music folder.";
+      errorMessage = "Open Codec in the Tauri app to load your music folder.";
       return;
     }
 
@@ -2091,7 +2091,7 @@
 </script>
 
 <svelte:head>
-  <title>Loud</title>
+  <title>Codec</title>
 </svelte:head>
 
 {#if !library && !loading}

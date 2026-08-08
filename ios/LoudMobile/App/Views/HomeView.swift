@@ -12,7 +12,7 @@ struct HomeView: View {
             List {
                 // Handwritten label on the mixtape: the one place the hand
                 // font appears per screen.
-                Text("Loud")
+                Text("Codec")
                     .font(LoudFont.hand(46))
                     .foregroundStyle(theme.text)
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))

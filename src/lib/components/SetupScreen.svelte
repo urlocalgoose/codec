@@ -25,19 +25,19 @@
   <section class="setup-panel" class:web-setup={!isNative} aria-labelledby="setup-title">
     <div class="brand-row">
       <span class="brand-mark"><Music2 size={32} /></span>
-      <span>Loud</span>
+      <span>Codec</span>
     </div>
     {#if isNative}
       <span class="setup-mode">Desktop</span>
       <h1 id="setup-title">Local music, folder-first.</h1>
       <p>
-        Pick a music folder, or connect to a Loud sync server to push and pull real MP3 files.
+        Pick a music folder, or connect to a Codec sync server to push and pull real MP3 files.
       </p>
     {:else}
       <span class="setup-mode">Mobile / Web</span>
-      <h1 id="setup-title">Connect to Loud.</h1>
+      <h1 id="setup-title">Connect to Codec.</h1>
       <p>
-        Use the same Loud app from the server that stores your library, playback, and queue.
+        Use the same Codec app from the server that stores your library, playback, and queue.
       </p>
     {/if}
     {#if isNative}

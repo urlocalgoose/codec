@@ -9,7 +9,7 @@ The Go server can run open for local LAN/Tailscale development, or protected
 with one shared token:
 
 ```bash
-LOUD_AUTH_TOKEN='long-random-secret' ./loud-sync-server \
+LOUD_AUTH_TOKEN='long-random-secret' ./codec-sync-server \
   --addr :8787 \
   --data /srv/loud \
   --web /srv/loud-web

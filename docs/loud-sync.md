@@ -1,6 +1,6 @@
-# Loud Sync
+# Codec Sync
 
-Loud has one server path: the portable Go server.
+Codec has one server path: the portable Go server.
 
 - It serves the Svelte app.
 - It serves the JSON API.
@@ -32,7 +32,7 @@ unless you are only debugging UI.
 For a public server, put it behind HTTPS and start it with a token:
 
 ```bash
-LOUD_AUTH_TOKEN='long-random-secret' ./loud-sync-server \
+LOUD_AUTH_TOKEN='long-random-secret' ./codec-sync-server \
   --addr :8787 \
   --data /srv/loud \
   --web /srv/loud-web
@@ -43,13 +43,13 @@ auth for API clients.
 
 ## Desktop Flow
 
-1. Open Loud.
+1. Open Codec.
 2. Open your local music folder.
 3. Use the sync controls to upload metadata, MP3s, and cached artwork thumbnails.
 4. On another desktop, enter the same server URL and click download.
 
 Pulling from the server downloads missing MP3s into a temp import bundle,
-imports them through the normal Loud importer, then applies playlist and liked
+imports them through the normal Codec importer, then applies playlist and liked
 state by fingerprint. Existing tracks should not duplicate.
 
 ## Mobile / PWA Flow

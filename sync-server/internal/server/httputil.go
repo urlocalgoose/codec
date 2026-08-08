@@ -194,7 +194,7 @@ func withAuth(next http.Handler, token string) http.Handler {
 			return
 		}
 
-		w.Header().Set("WWW-Authenticate", `Basic realm="Loud"`)
+		w.Header().Set("WWW-Authenticate", `Basic realm="Codec"`)
 		writeError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
 	})
 }

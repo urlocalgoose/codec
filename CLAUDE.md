@@ -2,9 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What Loud Is
+## What Codec Is
 
-Loud is a local-first music player/library manager built as a Tauri v2 desktop app (SvelteKit + Svelte 5 frontend, Rust backend), with a portable Go sync server that serves the same web UI as a mobile PWA and syncs libraries between devices, plus a native SwiftUI iOS app.
+Codec (formerly Loud) is a local-first music player/library manager built as a Tauri v2 desktop app (SvelteKit + Svelte 5 frontend, Rust backend), with a portable Go sync server that serves the same web UI as a mobile PWA and syncs libraries between devices, plus a native SwiftUI iOS app.
+
+**Naming rule:** "Codec" is the brand (UI strings, app names, docs). The `loud.*` wire schemas, `.loud/` state folder, `loud://` roots, `LOUD_AUTH_TOKEN`, storage keys, and `Loud*`-prefixed code identifiers are historical and MUST stay — renaming them breaks existing libraries and synced devices.
 
 ## Commands
 
@@ -36,7 +38,7 @@ Three clients speak one contract to one server:
    - Frontend: `src/routes/+page.svelte` is the orchestrator (state + playback engine); markup lives in `src/lib/components/` (PlayerBar, TrackList, Sidebar, modals, etc. — Svelte 5 runes components); pure logic in `src/lib/*.ts` where the tests live. Keep new logic in `src/lib` so it stays testable. All styling is `src/app.css` (global, theme via `data-theme` attribute; themes defined in `src/lib/themes.ts` + app.css blocks).
    - **UI vibe is intentional**: tape-deck transport — the play button latches (`.play-button.active` stays pressed while playing), skip/prev are momentary. Don't "modernize" it.
 
-2. **Go sync server** — `sync-server/`, module `loud-sync-server`, single dependency (`modernc.org/sqlite`, no cgo). One package split by concern: `server.go` (setup/routing/migrations), `hub.go` (SSE pub/sub), `handlers.go`, `store_library.go`, `store_playback.go`, `playback_v2.go` (playback state machine), `httputil.go`, `summaries.go`, `helpers.go`. Optional shared-token auth via `LOUD_AUTH_TOKEN` (Basic for browsers, Bearer for API clients; `/health` stays public).
+2. **Go sync server** — `sync-server/`, module `codec-sync-server`, single dependency (`modernc.org/sqlite`, no cgo). One package split by concern: `server.go` (setup/routing/migrations), `hub.go` (SSE pub/sub), `handlers.go`, `store_library.go`, `store_playback.go`, `playback_v2.go` (playback state machine), `httputil.go`, `summaries.go`, `helpers.go`. Optional shared-token auth via `LOUD_AUTH_TOKEN` (Basic for browsers, Bearer for API clients; `/health` stays public).
 
 3. **iOS app** — `ios/LoudMobile/` (SwiftPM + xcodeproj). Speaks the same v1/v2 API as the web client.
 

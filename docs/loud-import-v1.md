@@ -1,4 +1,4 @@
-# Loud Import Manifest v1
+# Codec Import Manifest v1
 
 Use `loud.import.v1` when another program downloads or prepares MP3s for Loud.
 
@@ -60,7 +60,7 @@ Loud keeps MP3s as normal media files, but it does not use duplicate files for a
 
 ## Identity Rules
 
-Loud chooses the canonical identity in this order:
+Codec chooses the canonical identity in this order:
 
 1. `fingerprint`
 2. `identifiers.isrc`
@@ -93,7 +93,7 @@ The stronger form is an identity ref:
 ]
 ```
 
-You can also reference a direct Loud identity:
+You can also reference a direct Codec identity:
 
 ```json
 "tracks": [
@@ -107,25 +107,25 @@ You can also reference a direct Loud identity:
 
 Write real MP3 files with normal ID3 tags whenever possible: title, artist, album, album artist, track number, disc number, year, genre, duration, and cover art.
 
-Use stable relative file paths in `tracks[].file`. If `source.base_path` is set, Loud resolves files relative to that folder next to the manifest. Absolute paths work locally, but they are bad for sharing.
+Use stable relative file paths in `tracks[].file`. If `source.base_path` is set, Codec resolves files relative to that folder next to the manifest. Absolute paths work locally, but they are bad for sharing.
 
-Prefer `identifiers` over `fingerprint` for downloader output. Keep `fingerprint` only when your tool already knows the exact Loud identity string it wants.
+Prefer `identifiers` over `fingerprint` for downloader output. Keep `fingerprint` only when your tool already knows the exact Codec identity string it wants.
 
 Use `liked: true` to mark the canonical song liked. Do not copy the song into a `Liked` folder.
 
-Use `playlists[].mode: "replace"` only for sync-style imports where your program owns that playlist. Use `append` when you are handing Loud a bundle of songs to add.
+Use `playlists[].mode: "replace"` only for sync-style imports where your program owns that playlist. Use `append` when you are handing Codec a bundle of songs to add.
 
 ## Mixed New And Existing Imports
 
-When Loud imports the manifest, each track lands in one of these buckets:
+When Codec imports the manifest, each track lands in one of these buckets:
 
 `new_tracks`: Loud copied the MP3 into `.loud/audio`.
 
-`existing_tracks`: Loud already had the song identity, so it did not copy the file.
+`existing_tracks`: Codec already had the song identity, so it did not copy the file.
 
-`playlist_updates`: Loud added canonical song refs to playlists.
+`playlist_updates`: Codec added canonical song refs to playlists.
 
-`liked_updates`: Loud marked canonical songs as liked.
+`liked_updates`: Codec marked canonical songs as liked.
 
 `skipped_tracks`: The file was missing, not an MP3, or otherwise unreadable.
 

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"loud-sync-server/internal/server"
+	"codec-sync-server/internal/server"
 )
 
 func main() {
@@ -29,7 +29,7 @@ func main() {
 	}
 	defer srv.Close()
 
-	log.Printf("Loud sync server")
+	log.Printf("Codec sync server")
 	log.Printf("  data: %s", *dataDir)
 	log.Printf("  listen: %s", *addr)
 	if strings.TrimSpace(*webDir) != "" {
@@ -43,7 +43,7 @@ func main() {
 		log.Printf("  auth: disabled")
 	}
 	for _, url := range advertisedURLs(*addr) {
-		log.Printf("  open Loud: %s", url)
+		log.Printf("  open Codec: %s", url)
 	}
 	log.Printf("  health: /health")
 	log.Printf("  library: /api/v1/library")

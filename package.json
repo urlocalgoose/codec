@@ -1,13 +1,13 @@
 {
-  "name": "loud",
+  "name": "codec",
   "version": "0.1.0",
   "description": "",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
     "dev:mobile": "bun run server:dev",
-    "server:dev": "bun run build && cd sync-server && go run ./cmd/loud-sync-server --addr :8787 --data ./loud-sync-data --web ../build",
-    "server": "cd sync-server && go run ./cmd/loud-sync-server --addr :8787 --data ./loud-sync-data --web ../build",
+    "server:dev": "bun run build && cd sync-server && go run ./cmd/codec-sync-server --addr :8787 --data ./loud-sync-data --web ../build",
+    "server": "cd sync-server && go run ./cmd/codec-sync-server --addr :8787 --data ./loud-sync-data --web ../build",
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
