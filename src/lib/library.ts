@@ -67,6 +67,29 @@ export function tracksFromReferences(library: Library, references: TrackReferenc
     .filter((track): track is Track => Boolean(track));
 }
 
+// Haystacks are memoized per track object so typing in the search box does
+// not re-lowercase the entire library on every keystroke.
+const searchHaystacks = new WeakMap<Track, string>();
+
+function searchHaystack(track: Track): string {
+  let haystack = searchHaystacks.get(track);
+  if (haystack === undefined) {
+    haystack = [
+      track.title,
+      track.artist,
+      track.album,
+      track.album_artist,
+      track.genre,
+      track.file_name
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    searchHaystacks.set(track, haystack);
+  }
+  return haystack;
+}
+
 export function searchTracks(tracks: Track[], query: string): Track[] {
   const tokens = query
     .trim()
@@ -79,17 +102,7 @@ export function searchTracks(tracks: Track[], query: string): Track[] {
   }
 
   return tracks.filter((track) => {
-    const haystack = [
-      track.title,
-      track.artist,
-      track.album,
-      track.album_artist,
-      track.genre,
-      track.file_name
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
+    const haystack = searchHaystack(track);
     return tokens.every((token) => haystack.includes(token));
   });
 }

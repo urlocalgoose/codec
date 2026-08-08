@@ -34,11 +34,16 @@ final class AppModel {
     /// context resolved by linear scans was enough to jank the main thread.
     private var tracksByID: [String: LoudTrack] = [:]
     private var tracksByFingerprint: [String: LoudTrack] = [:]
+    /// Pre-lowercased "title artist album" per track so search does not
+    /// re-lowercase the whole library on every keystroke.
+    private var searchBlobs: [(blob: String, track: LoudTrack)] = []
 
     private func rebuildTrackIndexes() {
         let tracks = library?.tracks ?? []
         tracksByID = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         tracksByFingerprint = Dictionary(tracks.map { ($0.fingerprint, $0) }, uniquingKeysWith: { first, _ in first })
+        searchBlobs = tracks.map { ("\($0.title) \($0.artist) \($0.album)".lowercased(), $0) }
+        rebuildCollections()
     }
 
     private(set) var client: LoudClient?
@@ -174,23 +179,15 @@ final class AppModel {
 
     var tracks: [LoudTrack] { library?.tracks ?? [] }
 
-    var likedTracks: [LoudTrack] { tracks.filter(\.isLiked) }
-
-    var userPlaylists: [LoudPlaylist] {
-        library?.playlists.filter { !$0.isLiked } ?? []
-    }
-
-    var recentlyAdded: [LoudTrack] {
-        tracks
-            .sorted { ($0.addedAt ?? 0) > ($1.addedAt ?? 0) }
-            .prefix(24)
-            .map { $0 }
-    }
-
+    // The Home/Library collections are cached and rebuilt once per library
+    // change — as computed properties they re-sorted and re-grouped the
+    // whole library on every SwiftUI render pass.
+    private(set) var likedTracks: [LoudTrack] = []
+    private(set) var userPlaylists: [LoudPlaylist] = []
+    private(set) var recentlyAdded: [LoudTrack] = []
     /// Albums we actually have, not one stray song tagged with an album name.
-    var fullAlbums: [LoudAlbumSummary] {
-        library?.albums.filter { $0.trackCount >= 2 } ?? []
-    }
+    private(set) var fullAlbums: [LoudAlbumSummary] = []
+    private(set) var recentItems: [RecentItem] = []
 
     /// What the Home grid shows: newest first, grouped into album tiles when
     /// we have the album, single-track tiles otherwise, capped so "recently
@@ -207,13 +204,19 @@ final class AppModel {
         }
     }
 
-    var recentItems: [RecentItem] {
+    private func rebuildCollections() {
+        let tracks = library?.tracks ?? []
+        likedTracks = tracks.filter(\.isLiked)
+        userPlaylists = library?.playlists.filter { !$0.isLiked } ?? []
+        fullAlbums = library?.albums.filter { $0.trackCount >= 2 } ?? []
+
+        let sorted = tracks.sorted { ($0.addedAt ?? 0) > ($1.addedAt ?? 0) }
+        recentlyAdded = Array(sorted.prefix(24))
+
         let albumsByKey = Dictionary(
             (library?.albums ?? []).map { (albumKey(artist: $0.artist, name: $0.name), $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        let sorted = tracks.sorted { ($0.addedAt ?? 0) > ($1.addedAt ?? 0) }
-
         var seenAlbums = Set<String>()
         var items: [RecentItem] = []
         for track in sorted {
@@ -229,7 +232,7 @@ final class AppModel {
                 items.append(.single(track))
             }
         }
-        return items
+        recentItems = items
     }
 
     func tracks(in playlist: LoudPlaylist) -> [LoudTrack] {
@@ -259,11 +262,7 @@ final class AppModel {
         guard !needle.isEmpty else {
             return []
         }
-        return tracks.filter { track in
-            track.title.lowercased().contains(needle)
-                || track.artist.lowercased().contains(needle)
-                || track.album.lowercased().contains(needle)
-        }
+        return searchBlobs.compactMap { $0.blob.contains(needle) ? $0.track : nil }
     }
 
     // MARK: - Offline library cache

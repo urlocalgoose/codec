@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -685,5 +686,46 @@ func TestQueryAccessTokenAuthorizesHeaderlessClients(t *testing.T) {
 	}
 	if status := get("/api/v2/playback/events?access_token=sesame"); status != http.StatusOK {
 		t.Fatalf("expected 200 for SSE with the query token, got %d", status)
+	}
+}
+
+func TestLibraryResponseGzipsWhenAccepted(t *testing.T) {
+	_, httpServer := testServer(t)
+
+	req, err := http.NewRequest(http.MethodGet, httpServer.URL+"/api/v1/library", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Accept-Encoding", "gzip")
+	transport := &http.Transport{DisableCompression: true}
+	res, err := (&http.Client{Transport: transport}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+
+	if encoding := res.Header.Get("Content-Encoding"); encoding != "gzip" {
+		t.Fatalf("expected gzip encoding, got %q", encoding)
+	}
+	reader, err := gzip.NewReader(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"tracks"`) {
+		t.Fatalf("expected library JSON after gunzip, got %s", body)
+	}
+
+	// Clients that do not ask for gzip get plain JSON.
+	plainRes, err := http.Get(httpServer.URL + "/api/v1/library")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plainRes.Body.Close()
+	if encoding := plainRes.Header.Get("Content-Encoding"); encoding == "gzip" {
+		t.Fatal("expected plain response without Accept-Encoding")
 	}
 }

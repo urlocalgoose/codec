@@ -101,7 +101,7 @@ func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
 	mux.HandleFunc("POST /api/v2/playback/commands", s.handlePlaybackCommandV2)
 	mux.HandleFunc("GET /api/v2/playback/events", s.handlePlaybackEventsV2)
 
-	var handler http.Handler = mux
+	var handler http.Handler = withGzip(mux)
 	if strings.TrimSpace(options.WebDir) != "" {
 		handler = serveWebApp(strings.TrimSpace(options.WebDir), mux)
 	}

@@ -2,6 +2,7 @@
 package server
 
 import (
+	"compress/gzip"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -149,6 +150,39 @@ func (recorder *statusRecorder) Flush() {
 	if flusher, ok := recorder.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
+}
+
+// The library payload is hundreds of kilobytes of JSON; compressing it
+// matters most for phones connecting over cellular through the tunnel.
+var gzipPaths = map[string]bool{
+	"/api/v1/library":       true,
+	"/api/v1/sync/snapshot": true,
+}
+
+type gzipResponseWriter struct {
+	http.ResponseWriter
+	gz *gzip.Writer
+}
+
+func (w gzipResponseWriter) Write(body []byte) (int, error) {
+	return w.gz.Write(body)
+}
+
+func withGzip(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet ||
+			!gzipPaths[r.URL.Path] ||
+			!strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Add("Vary", "Accept-Encoding")
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		next.ServeHTTP(gzipResponseWriter{ResponseWriter: w, gz: gz}, r)
+	})
 }
 
 func logRequests(next http.Handler) http.Handler {

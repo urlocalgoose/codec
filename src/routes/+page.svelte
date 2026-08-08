@@ -161,6 +161,9 @@
   let playbackDevices: PlaybackDevice[] = [];
   let playbackStateV2: PlaybackStateV2 | null = null;
   let playbackClockOffsetMs = 0;
+  // While in the future, the derived server clock may not overwrite
+  // currentTime — prevents scrub rubber-banding until the server confirms.
+  let playbackClockSuppressUntil = 0;
 
   let audioEl: HTMLAudioElement;
   let topBar: TopBar | undefined;
@@ -909,6 +912,43 @@
     return Boolean(syncServerUrl && syncServerReady && deviceId);
   }
 
+  // True when this desktop is the device that should be making sound, which
+  // means transport actions can apply locally first and sync afterwards
+  // instead of waiting a network round-trip before the audio reacts.
+  function isActiveSyncDevice(): boolean {
+    if (!usePlaybackSync()) {
+      return true;
+    }
+    const active = playbackStateV2?.active_device_id;
+    return !active || active === deviceId;
+  }
+
+  // After a locally-applied track change, tell the server the outcome as an
+  // explicit play (a bare next/previous would advance the server's copy a
+  // second time, since commands replace server context before applying).
+  function notifyServerAfterLocalChange(beforeTrackId: string | null, fallbackKind: PlaybackCommandKindV2) {
+    if (!usePlaybackSync()) {
+      return;
+    }
+
+    const command =
+      currentTrack && currentTrack.id !== beforeTrackId
+        ? sendPlaybackCommand("play", {
+            track: trackReference(currentTrack),
+            context: playbackContextSnapshot(),
+            position_seconds: 0
+          })
+        : sendPlaybackCommand(fallbackKind, {
+            position_seconds: currentPlaybackTimeForSave()
+          });
+
+    command
+      .then((state) => applyPlaybackStateV2(state, true))
+      .catch((error) => {
+        errorMessage = error instanceof Error ? error.message : String(error);
+      });
+  }
+
   function startPlaybackDevicePolling() {
     if (!syncServerUrl || !syncServerReady || playbackDevicePollTimer) {
       if (syncServerUrl && syncServerReady) {
@@ -1291,7 +1331,13 @@
       return;
     }
 
-    currentTime = clampPlaybackTime(currentSyncedPlaybackPosition(), currentTrack);
+    // When this desktop is the one playing, the audio element is the truth
+    // (syncTime feeds currentTime); the derived clock is for mirroring
+    // remote devices, and stays quiet right after a local seek.
+    const audioIsTruth = isActiveSyncDevice() && Boolean(loadedSource);
+    if (!audioIsTruth && Date.now() >= playbackClockSuppressUntil) {
+      currentTime = clampPlaybackTime(currentSyncedPlaybackPosition(), currentTrack);
+    }
     if (playbackStateV2.state === "playing" && !playbackClockTimer) {
       playbackClockTimer = window.setInterval(updatePlaybackClock, 250);
     } else if (playbackStateV2.state !== "playing") {
@@ -1397,40 +1443,51 @@
       const targetDeviceId = selectedPlaybackTargetDeviceId();
       const targetIsPlaying =
         playbackStateV2?.state === "playing" && playbackStateV2.active_device_id === targetDeviceId;
+      const actingLocally = targetDeviceId === deviceId && Boolean(currentTrack) && Boolean(loadedSource);
 
-      try {
-        if (targetIsPlaying) {
-          const state = await sendPlaybackCommand("pause", {
-            target_device_id: targetDeviceId,
-            position_seconds: currentSyncedPlaybackPosition()
-          });
-          await applyPlaybackStateV2(state, true);
-          return;
+      if (targetIsPlaying) {
+        if (actingLocally) {
+          audioEl?.pause();
+          isPlaying = false;
         }
-
-        let track = currentTrack;
-        let context = playbackContextSnapshot();
-        if (!track) {
-          track = visibleTracks[0] ?? library?.tracks[0] ?? null;
-          if (track) {
-            const source = createQueue(visibleTracks.length ? visibleTracks : library?.tracks ?? [], track.id, shuffle);
-            context = playbackContextSnapshot(source, 0, [], [], shuffle, repeatMode);
-          }
-        }
-        if (!track) {
-          return;
-        }
-
-        const state = await sendPlaybackCommand("play", {
+        void sendPlaybackCommand("pause", {
           target_device_id: targetDeviceId,
-          track: trackReference(track),
-          context,
-          position_seconds: currentTrack?.id === track.id ? currentSyncedPlaybackPosition() : 0
-        });
-        await applyPlaybackStateV2(state, true);
-      } catch (error) {
-        errorMessage = error instanceof Error ? error.message : String(error);
+          position_seconds: currentPlaybackTimeForSave()
+        })
+          .then((state) => applyPlaybackStateV2(state, true))
+          .catch((error) => {
+            errorMessage = error instanceof Error ? error.message : String(error);
+          });
+        return;
       }
+
+      let track = currentTrack;
+      let context = playbackContextSnapshot();
+      if (!track) {
+        track = visibleTracks[0] ?? library?.tracks[0] ?? null;
+        if (track) {
+          const source = createQueue(visibleTracks.length ? visibleTracks : library?.tracks ?? [], track.id, shuffle);
+          context = playbackContextSnapshot(source, 0, [], [], shuffle, repeatMode);
+        }
+      }
+      if (!track) {
+        return;
+      }
+
+      if (actingLocally && currentTrack?.id === track.id) {
+        void audioEl?.play().catch(() => undefined);
+        isPlaying = true;
+      }
+      void sendPlaybackCommand("play", {
+        target_device_id: targetDeviceId,
+        track: trackReference(track),
+        context,
+        position_seconds: currentTrack?.id === track.id ? currentPlaybackTimeForSave() : 0
+      })
+        .then((state) => applyPlaybackStateV2(state, true))
+        .catch((error) => {
+          errorMessage = error instanceof Error ? error.message : String(error);
+        });
       return;
     }
 
@@ -1620,7 +1677,7 @@
   }
 
   async function nextTrack() {
-    if (usePlaybackSync()) {
+    if (usePlaybackSync() && !isActiveSyncDevice()) {
       try {
         const state = await sendPlaybackCommand("next", {
           position_seconds: currentSyncedPlaybackPosition()
@@ -1632,6 +1689,12 @@
       return;
     }
 
+    const beforeTrackId = currentTrack?.id ?? null;
+    await localNextTrack();
+    notifyServerAfterLocalChange(beforeTrackId, "next");
+  }
+
+  async function localNextTrack() {
     if (!currentTrack && queue.length > 0) {
       currentTrack = queue[0];
       currentTime = 0;
@@ -1674,7 +1737,7 @@
   }
 
   async function previousTrack() {
-    if (usePlaybackSync()) {
+    if (usePlaybackSync() && !isActiveSyncDevice()) {
       try {
         const state = await sendPlaybackCommand("previous", {
           position_seconds: currentSyncedPlaybackPosition()
@@ -1686,9 +1749,17 @@
       return;
     }
 
+    const beforeTrackId = currentTrack?.id ?? null;
+
     if (audioEl && audioEl.currentTime > 4) {
       audioEl.currentTime = 0;
       currentTime = 0;
+      if (usePlaybackSync()) {
+        playbackClockSuppressUntil = Date.now() + 1500;
+        void sendPlaybackCommand("seek", { position_seconds: 0 })
+          .then((state) => applyPlaybackStateV2(state, true))
+          .catch(() => undefined);
+      }
       return;
     }
 
@@ -1705,27 +1776,30 @@
       currentTime = 0;
       await startPlayback();
     }
+    notifyServerAfterLocalChange(beforeTrackId, "previous");
   }
 
   async function handleEnded() {
     if (usePlaybackSync()) {
-      if (playbackStateV2?.active_device_id === deviceId) {
-        try {
-          const state =
-            repeatMode === "one"
-              ? await sendPlaybackCommand("seek", {
-                  target_device_id: deviceId,
-                  position_seconds: 0
-                })
-              : await sendPlaybackCommand("next", {
-                  target_device_id: deviceId,
-                  position_seconds: currentSyncedPlaybackPosition()
-                });
-          await applyPlaybackStateV2(state, true);
-        } catch (error) {
-          errorMessage = error instanceof Error ? error.message : String(error);
-        }
+      if (playbackStateV2?.active_device_id !== deviceId) {
+        return;
       }
+
+      // Start the next song immediately; a network wait here is an audible
+      // gap between every track.
+      if (repeatMode === "one") {
+        audioEl.currentTime = 0;
+        await startPlayback();
+        playbackClockSuppressUntil = Date.now() + 1500;
+        void sendPlaybackCommand("seek", { target_device_id: deviceId, position_seconds: 0 })
+          .then((state) => applyPlaybackStateV2(state, true))
+          .catch(() => undefined);
+        return;
+      }
+
+      const beforeTrackId = currentTrack?.id ?? null;
+      await localNextTrack();
+      notifyServerAfterLocalChange(beforeTrackId, "next");
       return;
     }
 
@@ -1751,16 +1825,21 @@
         nextIndex = 0;
       }
 
-      try {
-        const state = await sendPlaybackCommand("set_shuffle", {
-          shuffle: nextShuffle,
-          context: playbackContextSnapshot(nextSource, nextIndex, queuedTracks, playHistory, nextShuffle, repeatMode),
-          position_seconds: currentSyncedPlaybackPosition()
+      // Flip locally right away; the server confirmation reconciles.
+      shuffle = nextShuffle;
+      playbackSource = nextSource;
+      playbackIndex = nextIndex;
+      localStorage.setItem(SHUFFLE_STORAGE_KEY, String(shuffle));
+
+      void sendPlaybackCommand("set_shuffle", {
+        shuffle: nextShuffle,
+        context: playbackContextSnapshot(nextSource, nextIndex, queuedTracks, playHistory, nextShuffle, repeatMode),
+        position_seconds: currentPlaybackTimeForSave()
+      })
+        .then((state) => applyPlaybackStateV2(state, true))
+        .catch((error) => {
+          errorMessage = error instanceof Error ? error.message : String(error);
         });
-        await applyPlaybackStateV2(state, true);
-      } catch (error) {
-        errorMessage = error instanceof Error ? error.message : String(error);
-      }
       return;
     }
 
@@ -1784,23 +1863,20 @@
 
   async function toggleRepeat() {
     const nextRepeat: RepeatMode = repeatMode === "off" ? "all" : repeatMode === "all" ? "one" : "off";
-
-    if (usePlaybackSync()) {
-      try {
-        const state = await sendPlaybackCommand("set_repeat", {
-          repeat: nextRepeat,
-          context: playbackContextSnapshot(playbackSource, playbackIndex, queuedTracks, playHistory, shuffle, nextRepeat),
-          position_seconds: currentSyncedPlaybackPosition()
-        });
-        await applyPlaybackStateV2(state, true);
-      } catch (error) {
-        errorMessage = error instanceof Error ? error.message : String(error);
-      }
-      return;
-    }
-
     repeatMode = nextRepeat;
     localStorage.setItem(REPEAT_STORAGE_KEY, repeatMode);
+
+    if (usePlaybackSync()) {
+      void sendPlaybackCommand("set_repeat", {
+        repeat: nextRepeat,
+        context: playbackContextSnapshot(playbackSource, playbackIndex, queuedTracks, playHistory, shuffle, nextRepeat),
+        position_seconds: currentPlaybackTimeForSave()
+      })
+        .then((state) => applyPlaybackStateV2(state, true))
+        .catch((error) => {
+          errorMessage = error instanceof Error ? error.message : String(error);
+        });
+    }
   }
 
   async function setProgress(event: Event) {
@@ -1808,14 +1884,15 @@
     currentTime = value;
 
     if (usePlaybackSync()) {
-      try {
-        const state = await sendPlaybackCommand("seek", {
-          position_seconds: value
-        });
-        await applyPlaybackStateV2(state, true);
-      } catch (error) {
-        errorMessage = error instanceof Error ? error.message : String(error);
+      if (isActiveSyncDevice() && audioEl) {
+        audioEl.currentTime = value;
       }
+      playbackClockSuppressUntil = Date.now() + 1500;
+      void sendPlaybackCommand("seek", { position_seconds: value })
+        .then((state) => applyPlaybackStateV2(state, true))
+        .catch((error) => {
+          errorMessage = error instanceof Error ? error.message : String(error);
+        });
       return;
     }
 
@@ -1848,8 +1925,13 @@
   function seekBy(seconds: number) {
     if (usePlaybackSync()) {
       const duration = audioDuration || currentTrack?.duration_seconds || 0;
-      const nextTime = Math.max(0, Math.min(duration || 0, currentSyncedPlaybackPosition() + seconds));
+      const base = isActiveSyncDevice() && audioEl ? audioEl.currentTime : currentSyncedPlaybackPosition();
+      const nextTime = Math.max(0, Math.min(duration || 0, base + seconds));
       currentTime = nextTime;
+      if (isActiveSyncDevice() && audioEl) {
+        audioEl.currentTime = nextTime;
+      }
+      playbackClockSuppressUntil = Date.now() + 1500;
       void sendPlaybackCommand("seek", {
         position_seconds: nextTime
       })
@@ -1875,6 +1957,9 @@
 
   function syncTime() {
     if (usePlaybackSync()) {
+      if (isActiveSyncDevice() && loadedSource) {
+        currentTime = audioEl?.currentTime ?? 0;
+      }
       return;
     }
     currentTime = audioEl?.currentTime ?? 0;
@@ -1903,7 +1988,10 @@
       return;
     }
     if (usePlaybackSync()) {
-      isPlaying = playbackStateV2?.state === "playing";
+      // When this desktop is the speaker, the audio element is the truth —
+      // mirroring the server here would undo optimistic pause taps until
+      // the confirmation round-trip lands.
+      isPlaying = isActiveSyncDevice() ? false : playbackStateV2?.state === "playing";
       return;
     }
 
@@ -1918,7 +2006,7 @@
       return;
     }
     if (usePlaybackSync()) {
-      isPlaying = playbackStateV2?.state === "playing";
+      isPlaying = isActiveSyncDevice() ? true : playbackStateV2?.state === "playing";
       return;
     }
 

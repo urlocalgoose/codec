@@ -7,7 +7,12 @@ import UIKit
 actor ArtworkLoader {
     static let shared = ArtworkLoader()
 
-    private let cache = NSCache<NSURL, UIImage>()
+    private let cache: NSCache<NSURL, UIImage> = {
+        let cache = NSCache<NSURL, UIImage>()
+        cache.countLimit = 400
+        cache.totalCostLimit = 128 * 1024 * 1024
+        return cache
+    }()
     private var inFlight: [URL: Task<UIImage?, Never>] = [:]
 
     func image(for url: URL, headers: [String: String]) async -> UIImage? {
@@ -37,7 +42,8 @@ actor ArtworkLoader {
         let image = await task.value
         inFlight[url] = nil
         if let image {
-            cache.setObject(image, forKey: url as NSURL)
+            let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
+            cache.setObject(image, forKey: url as NSURL, cost: cost)
         }
         return image
     }
@@ -95,35 +101,59 @@ final class DownloadStore {
         }
 
         states[track.fingerprint] = .downloading
-        let destination = fileURL(for: track.fingerprint)
-        let headers = client.authHeaders
-        let fingerprint = track.fingerprint
-
         Task {
-            var request = URLRequest(url: url)
-            for (name, value) in headers {
-                request.setValue(value, forHTTPHeaderField: name)
-            }
+            await performDownload(fingerprint: track.fingerprint, url: url, headers: client.authHeaders)
+        }
+    }
 
-            do {
-                let (temporary, response) = try await URLSession.shared.download(for: request)
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                    try? FileManager.default.removeItem(at: temporary)
-                    states[fingerprint] = nil
-                    return
+    /// Downloads a whole collection at most four at a time — firing hundreds
+    /// of simultaneous transfers just made every one of them slow.
+    func downloadAll(_ tracks: [LoudTrack], using client: LoudClient) {
+        var pending: [(String, URL)] = []
+        for track in tracks where states[track.fingerprint] == nil {
+            guard let url = client.audioURL(for: track) else {
+                continue
+            }
+            states[track.fingerprint] = .downloading
+            pending.append((track.fingerprint, url))
+        }
+        guard !pending.isEmpty else {
+            return
+        }
+
+        let headers = client.authHeaders
+        Task {
+            for batch in stride(from: 0, to: pending.count, by: 4).map({ Array(pending[$0..<min($0 + 4, pending.count)]) }) {
+                await withTaskGroup(of: Void.self) { group in
+                    for (fingerprint, url) in batch {
+                        group.addTask { [weak self] in
+                            await self?.performDownload(fingerprint: fingerprint, url: url, headers: headers)
+                        }
+                    }
                 }
-                try? FileManager.default.removeItem(at: destination)
-                try FileManager.default.moveItem(at: temporary, to: destination)
-                states[fingerprint] = .downloaded
-            } catch {
-                states[fingerprint] = nil
             }
         }
     }
 
-    func downloadAll(_ tracks: [LoudTrack], using client: LoudClient) {
-        for track in tracks where states[track.fingerprint] == nil {
-            download(track, using: client)
+    private func performDownload(fingerprint: String, url: URL, headers: [String: String]) async {
+        let destination = fileURL(for: fingerprint)
+        var request = URLRequest(url: url)
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+
+        do {
+            let (temporary, response) = try await URLSession.shared.download(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                try? FileManager.default.removeItem(at: temporary)
+                states[fingerprint] = nil
+                return
+            }
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.moveItem(at: temporary, to: destination)
+            states[fingerprint] = .downloaded
+        } catch {
+            states[fingerprint] = nil
         }
     }
 
