@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Loud Is
 
-Loud is a local-first music player/library manager built as a Tauri v2 desktop app (SvelteKit + Svelte 5 frontend, Rust backend), with a portable Go sync server that serves the same web UI as a mobile PWA and syncs libraries between devices.
+Loud is a local-first music player/library manager built as a Tauri v2 desktop app (SvelteKit + Svelte 5 frontend, Rust backend), with a portable Go sync server that serves the same web UI as a mobile PWA and syncs libraries between devices, plus a native SwiftUI iOS app.
 
 ## Commands
 
@@ -23,30 +23,27 @@ bun test -t "name"                                   # filter by test name
 cargo test --manifest-path src-tauri/Cargo.toml      # rust tests
 cargo test --manifest-path src-tauri/Cargo.toml some_test_name   # single rust test
 cd sync-server && go test ./...                      # Go server tests (NOT in `bun run test`)
-cd ios/LoudMobile && swift test                      # iOS LoudSecureSync tests (runs on macOS)
+cd ios/LoudMobile && swift test                      # iOS tests (runs on macOS)
 ```
-
-Note: `bun test` with no args also picks up `cloudflare/*.test.mjs` alongside `src/lib/*.test.ts`.
 
 ## Architecture
 
-Three active pieces speak one shared contract; one piece is parked:
+Three clients speak one contract to one server:
 
 1. **Tauri desktop app** — `src/` (frontend) + `src-tauri/` (Rust).
-   - `src-tauri/src/library.rs` (~2400 lines) is the core: scans a user-selected music folder, imports `loud.import.v1` manifests, and persists app truth in `.loud/state.json` inside that folder. New MP3s are copied to `.loud/audio/Artist/Album/`; likes and playlists are references to canonical tracks by fingerprint, never file copies.
-   - `src-tauri/src/lib.rs` defines the Tauri commands, a filesystem watcher, and a small local media HTTP server (token-per-path) that streams audio/artwork to the webview.
-   - Almost all UI lives in one file: `src/routes/+page.svelte` (~6000 lines). Pure logic is extracted into `src/lib/` (`library.ts`, `sync.ts`, `secure-sync.ts`, `types.ts`) where the tests live. Keep new logic in `src/lib` so it stays testable.
+   - Rust core is `src-tauri/src/library/` (mod.rs holds types + public API; scan/ops/import/state/summaries/artwork/util/tests split per concern). App truth lives in `.loud/state.json` inside the user's music folder; new MP3s are copied to `.loud/audio/Artist/Album/`; likes and playlists are references to canonical tracks by fingerprint, never file copies.
+   - `src-tauri/src/lib.rs` is Tauri commands + wiring only; `media_server.rs` is the token-per-path localhost stream server for the WebView; `sync_transfer.rs` moves MP3s/artwork to/from the sync server.
+   - Frontend: `src/routes/+page.svelte` is the orchestrator (state + playback engine); markup lives in `src/lib/components/` (PlayerBar, TrackList, Sidebar, modals, etc. — Svelte 5 runes components); pure logic in `src/lib/*.ts` where the tests live. Keep new logic in `src/lib` so it stays testable. All styling is `src/app.css` (global, theme via `data-theme` attribute; themes defined in `src/lib/themes.ts` + app.css blocks).
+   - **UI vibe is intentional**: tape-deck transport — the play button latches (`.play-button.active` stays pressed while playing), skip/prev are momentary. Don't "modernize" it.
 
-2. **Go sync server** — `sync-server/`, module `loud-sync-server`, single dependency (`modernc.org/sqlite`, no cgo). Serves the built Svelte app from `build/`, the JSON API, and media with HTTP range support. SQLite for metadata/playback state, disk for media blobs. Optional shared-token auth via `LOUD_AUTH_TOKEN` (Basic for browsers, Bearer for API clients; `/health` stays public). Nearly all logic is in `internal/server/server.go`.
+2. **Go sync server** — `sync-server/`, module `loud-sync-server`, single dependency (`modernc.org/sqlite`, no cgo). One package split by concern: `server.go` (setup/routing/migrations), `hub.go` (SSE pub/sub), `handlers.go`, `store_library.go`, `store_playback.go`, `playback_v2.go` (playback state machine), `httputil.go`, `summaries.go`, `helpers.go`. Optional shared-token auth via `LOUD_AUTH_TOKEN` (Basic for browsers, Bearer for API clients; `/health` stays public).
 
-3. **iOS app** — `ios/LoudMobile/`, SwiftPM. `Sources/LoudSecureSync` implements the device-key (P-256) secure sync client mirrored by `src/lib/secure-sync.ts` on the web side.
-
-4. **Cloudflare Worker** — `cloudflare/` is **parked**. Per `docs/secure-sync.md`, do not extend it; Cloudflare's role is only DNS/HTTPS/Tunnel/Access in front of the Go server.
+3. **iOS app** — `ios/LoudMobile/` (SwiftPM + xcodeproj). Speaks the same v1/v2 API as the web client.
 
 ### Sync contracts
 
-- `loud.sync.v1` — snapshot/push schema shared between the Rust side (`SYNC_SCHEMA` in `src-tauri/src/lib.rs`), the Go server, and `src/lib/sync.ts`. Changing it means touching all three.
-- `loud.sync.v3` — secure sync (device enrollment with P-256 keys) in `src/lib/secure-sync.ts` and `ios/LoudMobile/Sources/LoudSecureSync`.
+- `loud.sync.v1` — snapshot/push schema shared between Rust (`SYNC_SCHEMA` in `src-tauri/src/lib.rs`), the Go server, and `src/lib/sync.ts`. Changing it means touching all three.
+- `loud.playback.v2` — shared playback state (queue/position/devices) over SSE; state machine in `sync-server/internal/server/playback_v2.go`, client in `src/lib/sync.ts`.
 - `loud.import.v1` — import manifest for external downloaders, documented in `docs/loud-import-v1.md` with JSON schema at `docs/loud-import.schema.json`.
 
 ### Track identity
@@ -57,6 +54,10 @@ Cross-device matching uses a canonical identity chosen in priority order: `finge
 
 The Go server's endpoints are listed in `docs/loud-sync.md` (`/api/v1/library`, `/api/v1/sync/*`, `/api/v1/tracks/{fingerprint}/*`, `/api/v2/playback*`). The server returns `Library` JSON matching the types in `src/lib/types.ts`.
 
+### History note
+
+An earlier Cloudflare Worker backend and its device-key `loud.sync.v3` protocol were removed (recoverable from git history). Cloudflare's only role is DNS/HTTPS/Tunnel in front of the Go server. Do not resurrect the worker.
+
 ## Docs to read before touching sync
 
-`docs/loud-sync.md` (server + flows), `docs/secure-sync.md` (auth model and why the Worker is parked), `docs/loud-import-v1.md` (import manifest and identity rules).
+`docs/loud-sync.md` (server + flows), `docs/secure-sync.md` (auth model), `docs/loud-import-v1.md` (import manifest and identity rules).

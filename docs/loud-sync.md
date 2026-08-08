@@ -15,7 +15,6 @@ of this Go server for DNS, HTTPS, tunnel, and optional access control.
 ## Run The Server
 
 ```bash
-cd /path/to/Desktop/loud/Loud
 bun run server:dev
 ```
 
