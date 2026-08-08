@@ -12,29 +12,46 @@ struct RootView: View {
         } else {
             TabView {
                 HomeView()
+                    .modifier(MiniPlayerInset(onOpen: openNowPlaying))
                     .tabItem {
                         Label("Home", systemImage: "house.fill")
                     }
                 SearchView()
+                    .modifier(MiniPlayerInset(onOpen: openNowPlaying))
                     .tabItem {
                         Label("Search", systemImage: "magnifyingglass")
                     }
                 LibraryView()
+                    .modifier(MiniPlayerInset(onOpen: openNowPlaying))
                     .tabItem {
                         Label("Library", systemImage: "square.stack.fill")
                     }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if player.currentTrack != nil {
-                    MiniPlayerBar {
-                        showNowPlaying = true
-                    }
-                }
             }
             .sheet(isPresented: $showNowPlaying) {
                 NowPlayingView()
             }
             .background(LoudColor.bg)
+        }
+    }
+
+    private func openNowPlaying() {
+        showNowPlaying = true
+    }
+}
+
+/// Insets each tab's content with the mini player so it sits above the tab
+/// bar instead of covering it (a bottom inset on the TabView itself would
+/// draw over the bar).
+private struct MiniPlayerInset: ViewModifier {
+    @Environment(PlayerController.self) private var player
+
+    let onOpen: () -> Void
+
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            if player.currentTrack != nil {
+                MiniPlayerBar(onOpen: onOpen)
+            }
         }
     }
 }
