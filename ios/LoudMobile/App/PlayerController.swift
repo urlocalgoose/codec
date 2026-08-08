@@ -205,6 +205,18 @@ final class PlayerController {
         source.remove(at: index)
     }
 
+    /// Reorders within the up-next slice; offsets are relative to the slice
+    /// the queue screen displays (0 == the track right after the current one).
+    func moveUpcoming(from offsets: IndexSet, to destination: Int) {
+        let base = sourceIndex + 1
+        let translated = IndexSet(offsets.map { $0 + base })
+        let target = destination + base
+        guard translated.allSatisfy({ source.indices.contains($0) }), target <= source.count else {
+            return
+        }
+        source.move(fromOffsets: translated, toOffset: target)
+    }
+
     // MARK: - Transport
 
     func togglePlayback() {

@@ -87,52 +87,76 @@ struct NowPlayingView: View {
             .padding(.horizontal, 26)
             .padding(.top, 12)
 
-            // The deck: latching shuffle/play/repeat, momentary skips.
-            HStack(spacing: 1) {
+            // Native transport, deck soul: accent lights the latched states,
+            // and the play press still lands with the rigid haptic clunk.
+            HStack {
                 Button {
                     player.toggleShuffle()
                 } label: {
                     Image(systemName: "shuffle")
-                        .font(.system(size: 16, weight: .heavy))
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(player.shuffle ? theme.accent : theme.subtle)
+                        .frame(width: 44, height: 44)
                 }
-                .buttonStyle(DeckToggleButtonStyle(isOn: player.shuffle))
+                .buttonStyle(.plain)
+                .sensoryFeedback(.impact(flexibility: .rigid, intensity: 0.7), trigger: player.shuffle)
+
+                Spacer()
 
                 Button {
                     player.previous()
                 } label: {
                     Image(systemName: "backward.fill")
-                        .font(.system(size: 19, weight: .heavy))
+                        .font(.title)
+                        .foregroundStyle(theme.text)
+                        .frame(width: 56, height: 56)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(DeckButtonStyle(leftRadius: false, rightRadius: false))
+                .buttonStyle(.plain)
+
+                Spacer()
 
                 Button {
                     player.togglePlayback()
                 } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 24, weight: .heavy))
+                        .font(.system(size: 42))
+                        .foregroundStyle(theme.text)
                         .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 72, height: 72)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(DeckToggleButtonStyle(isOn: player.isPlaying))
+                .buttonStyle(.plain)
+                .sensoryFeedback(.impact(flexibility: .rigid, intensity: 0.9), trigger: player.isPlaying)
+
+                Spacer()
 
                 Button {
                     player.next()
                 } label: {
                     Image(systemName: "forward.fill")
-                        .font(.system(size: 19, weight: .heavy))
+                        .font(.title)
+                        .foregroundStyle(theme.text)
+                        .frame(width: 56, height: 56)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(DeckButtonStyle(leftRadius: false, rightRadius: false))
+                .buttonStyle(.plain)
+
+                Spacer()
 
                 Button {
                     player.cycleRepeat()
                 } label: {
                     Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat")
-                        .font(.system(size: 16, weight: .heavy))
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(player.repeatMode != .off ? theme.accent : theme.subtle)
+                        .frame(width: 44, height: 44)
                 }
-                .buttonStyle(DeckToggleButtonStyle(isOn: player.repeatMode != .off))
+                .buttonStyle(.plain)
+                .sensoryFeedback(.impact(flexibility: .rigid, intensity: 0.7), trigger: player.repeatMode)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .padding(.horizontal, 24)
-            .padding(.top, 16)
+            .padding(.top, 12)
 
             Spacer(minLength: 12)
 
@@ -277,6 +301,9 @@ struct QueueView: View {
                                 }
                             }
                         }
+                        .onMove { offsets, destination in
+                            player.moveUpcoming(from: offsets, to: destination)
+                        }
                     }
                 }
             }
@@ -291,6 +318,9 @@ struct QueueView: View {
                             player.clearQueue()
                         }
                     }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    EditButton()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {

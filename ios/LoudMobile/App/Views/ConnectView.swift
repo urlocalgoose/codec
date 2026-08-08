@@ -74,9 +74,14 @@ struct ConnectView: View {
                             }
                             Text(app.connection == .connecting ? "Connecting" : "Connect")
                         }
-                        .font(.system(size: 14, weight: .heavy))
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(theme.accentText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(theme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
-                    .buttonStyle(DeckButtonStyle(primary: true))
+                    .buttonStyle(.plain)
                     .disabled(app.connection == .connecting || app.serverURLString.trimmingCharacters(in: .whitespaces).isEmpty)
 
                     if !app.errorMessage.isEmpty {

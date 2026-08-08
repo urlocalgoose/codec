@@ -253,34 +253,43 @@ struct TrackListView: View {
                 Button {
                     player.playCollection(tracks)
                 } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "play.fill")
-                        Text("Play")
-                    }
-                    .font(.system(size: 14, weight: .heavy))
+                    Label("Play", systemImage: "play.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(theme.accentText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(theme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-                .buttonStyle(DeckButtonStyle(primary: true))
+                .buttonStyle(.plain)
+                .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: player.currentTrack?.id)
 
                 Button {
                     player.playCollection(tracks, shuffled: true)
                 } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "shuffle")
-                        Text("Shuffle")
-                    }
-                    .font(.system(size: 14, weight: .heavy))
+                    Label("Shuffle", systemImage: "shuffle")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(theme.text)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(theme.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-                .buttonStyle(DeckButtonStyle())
+                .buttonStyle(.plain)
 
                 if showsDownloadAll, let client = app.client {
                     Button {
                         downloads.downloadAll(tracks, using: client)
                     } label: {
                         Image(systemName: "arrow.down.to.line")
-                            .font(.system(size: 15, weight: .heavy))
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(theme.text)
+                            .frame(width: 50)
+                            .padding(.vertical, 12)
+                            .background(theme.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
-                    .buttonStyle(DeckButtonStyle())
-                    .frame(width: 62)
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.vertical, 6)
