@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -32,6 +33,9 @@ type Server struct {
 	db             *sql.DB
 	now            func() time.Time
 	playbackEvents *playbackEventHub
+	// Bumped on every library write; drives the library ETag so unchanged
+	// refreshes cost a 304 instead of the full payload.
+	libraryVersion atomic.Int64
 }
 
 type HandlerOptions struct {

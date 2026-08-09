@@ -67,6 +67,10 @@ pub fn scan_library_path(root_path: impl AsRef<Path>) -> Result<Library, String>
 
     let mut pending_tracks = Vec::<PendingTrack>::new();
 
+    let mut scan_cache = std::mem::take(&mut state.scan_cache);
+    let mut cache_dirty = false;
+    let mut seen_cache_keys = BTreeSet::new();
+
     for entry in WalkDir::new(&root)
         .follow_links(false)
         .into_iter()
@@ -90,17 +94,31 @@ pub fn scan_library_path(root_path: impl AsRef<Path>) -> Result<Library, String>
             .into_iter()
             .collect::<Vec<_>>();
 
+        seen_cache_keys.insert(relative_path_key(&root, path));
         pending_tracks.push(PendingTrack {
-            track: read_track_with_state(
+            track: read_track_cached(
                 &root,
                 path,
                 playlist_ids.clone(),
                 is_liked_source,
                 &state,
+                &mut scan_cache,
+                &mut cache_dirty,
             )?,
             playlist_ids,
             playlist_is_liked: is_liked_source,
         });
+    }
+
+    // Drop cache entries for files that no longer exist.
+    let cache_len_before = scan_cache.len();
+    scan_cache.retain(|key, _| seen_cache_keys.contains(key));
+    if scan_cache.len() != cache_len_before {
+        cache_dirty = true;
+    }
+    state.scan_cache = scan_cache;
+    if cache_dirty {
+        state_dirty = true;
     }
 
     for pending in &pending_tracks {
@@ -314,6 +332,103 @@ pub(super) fn read_track_with_state(
         apply_state_track_metadata(&mut track, metadata);
     }
     Ok(track)
+}
+
+/// Like read_track_with_state, but consults the scan cache first: while a
+/// file's mtime+size are unchanged, the tag parse (the expensive part of a
+/// scan) is skipped and the track is rebuilt from cached fields.
+pub(super) fn read_track_cached(
+    root: &Path,
+    path: &Path,
+    playlist_ids: Vec<String>,
+    playlist_is_liked: bool,
+    state: &LibraryState,
+    cache: &mut BTreeMap<String, ScanTagCache>,
+    cache_dirty: &mut bool,
+) -> Result<Track, String> {
+    let metadata =
+        fs::metadata(path).map_err(|err| format!("Could not read track metadata: {err}"))?;
+    let mtime = metadata
+        .modified()
+        .ok()
+        .and_then(system_time_to_unix)
+        .unwrap_or(0);
+    let size = metadata.len();
+    let key = relative_path_key(root, path);
+
+    let mut track = if let Some(cached) = cache
+        .get(&key)
+        .filter(|cached| cached.mtime == mtime && cached.size == size)
+    {
+        track_from_cache(root, path, &metadata, cached, playlist_ids, playlist_is_liked)
+    } else {
+        let track = read_track(root, path, playlist_ids, playlist_is_liked, true)?;
+        cache.insert(
+            key,
+            ScanTagCache {
+                mtime,
+                size,
+                title: track.title.clone(),
+                artist: track.artist.clone(),
+                album: track.album.clone(),
+                album_artist: track.album_artist.clone(),
+                genre: track.genre.clone(),
+                year: track.year,
+                track_number: track.track_number,
+                duration_seconds: track.duration_seconds,
+                artwork_cache_path: track
+                    .artwork
+                    .as_ref()
+                    .map(|artwork| path_to_string(&artwork.cache_path)),
+            },
+        );
+        *cache_dirty = true;
+        track
+    };
+
+    if let Some(metadata) = state.managed_tracks.get(&relative_path_key(root, path)) {
+        apply_state_track_metadata(&mut track, metadata);
+    }
+    Ok(track)
+}
+
+fn track_from_cache(
+    root: &Path,
+    path: &Path,
+    metadata: &fs::Metadata,
+    cached: &ScanTagCache,
+    playlist_ids: Vec<String>,
+    playlist_is_liked: bool,
+) -> Track {
+    let _ = root;
+    let fingerprint = fingerprint_for(&cached.title, &cached.artist, &cached.album);
+    Track {
+        id: track_id_for_fingerprint(&fingerprint),
+        path: path_to_string(path),
+        file_name: path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("Unknown file")
+            .to_string(),
+        title: cached.title.clone(),
+        artist: cached.artist.clone(),
+        album: cached.album.clone(),
+        album_artist: cached.album_artist.clone(),
+        genre: cached.genre.clone(),
+        year: cached.year,
+        track_number: cached.track_number,
+        duration_seconds: cached.duration_seconds,
+        artwork_url: None,
+        artwork: cached.artwork_cache_path.as_ref().map(|cache_path| CachedArtwork {
+            source_path: path.to_path_buf(),
+            cache_path: PathBuf::from(cache_path),
+        }),
+        playlist_ids,
+        added_at: metadata.modified().ok().and_then(system_time_to_unix),
+        size_bytes: metadata.len(),
+        is_liked: playlist_is_liked,
+        fingerprint,
+    }
 }
 
 pub(super) fn read_track(

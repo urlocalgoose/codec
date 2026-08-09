@@ -101,7 +101,7 @@
   const DEFAULT_SYNC_SERVER_URL = "http://127.0.0.1:8787";
   const PLAYBACK_SAVE_DELAY_MS = 750;
   const PLAYBACK_DEVICE_SAVE_DELAY_MS = 220;
-  const PLAYBACK_DEVICE_POLL_MS = 10000;
+  const PLAYBACK_DEVICE_POLL_MS = 30000;
   const DEFAULT_STATS: LibraryStats = {
     trackCount: 0,
     playlistCount: 0,

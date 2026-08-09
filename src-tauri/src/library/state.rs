@@ -10,6 +10,7 @@ pub(super) fn default_library_state() -> LibraryState {
         playlists: Vec::new(),
         removed_playlist_memberships: Vec::new(),
         managed_tracks: BTreeMap::new(),
+        scan_cache: BTreeMap::new(),
     }
 }
 

@@ -729,3 +729,61 @@ func TestLibraryResponseGzipsWhenAccepted(t *testing.T) {
 		t.Fatal("expected plain response without Accept-Encoding")
 	}
 }
+
+func TestLibraryETagServes304UntilTheLibraryChanges(t *testing.T) {
+	srv, httpServer := testServer(t)
+
+	get := func(etag string) *http.Response {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, httpServer.URL+"/api/v1/library", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if etag != "" {
+			req.Header.Set("If-None-Match", etag)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { res.Body.Close() })
+		return res
+	}
+
+	first := get("")
+	etag := first.Header.Get("ETag")
+	if first.StatusCode != http.StatusOK || etag == "" {
+		t.Fatalf("expected 200 with an ETag, got %d %q", first.StatusCode, etag)
+	}
+
+	if res := get(etag); res.StatusCode != http.StatusNotModified {
+		t.Fatalf("expected 304 for a matching ETag, got %d", res.StatusCode)
+	}
+
+	if err := srv.upsertTrack(context.Background(), Track{Fingerprint: "abc", Title: "A"}); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := get(etag)
+	if changed.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 after a library write, got %d", changed.StatusCode)
+	}
+	if changed.Header.Get("ETag") == etag {
+		t.Fatal("expected the ETag to change after a library write")
+	}
+
+	// A gzip-accepting client must get a clean 304 too (no trailer bytes).
+	req, _ := http.NewRequest(http.MethodGet, httpServer.URL+"/api/v1/library", nil)
+	req.Header.Set("If-None-Match", changed.Header.Get("ETag"))
+	req.Header.Set("Accept-Encoding", "gzip")
+	transport := &http.Transport{DisableCompression: true}
+	res, err := (&http.Client{Transport: transport}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusNotModified || len(body) != 0 {
+		t.Fatalf("expected empty 304 for gzip client, got %d with %d bytes", res.StatusCode, len(body))
+	}
+}

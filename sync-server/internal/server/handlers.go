@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"mime"
 	"net/http"
@@ -21,6 +22,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
+	if s.writeLibraryPreamble(w, r) {
+		return
+	}
 	snapshot, err := s.snapshot(r.Context(), publicBaseURL(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -30,12 +34,29 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
+	if s.writeLibraryPreamble(w, r) {
+		return
+	}
 	snapshot, err := s.snapshot(r.Context(), publicBaseURL(r))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, snapshot)
+}
+
+// writeLibraryPreamble sets the validator headers and answers 304 when the
+// client already holds the current library version. Most refreshes change
+// nothing, so most refreshes become free.
+func (s *Server) writeLibraryPreamble(w http.ResponseWriter, r *http.Request) bool {
+	etag := fmt.Sprintf(`"v%d-%x"`, s.libraryVersion.Load(), crc32.ChecksumIEEE([]byte(publicBaseURL(r))))
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return true
+	}
+	return false
 }
 
 func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {

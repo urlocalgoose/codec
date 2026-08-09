@@ -223,8 +223,9 @@ struct NowPlayingView: View {
                     .frame(width: 40, height: 40)
             }
             .buttonStyle(.plain)
-        case .downloading:
-            ProgressView()
+        case .downloading(let progress):
+            ProgressView(value: max(progress, 0.02))
+                .progressViewStyle(.circular)
                 .tint(theme.accent)
                 .frame(width: 40, height: 40)
         case nil:

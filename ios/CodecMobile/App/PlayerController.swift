@@ -87,6 +87,7 @@ final class PlayerController {
     fileprivate var presenceTask: Task<Void, Never>?
     fileprivate var remoteClockTask: Task<Void, Never>?
     fileprivate var loadedFingerprint: String?
+    private var preloadedItem: (fingerprint: String, item: AVPlayerItem)?
 
     /// True while another device is the one actually making sound.
     var remoteDeviceIsActive: Bool {
@@ -500,13 +501,15 @@ final class PlayerController {
         configureRemoteCommands()
         detachPlayerObservers()
 
-        let asset: AVURLAsset
-        if url.isFileURL || client?.authHeaders.isEmpty != false {
-            asset = AVURLAsset(url: url)
+        // A preloaded item has already buffered its head — track changes
+        // start without a network cold-start.
+        let item: AVPlayerItem
+        if let preloaded = preloadedItem, preloaded.fingerprint == track.fingerprint {
+            item = preloaded.item
+            preloadedItem = nil
         } else {
-            asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": client?.authHeaders ?? [:]])
+            item = AVPlayerItem(asset: makeAsset(for: url))
         }
-        let item = AVPlayerItem(asset: asset)
         let nextPlayer = AVPlayer(playerItem: item)
         player = nextPlayer
 
@@ -542,6 +545,44 @@ final class PlayerController {
         loadedFingerprint = track.fingerprint
         updateNowPlayingMetadata(for: track)
         publishPresenceSoon()
+        preloadNextIfNeeded()
+    }
+
+    private func makeAsset(for url: URL) -> AVURLAsset {
+        if url.isFileURL || client?.authHeaders.isEmpty != false {
+            return AVURLAsset(url: url)
+        }
+        return AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": client?.authHeaders ?? [:]])
+    }
+
+    private func peekNextTrack() -> CodecTrack? {
+        if let queued = manualQueue.first {
+            return queued
+        }
+        if sourceIndex + 1 < source.count {
+            return source[sourceIndex + 1]
+        }
+        if repeatMode == .all, !source.isEmpty {
+            return source[0]
+        }
+        return nil
+    }
+
+    /// Builds the next track's player item ahead of time so the transition
+    /// between songs starts instantly instead of buffering from zero.
+    private func preloadNextIfNeeded() {
+        guard let next = peekNextTrack() else {
+            preloadedItem = nil
+            return
+        }
+        guard preloadedItem?.fingerprint != next.fingerprint else {
+            return
+        }
+        guard let url = playbackURL(for: next) else {
+            preloadedItem = nil
+            return
+        }
+        preloadedItem = (next.fingerprint, AVPlayerItem(asset: makeAsset(for: url)))
     }
 
     private func playbackURL(for track: CodecTrack) -> URL? {
@@ -940,7 +981,7 @@ extension PlayerController {
     private func runPresenceLoop() async {
         while !Task.isCancelled, syncEnabled {
             await publishPresence()
-            try? await Task.sleep(for: .seconds(10))
+            try? await Task.sleep(for: .seconds(30))
         }
     }
 

@@ -121,6 +121,36 @@ struct LibraryState {
     removed_playlist_memberships: Vec<StatePlaylistMembership>,
     #[serde(default)]
     managed_tracks: BTreeMap<String, StateTrackMetadata>,
+    /// Tag-read cache keyed by relative path: while a file's mtime+size are
+    /// unchanged, rescans skip the (expensive) tag parse entirely.
+    #[serde(default)]
+    scan_cache: BTreeMap<String, ScanTagCache>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+struct ScanTagCache {
+    #[serde(default)]
+    mtime: u64,
+    #[serde(default)]
+    size: u64,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    artist: String,
+    #[serde(default)]
+    album: String,
+    #[serde(default)]
+    album_artist: Option<String>,
+    #[serde(default)]
+    genre: Option<String>,
+    #[serde(default)]
+    year: Option<u16>,
+    #[serde(default)]
+    track_number: Option<u32>,
+    #[serde(default)]
+    duration_seconds: Option<f64>,
+    #[serde(default)]
+    artwork_cache_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

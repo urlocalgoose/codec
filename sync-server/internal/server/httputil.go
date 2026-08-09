@@ -159,13 +159,42 @@ var gzipPaths = map[string]bool{
 	"/api/v1/sync/snapshot": true,
 }
 
+// Compression starts lazily on the first 200 so bodyless responses (304
+// from the ETag check) go out untouched — a gzip trailer on a 304 would
+// corrupt it.
 type gzipResponseWriter struct {
 	http.ResponseWriter
-	gz *gzip.Writer
+	gz          *gzip.Writer
+	wroteHeader bool
+	compressing bool
 }
 
-func (w gzipResponseWriter) Write(body []byte) (int, error) {
-	return w.gz.Write(body)
+func (w *gzipResponseWriter) WriteHeader(status int) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+		if status == http.StatusOK {
+			w.Header().Set("Content-Encoding", "gzip")
+			w.Header().Del("Content-Length")
+			w.compressing = true
+		}
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *gzipResponseWriter) Write(body []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	if w.compressing {
+		return w.gz.Write(body)
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+func (w *gzipResponseWriter) close() {
+	if w.compressing {
+		_ = w.gz.Close()
+	}
 }
 
 func withGzip(next http.Handler) http.Handler {
@@ -177,11 +206,10 @@ func withGzip(next http.Handler) http.Handler {
 			return
 		}
 
-		w.Header().Set("Content-Encoding", "gzip")
 		w.Header().Add("Vary", "Accept-Encoding")
-		gz := gzip.NewWriter(w)
-		defer gz.Close()
-		next.ServeHTTP(gzipResponseWriter{ResponseWriter: w, gz: gz}, r)
+		writer := &gzipResponseWriter{ResponseWriter: w, gz: gzip.NewWriter(w)}
+		defer writer.close()
+		next.ServeHTTP(writer, r)
 	})
 }
 

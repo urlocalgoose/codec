@@ -50,6 +50,7 @@ func (s *Server) snapshot(ctx context.Context, baseURL string) (SyncSnapshot, er
 }
 
 func (s *Server) upsertTrack(ctx context.Context, track Track) error {
+	defer s.libraryVersion.Add(1)
 	track.Fingerprint = cleanFingerprint(track.Fingerprint)
 	if track.Fingerprint == "" {
 		return errors.New("track fingerprint is required")
@@ -99,6 +100,7 @@ func (s *Server) upsertTrack(ctx context.Context, track Track) error {
 }
 
 func (s *Server) upsertPlaylist(ctx context.Context, playlist Playlist) error {
+	defer s.libraryVersion.Add(1)
 	playlist.ID = strings.TrimSpace(playlist.ID)
 	if playlist.ID == "" {
 		return errors.New("playlist id is required")
@@ -192,6 +194,7 @@ func (s *Server) playlists(ctx context.Context) ([]Playlist, error) {
 // setTrackLiked flips only the is_liked column, which is authoritative over
 // the metadata JSON when the library is read back.
 func (s *Server) setTrackLiked(ctx context.Context, fingerprint string, liked bool) error {
+	defer s.libraryVersion.Add(1)
 	result, err := s.db.ExecContext(
 		ctx,
 		`UPDATE tracks SET is_liked = ?, updated_at = ? WHERE fingerprint = ?`,
@@ -211,6 +214,7 @@ func (s *Server) setTrackLiked(ctx context.Context, fingerprint string, liked bo
 }
 
 func (s *Server) attachMediaPath(ctx context.Context, fingerprint, column, path string, size int64) error {
+	defer s.libraryVersion.Add(1)
 	if column != "audio_path" && column != "artwork_path" {
 		return errors.New("invalid media column")
 	}

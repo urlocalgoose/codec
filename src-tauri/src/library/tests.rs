@@ -448,3 +448,33 @@ fn import_manifest_copies_new_tracks_into_managed_audio() {
     );
     assert_eq!(metadata.duration_seconds, Some(172.626));
 }
+
+#[test]
+fn rescans_reuse_the_tag_cache_and_prune_deleted_files() {
+    let temp = tempdir().unwrap();
+    let folder = temp.path().join("Mix");
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(folder.join("one.mp3"), b"not really an mp3").unwrap();
+    fs::write(folder.join("two.mp3"), b"also not an mp3").unwrap();
+
+    let first = scan_library_path(temp.path()).unwrap();
+    assert_eq!(first.tracks.len(), 2);
+
+    // The cache is persisted with mtime+size per file.
+    let state = read_library_state(&temp.path().canonicalize().unwrap()).unwrap();
+    assert_eq!(state.scan_cache.len(), 2);
+
+    // A second scan (no changes) produces identical tracks from the cache.
+    let second = scan_library_path(temp.path()).unwrap();
+    assert_eq!(
+        first.tracks.iter().map(|t| &t.fingerprint).collect::<Vec<_>>(),
+        second.tracks.iter().map(|t| &t.fingerprint).collect::<Vec<_>>()
+    );
+
+    // Deleting a file prunes its cache entry on the next scan.
+    fs::remove_file(folder.join("two.mp3")).unwrap();
+    let third = scan_library_path(temp.path()).unwrap();
+    assert_eq!(third.tracks.len(), 1);
+    let state = read_library_state(&temp.path().canonicalize().unwrap()).unwrap();
+    assert_eq!(state.scan_cache.len(), 1);
+}

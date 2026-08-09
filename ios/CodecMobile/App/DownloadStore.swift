@@ -1,16 +1,16 @@
+import CryptoKit
 import Foundation
 import Observation
 import UIKit
 
-/// Shared artwork fetcher with an in-memory cache. Plain AsyncImage cannot
-/// send the Authorization header, so all artwork goes through here.
+/// Shared artwork fetcher with a two-tier cache: a thread-safe in-memory
+/// NSCache for instant paints, and a disk layer under Caches so covers
+/// survive relaunches and show offline.
 actor ArtworkLoader {
     static let shared = ArtworkLoader()
 
-    // NSCache is documented thread-safe, so it lives outside the actor:
-    // views can peek it synchronously and paint cached artwork on first
-    // render instead of flashing a placeholder while hopping through the
-    // actor. nonisolated(unsafe) is the declaration of that guarantee.
+    // NSCache is documented thread-safe; nonisolated(unsafe) declares that
+    // guarantee so views can peek synchronously.
     nonisolated(unsafe) private static let cache: NSCache<NSURL, UIImage> = {
         let cache = NSCache<NSURL, UIImage>()
         cache.countLimit = 400
@@ -18,6 +18,13 @@ actor ArtworkLoader {
         return cache
     }()
     private var inFlight: [URL: Task<UIImage?, Never>] = [:]
+
+    private static let diskDirectory: URL = {
+        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appending(path: "artwork", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }()
 
     nonisolated static func cachedImage(for url: URL) -> UIImage? {
         cache.object(forKey: url as NSURL)
@@ -33,6 +40,11 @@ actor ArtworkLoader {
         }
 
         let task = Task<UIImage?, Never> {
+            let diskPath = Self.diskPath(for: url)
+            if let data = try? Data(contentsOf: diskPath), let image = UIImage(data: data) {
+                return image
+            }
+
             var request = URLRequest(url: url)
             for (name, value) in headers {
                 request.setValue(value, forHTTPHeaderField: name)
@@ -44,6 +56,7 @@ actor ArtworkLoader {
             else {
                 return nil
             }
+            try? data.write(to: diskPath, options: .atomic)
             return image
         }
         inFlight[url] = task
@@ -55,29 +68,69 @@ actor ArtworkLoader {
         }
         return image
     }
+
+    /// Trims the disk layer to a sane size, oldest first. Called once at
+    /// startup from the app.
+    func pruneDiskCache(keeping limit: Int = 1500) {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: Self.diskDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        )) ?? []
+        guard files.count > limit else {
+            return
+        }
+        let sorted = files.sorted { lhs, rhs in
+            let l = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let r = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return l < r
+        }
+        for file in sorted.prefix(files.count - limit) {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
+    private nonisolated static func diskPath(for url: URL) -> URL {
+        let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
+        let name = digest.map { String(format: "%02x", $0) }.joined().prefix(40)
+        return diskDirectory.appending(path: "\(name).jpg")
+    }
 }
 
-/// Offline audio: downloads MP3s into Application Support and hands the
-/// player local file URLs when they exist.
+/// Offline audio downloads on a background URLSession: transfers keep
+/// running when the app is backgrounded or killed, and reattach when the
+/// app returns.
 @MainActor
 @Observable
 final class DownloadStore {
+    static let shared = DownloadStore()
+
     enum State: Equatable {
-        case downloading
+        case downloading(Double)
         case downloaded
     }
 
     private(set) var states: [String: State] = [:]
 
     private let directory: URL
+    private let coordinator: DownloadCoordinator
+    private var session: URLSession!
 
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "Codec", directoryHint: .isDirectory)
+            .appending(path: "Loud", directoryHint: .isDirectory)
             .appending(path: "audio", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         directory = base
+        coordinator = DownloadCoordinator(destinationDirectory: base)
+
+        let configuration = URLSessionConfiguration.background(withIdentifier: "sh.codie.codec.downloads")
+        configuration.isDiscretionary = false
+        configuration.sessionSendsLaunchEvents = true
+        session = URLSession(configuration: configuration, delegate: coordinator, delegateQueue: nil)
+
+        coordinator.store = self
         loadExisting()
+        reattachRunningDownloads()
     }
 
     func state(for track: CodecTrack) -> State? {
@@ -107,67 +160,65 @@ final class DownloadStore {
         guard states[track.fingerprint] == nil, let url = client.audioURL(for: track) else {
             return
         }
-
-        states[track.fingerprint] = .downloading
-        Task {
-            await performDownload(fingerprint: track.fingerprint, url: url, headers: client.authHeaders)
-        }
+        start(fingerprint: track.fingerprint, url: url, headers: client.authHeaders)
     }
 
-    /// Downloads a whole collection at most four at a time — firing hundreds
-    /// of simultaneous transfers just made every one of them slow.
+    /// The background session paces transfers itself; states are seeded up
+    /// front so the UI reflects the whole batch immediately.
     func downloadAll(_ tracks: [CodecTrack], using client: CodecClient) {
-        var pending: [(String, URL)] = []
         for track in tracks where states[track.fingerprint] == nil {
             guard let url = client.audioURL(for: track) else {
                 continue
             }
-            states[track.fingerprint] = .downloading
-            pending.append((track.fingerprint, url))
-        }
-        guard !pending.isEmpty else {
-            return
-        }
-
-        let headers = client.authHeaders
-        Task {
-            for batch in stride(from: 0, to: pending.count, by: 4).map({ Array(pending[$0..<min($0 + 4, pending.count)]) }) {
-                await withTaskGroup(of: Void.self) { group in
-                    for (fingerprint, url) in batch {
-                        group.addTask { [weak self] in
-                            await self?.performDownload(fingerprint: fingerprint, url: url, headers: headers)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func performDownload(fingerprint: String, url: URL, headers: [String: String]) async {
-        let destination = fileURL(for: fingerprint)
-        var request = URLRequest(url: url)
-        for (name, value) in headers {
-            request.setValue(value, forHTTPHeaderField: name)
-        }
-
-        do {
-            let (temporary, response) = try await URLSession.shared.download(for: request)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                try? FileManager.default.removeItem(at: temporary)
-                states[fingerprint] = nil
-                return
-            }
-            try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.moveItem(at: temporary, to: destination)
-            states[fingerprint] = .downloaded
-        } catch {
-            states[fingerprint] = nil
+            start(fingerprint: track.fingerprint, url: url, headers: client.authHeaders)
         }
     }
 
     func remove(_ track: CodecTrack) {
         try? FileManager.default.removeItem(at: fileURL(for: track.fingerprint))
         states[track.fingerprint] = nil
+    }
+
+    func setBackgroundCompletionHandler(_ handler: @escaping () -> Void) {
+        coordinator.backgroundCompletionHandler = handler
+    }
+
+    // MARK: - Coordinator callbacks (main actor)
+
+    func downloadProgressed(fingerprint: String, progress: Double) {
+        if case .downloaded = states[fingerprint] {
+            return
+        }
+        states[fingerprint] = .downloading(progress)
+    }
+
+    func downloadFinished(fingerprint: String, success: Bool) {
+        states[fingerprint] = success ? .downloaded : nil
+    }
+
+    // MARK: - Internals
+
+    private func start(fingerprint: String, url: URL, headers: [String: String]) {
+        states[fingerprint] = .downloading(0)
+        var request = URLRequest(url: url)
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        let task = session.downloadTask(with: request)
+        // The fingerprint rides on the task so transfers survive relaunches.
+        task.taskDescription = fingerprint
+        task.resume()
+    }
+
+    private func reattachRunningDownloads() {
+        session.getAllTasks { tasks in
+            let fingerprints = tasks.compactMap(\.taskDescription)
+            Task { @MainActor [weak self] in
+                for fingerprint in fingerprints where self?.states[fingerprint] == nil {
+                    self?.states[fingerprint] = .downloading(0)
+                }
+            }
+        }
     }
 
     private func fileURL(for fingerprint: String) -> URL {
@@ -184,6 +235,80 @@ final class DownloadStore {
             if let fingerprint = name.removingPercentEncoding {
                 states[fingerprint] = .downloaded
             }
+        }
+    }
+}
+
+/// Nonisolated URLSession delegate: moves finished files on the session
+/// queue (the temp file is only valid inside the callback) and forwards
+/// state to the store on the main actor.
+final class DownloadCoordinator: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    weak var store: DownloadStore?
+    /// Set by the app delegate when iOS relaunches us for background events.
+    var backgroundCompletionHandler: (() -> Void)?
+
+    private let destinationDirectory: URL
+
+    init(destinationDirectory: URL) {
+        self.destinationDirectory = destinationDirectory
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        guard let fingerprint = downloadTask.taskDescription else {
+            return
+        }
+        let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
+        var success = (200..<300).contains(status)
+        if success {
+            let safe = fingerprint.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "track"
+            let destination = destinationDirectory.appending(path: "\(safe).mp3")
+            try? FileManager.default.removeItem(at: destination)
+            do {
+                try FileManager.default.moveItem(at: location, to: destination)
+            } catch {
+                success = false
+            }
+        }
+        let finished = success
+        Task { @MainActor [weak store] in
+            store?.downloadFinished(fingerprint: fingerprint, success: finished)
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        guard let fingerprint = downloadTask.taskDescription, totalBytesExpectedToWrite > 0 else {
+            return
+        }
+        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        Task { @MainActor [weak store] in
+            store?.downloadProgressed(fingerprint: fingerprint, progress: progress)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard error != nil, let fingerprint = task.taskDescription else {
+            return
+        }
+        Task { @MainActor [weak store] in
+            store?.downloadFinished(fingerprint: fingerprint, success: false)
+        }
+    }
+
+    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        let handler = backgroundCompletionHandler
+        backgroundCompletionHandler = nil
+        Task { @MainActor in
+            handler?()
         }
     }
 }
