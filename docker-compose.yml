@@ -1,0 +1,16 @@
+# Codec sync server. Set LOUD_AUTH_TOKEN before exposing it anywhere
+# beyond localhost, and put HTTPS (Caddy, nginx, a Cloudflare Tunnel)
+# in front for public access.
+services:
+  codec:
+    build: .
+    ports:
+      - "8787:8787"
+    environment:
+      - LOUD_AUTH_TOKEN=${LOUD_AUTH_TOKEN:-}
+    volumes:
+      - codec-data:/data
+    restart: unless-stopped
+
+volumes:
+  codec-data:

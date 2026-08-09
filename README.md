@@ -2,13 +2,38 @@
 
 Your music, your files, your server. Codec is an open-source, folder-first music
 ecosystem: a desktop player, a portable sync server, a mobile web app, and an
-iOS app — all speaking one simple contract, all backed by real MP3 files you
+iOS app — all speaking one simple contract, all backed by real audio files you
 own.
 
-No accounts. No cloud lock-in. Your library is a folder of MP3s; app truth
-(likes, playlists, metadata fixes) lives in a `.loud/state.json` file inside
-that folder. Everything else syncs through one small Go server you can run
-anywhere.
+No accounts. No cloud lock-in. Your library is a folder of music files; app
+truth (likes, playlists, metadata fixes) lives in a `.loud/state.json` file
+inside that folder. Everything else syncs through one small Go server you can
+run anywhere.
+
+<p align="center">
+  <img src="docs/screenshots/web-desktop.png" alt="Codec desktop/web app in the Oxide theme" width="720" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/ios-home.png" alt="Codec iOS app, Oxide theme" width="260" />
+  <img src="docs/screenshots/ios-home-light.png" alt="Codec iOS app, Paper theme" width="260" />
+</p>
+
+**What Codec is:** a single-user, local-first music system. One person, their
+files, their devices, one shared token. **What it deliberately isn't:**
+multi-user, accounts, recommendations, or a streaming service — if you want to
+serve a household, run a household's worth of servers.
+
+## Try it in five minutes (no music required)
+
+```bash
+# generate a tiny synthesized demo library (needs ffmpeg)
+scripts/make-demo-library.sh demo-library
+
+# run the server on it (Docker)
+docker compose up --build
+# then open http://localhost:8787 and import demo-library, or open the
+# desktop app and pick demo-library as your music folder.
+```
 
 ## The pieces
 
@@ -58,7 +83,14 @@ Build to your device with Xcode, then paste your server URL into the app.
 
 ## Running the server for real
 
-The server is one binary with three flags and one environment variable:
+Docker is the shortest path:
+
+```bash
+LOUD_AUTH_TOKEN='long-random-secret' docker compose up --build -d
+```
+
+Or bare metal — the server is one binary with three flags and one environment
+variable:
 
 ```bash
 cd sync-server
