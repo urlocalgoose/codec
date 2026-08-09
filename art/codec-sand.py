@@ -2,16 +2,15 @@
 # vibrated by a warped radial wave - Chladni dynamics with low-order
 # harmonic wobble so the rings settle organic, never perfect circles.
 # Grains slide down the vibration-energy gradient toward the quiet rings
-# while the plate rattles them; a blurred underlayer and a handful of
-# out-of-focus bokeh grains give the field depth. The mark is wherever
-# the sand ended up.
+# while the plate rattles them; a blurred underlayer gives the field
+# depth. The mark is wherever the sand ended up.
 #
 #   python3 codec-sand.py           (needs numpy + Pillow, ~10s per layer)
 #
 # Then open codec-logo.html / codec-logo-cropped.html (or screenshot them
 # headless) to composite the sand over the pool gradient.
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageFilter
 
 SIZE = 1024
 
@@ -65,17 +64,7 @@ def simulate(cx, cy, out, wavelength=300.0, damp=360.0, calm_radius=130,
     rgb = base * (1 - t) + hot * t
     alpha = np.clip(b * 1.4, 0, 1)[..., None]
     img = np.concatenate([rgb * alpha, alpha], axis=2)
-
-    layer = Image.fromarray((img * 255).astype(np.uint8), "RGBA")
-    bokeh = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(bokeh)
-    for _ in range(55):
-        bx, by = rng.uniform(60, SIZE - 60), rng.uniform(60, SIZE - 60)
-        pr = rng.uniform(2.5, 8.0)
-        a = int(rng.uniform(28, 85))
-        draw.ellipse((bx - pr, by - pr, bx + pr, by + pr),
-                     fill=(255, int(rng.uniform(185, 228)), int(rng.uniform(115, 165)), a))
-    Image.alpha_composite(layer, bokeh.filter(ImageFilter.GaussianBlur(2.4))).save(out)
+    Image.fromarray((img * 255).astype(np.uint8), "RGBA").save(out)
 
 simulate(512, 512, "codec-sand.png")
 simulate(340, 512, "codec-sand-cropped.png", wavelength=330.0, damp=420.0, calm_radius=180, seed=51)
