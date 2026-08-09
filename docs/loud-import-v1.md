@@ -1,8 +1,8 @@
 # Codec Import Manifest v1
 
-Use `loud.import.v1` when another program downloads or prepares MP3s for Loud.
+Use `loud.import.v1` when another program downloads or prepares audio files (MP3, M4A, FLAC, WAV) for Loud.
 
-Loud keeps MP3s as normal media files, but it does not use duplicate files for app facts like liked songs or imported playlists. App truth lives in the selected music folder at `.loud/state.json`. New MP3s are copied into `.loud/audio/Artist/Album/`, while songs that already exist are matched by identity and only get new playlist or liked references.
+Loud keeps audio as normal media files, but it does not use duplicate files for app facts like liked songs or imported playlists. App truth lives in the selected music folder at `.loud/state.json`. New files are copied into `.loud/audio/Artist/Album/`, while songs that already exist are matched by identity and only get new playlist or liked references.
 
 ## Recommended Manifest
 
@@ -105,7 +105,7 @@ You can also reference a direct Codec identity:
 
 ## Downloader Rules
 
-Write real MP3 files with normal ID3 tags whenever possible: title, artist, album, album artist, track number, disc number, year, genre, duration, and cover art.
+Write real audio files with normal tags whenever possible: title, artist, album, album artist, track number, disc number, year, genre, duration, and cover art.
 
 Use stable relative file paths in `tracks[].file`. If `source.base_path` is set, Codec resolves files relative to that folder next to the manifest. Absolute paths work locally, but they are bad for sharing.
 
@@ -119,7 +119,7 @@ Use `playlists[].mode: "replace"` only for sync-style imports where your program
 
 When Codec imports the manifest, each track lands in one of these buckets:
 
-`new_tracks`: Loud copied the MP3 into `.loud/audio`.
+`new_tracks`: Loud copied the audio file into `.loud/audio`.
 
 `existing_tracks`: Codec already had the song identity, so it did not copy the file.
 

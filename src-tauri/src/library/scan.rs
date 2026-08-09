@@ -78,7 +78,7 @@ pub fn scan_library_path(root_path: impl AsRef<Path>) -> Result<Library, String>
         .filter(|entry| entry.file_type().is_file())
     {
         let path = entry.path();
-        if !is_mp3(path) {
+        if !is_supported_audio(path) {
             continue;
         }
 

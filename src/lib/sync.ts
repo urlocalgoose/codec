@@ -369,6 +369,28 @@ export async function updatePlaybackDevice(
   }
 }
 
+export async function setTrackLiked(
+  serverUrl: string,
+  fingerprint: string,
+  liked: boolean,
+  fetcher: typeof fetch = fetch
+): Promise<void> {
+  const response = await authorizedFetch(fetcher, 
+    `${normalizeServerUrl(serverUrl)}/api/v1/tracks/${encodeURIComponent(fingerprint)}/liked`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ liked })
+    }
+  );
+
+  if (!response.ok) {
+    throw syncApiError("Could not update liked state", serverUrl, response);
+  }
+}
+
 export async function fetchPlaybackDevices(
   serverUrl: string,
   fetcher: typeof fetch = fetch

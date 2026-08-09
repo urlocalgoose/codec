@@ -158,6 +158,19 @@ struct NowPlayingView: View {
             .padding(.horizontal, 24)
             .padding(.top, 12)
 
+            HStack(spacing: 12) {
+                Image(systemName: "speaker.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.subtle)
+                SystemVolumeSlider(tint: theme.accent)
+                    .frame(height: 30)
+                Image(systemName: "speaker.wave.3.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.subtle)
+            }
+            .padding(.horizontal, 30)
+            .padding(.top, 16)
+
             Spacer(minLength: 12)
 
             HStack(spacing: 20) {

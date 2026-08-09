@@ -1296,6 +1296,37 @@ button svg {
   border-radius: var(--radius-button);
 }
 
+/* Quiet ghost heart: no deck-key chrome so rows stay calm; accent when lit. */
+.like-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--color-subtle);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.track-row:hover .like-button,
+.track-row.active .like-button,
+.like-button:focus-visible,
+.like-button.liked {
+  opacity: 1;
+}
+
+.like-button:hover {
+  color: var(--color-text);
+}
+
+.like-button.liked {
+  color: var(--color-accent);
+}
+
 .playlist-scroll {
   overflow-x: hidden;
   overflow-y: auto;
@@ -1740,7 +1771,7 @@ button svg {
 .track-head,
 .track-row {
   display: grid;
-  grid-template-columns: minmax(260px, 1.45fr) minmax(140px, 0.8fr) 72px 48px;
+  grid-template-columns: minmax(260px, 1.45fr) minmax(140px, 0.8fr) 36px 72px 48px;
   align-items: center;
   gap: 10px;
 }
@@ -2766,7 +2797,7 @@ audio {
   }
 
   .track-row {
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr) 36px 44px;
     gap: 8px;
     min-height: 62px;
     padding: 8px 12px;

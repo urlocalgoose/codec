@@ -110,6 +110,11 @@ final class DownloadStore {
     }
 
     private(set) var states: [String: State] = [:]
+    /// Finished files by fingerprint. Extensions vary by format (mp3, m4a,
+    /// flac, wav), so the store tracks real URLs instead of assuming one.
+    private var localFiles: [String: URL] = [:]
+
+    static let audioExtensions: Set<String> = ["mp3", "m4a", "flac", "wav"]
 
     private let directory: URL
     private let coordinator: DownloadCoordinator
@@ -153,7 +158,7 @@ final class DownloadStore {
         guard states[track.fingerprint] == .downloaded else {
             return nil
         }
-        return fileURL(for: track.fingerprint)
+        return localFiles[track.fingerprint]
     }
 
     func download(_ track: CodecTrack, using client: CodecClient) {
@@ -175,7 +180,10 @@ final class DownloadStore {
     }
 
     func remove(_ track: CodecTrack) {
-        try? FileManager.default.removeItem(at: fileURL(for: track.fingerprint))
+        if let file = localFiles[track.fingerprint] {
+            try? FileManager.default.removeItem(at: file)
+        }
+        localFiles[track.fingerprint] = nil
         states[track.fingerprint] = nil
     }
 
@@ -192,7 +200,8 @@ final class DownloadStore {
         states[fingerprint] = .downloading(progress)
     }
 
-    func downloadFinished(fingerprint: String, success: Bool) {
+    func downloadFinished(fingerprint: String, success: Bool, location: URL? = nil) {
+        localFiles[fingerprint] = location
         states[fingerprint] = success ? .downloaded : nil
     }
 
@@ -221,19 +230,15 @@ final class DownloadStore {
         }
     }
 
-    private func fileURL(for fingerprint: String) -> URL {
-        let safe = fingerprint.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "track"
-        return directory.appending(path: "\(safe).mp3")
-    }
-
     private func loadExisting() {
         guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
             return
         }
-        for file in files where file.pathExtension == "mp3" {
+        for file in files where Self.audioExtensions.contains(file.pathExtension.lowercased()) {
             let name = file.deletingPathExtension().lastPathComponent
             if let fingerprint = name.removingPercentEncoding {
                 states[fingerprint] = .downloaded
+                localFiles[fingerprint] = file
             }
         }
     }
@@ -263,19 +268,38 @@ final class DownloadCoordinator: NSObject, URLSessionDownloadDelegate, @unchecke
         }
         let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
         var success = (200..<300).contains(status)
+        var destination: URL?
         if success {
             let safe = fingerprint.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "track"
-            let destination = destinationDirectory.appending(path: "\(safe).mp3")
-            try? FileManager.default.removeItem(at: destination)
+            let ext = Self.fileExtension(forMIMEType: downloadTask.response?.mimeType)
+            let target = destinationDirectory.appending(path: "\(safe).\(ext)")
+            try? FileManager.default.removeItem(at: target)
             do {
-                try FileManager.default.moveItem(at: location, to: destination)
+                try FileManager.default.moveItem(at: location, to: target)
+                destination = target
             } catch {
                 success = false
             }
         }
         let finished = success
+        let finalURL = destination
         Task { @MainActor [weak store] in
-            store?.downloadFinished(fingerprint: fingerprint, success: finished)
+            store?.downloadFinished(fingerprint: fingerprint, success: finished, location: finalURL)
+        }
+    }
+
+    /// AVPlayer trusts the file extension for local playback, so the saved
+    /// name has to match what the server said the bytes are.
+    private static func fileExtension(forMIMEType mimeType: String?) -> String {
+        switch mimeType?.lowercased() {
+        case "audio/mp4", "audio/x-m4a", "audio/aac":
+            return "m4a"
+        case "audio/flac", "audio/x-flac":
+            return "flac"
+        case "audio/wav", "audio/x-wav":
+            return "wav"
+        default:
+            return "mp3"
         }
     }
 

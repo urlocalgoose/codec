@@ -79,12 +79,18 @@ pub(super) fn canonical_file(path: &Path) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-pub(super) fn is_mp3(path: &Path) -> bool {
+pub(super) fn is_supported_audio(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
-        .map(|extension| extension.eq_ignore_ascii_case("mp3"))
+        .map(|extension| {
+            SUPPORTED_AUDIO_EXTENSIONS
+                .iter()
+                .any(|supported| extension.eq_ignore_ascii_case(supported))
+        })
         .unwrap_or(false)
 }
+
+pub(super) const SUPPORTED_AUDIO_EXTENSIONS: [&str; 4] = ["mp3", "m4a", "flac", "wav"];
 
 pub(super) fn unique_destination(destination: PathBuf) -> PathBuf {
     if !destination.exists() {

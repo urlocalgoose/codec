@@ -40,7 +40,7 @@ docker compose up --build
 | Piece | Stack | What it does |
 | --- | --- | --- |
 | **Desktop app** | Tauri 2 + Svelte 5 (Rust core) | Scans a music folder, plays locally, edits likes/playlists, pushes/pulls the sync server |
-| **Sync server** | Go + SQLite, single binary | Serves the web app, the JSON API, and MP3/artwork with HTTP range support |
+| **Sync server** | Go + SQLite, single binary | Serves the web app, the JSON API, and audio/artwork with HTTP range support |
 | **Mobile / web** | The same Svelte app, served by the server | Full player in any browser; add to Home Screen for a PWA |
 | **iOS app** | SwiftUI | Native client that streams from the sync server |
 
@@ -56,7 +56,7 @@ bun install
 bun run tauri dev
 ```
 
-Pick a music folder. Any folder of MP3s works; direct subfolders become
+Pick a music folder. Any folder of MP3/M4A/FLAC/WAV files works; direct subfolders become
 playlists, nested folders are scanned for tracks.
 
 ### Sync server
@@ -120,7 +120,7 @@ Spotify/YouTube ID, or normalized title+artist+album — in that priority
 order), so the same song never duplicates across devices. Playlists and likes
 are references to canonical tracks, never file copies.
 
-- Desktop ⇄ server: uploads/downloads real MP3s, artwork thumbnails, and
+- Desktop ⇄ server: uploads/downloads the real audio files, artwork thumbnails, and
   metadata (`loud.sync.v1`)
 - Any client ⇄ server: shared playback state — queue, position,
   play/pause, and cross-device transfer ("Playing on…") via
@@ -130,7 +130,7 @@ See [docs/loud-sync.md](docs/loud-sync.md) for the API surface.
 
 ## Importing music from other tools
 
-Downloaders can hand Codec a `loud.import.v1` manifest (JSON + MP3s) and Codec
+Downloaders can hand Codec a `loud.import.v1` manifest (JSON + audio files) and Codec
 will import new tracks, match existing ones by identity, and apply likes and
 playlists. Spec: [docs/loud-import-v1.md](docs/loud-import-v1.md), JSON schema:
 [docs/loud-import.schema.json](docs/loud-import.schema.json).

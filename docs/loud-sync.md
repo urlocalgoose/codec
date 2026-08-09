@@ -4,7 +4,7 @@ Codec has one server path: the portable Go server.
 
 - It serves the Svelte app.
 - It serves the JSON API.
-- It serves MP3/artwork media with range support.
+- It serves audio (MP3, M4A, FLAC, WAV) and artwork media with range support.
 - It stores metadata and playback state in SQLite.
 - It stores media blobs on disk.
 - It can run on your Mac, a VPS, a home server, or behind Cloudflare.
@@ -45,10 +45,10 @@ auth for API clients.
 
 1. Open Codec.
 2. Open your local music folder.
-3. Use the sync controls to upload metadata, MP3s, and cached artwork thumbnails.
+3. Use the sync controls to upload metadata, audio files, and cached artwork thumbnails.
 4. On another desktop, enter the same server URL and click download.
 
-Pulling from the server downloads missing MP3s into a temp import bundle,
+Pulling from the server downloads missing audio files into a temp import bundle,
 imports them through the normal Codec importer, then applies playlist and liked
 state by fingerprint. Existing tracks should not duplicate.
 
@@ -58,7 +58,7 @@ state by fingerprint. Existing tracks should not duplicate.
 2. Open the server URL in Safari.
 3. Add it to Home Screen.
 
-The phone uses the same Svelte UI as desktop. It streams MP3s from the same
+The phone uses the same Svelte UI as desktop. It streams audio from the same
 server with HTTP range support. Offline audio downloads for iOS still need a
 dedicated download/cache UI because browser storage limits and range requests
 are strict; the current service worker only caches the app shell.
@@ -78,6 +78,11 @@ PUT  /api/v1/tracks/{fingerprint}/audio
 GET  /api/v1/tracks/{fingerprint}/audio
 PUT  /api/v1/tracks/{fingerprint}/artwork
 GET  /api/v1/tracks/{fingerprint}/artwork
+PUT  /api/v1/playlists/{id}
+POST /api/v1/playlists
+DELETE /api/v1/playlists/{id}
+POST /api/v1/playlists/{id}/tracks
+DELETE /api/v1/playlists/{id}/tracks/{fingerprint}
 PUT  /api/v1/playback-session/{device_id}
 GET  /api/v1/playback-session/latest
 GET  /api/v2/playback
@@ -86,3 +91,12 @@ GET  /api/v2/playback/events
 ```
 
 The server returns `Library` JSON compatible with the existing Svelte app types.
+
+Playlist edits are partial updates: `POST /api/v1/playlists` creates a playlist
+from `{"name": "..."}`, and the `/tracks` endpoints add or remove one track by
+fingerprint without replaying the whole playlist row — so two devices editing
+the same playlist never clobber each other.
+
+Audio uploads remember their `Content-Type` (`audio/mpeg`, `audio/mp4`,
+`audio/flac`, `audio/wav`) and serve it back on download; anything
+unrecognized is stored as MP3, the historical default.

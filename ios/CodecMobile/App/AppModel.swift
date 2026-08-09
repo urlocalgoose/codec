@@ -170,6 +170,64 @@ final class AppModel {
         }
     }
 
+    // MARK: - Playlists
+
+    /// Set when the user picks "New Playlist" from a track menu; RootView
+    /// watches it to present the name prompt.
+    var pendingNewPlaylistTrack: CodecTrack?
+
+    func addTrack(_ track: CodecTrack, to playlist: CodecPlaylist) {
+        guard let client else {
+            errorMessage = "Connect to the server to edit playlists."
+            return
+        }
+        Task {
+            do {
+                try await client.addToPlaylist(id: playlist.id, fingerprint: track.fingerprint)
+                await refresh()
+            } catch {
+                errorMessage = friendlyMessage(for: error)
+            }
+        }
+    }
+
+    func removeTrack(_ track: CodecTrack, from playlist: CodecPlaylist) {
+        guard let client else {
+            errorMessage = "Connect to the server to edit playlists."
+            return
+        }
+        Task {
+            do {
+                try await client.removeFromPlaylist(id: playlist.id, fingerprint: track.fingerprint)
+                await refresh()
+            } catch {
+                errorMessage = friendlyMessage(for: error)
+            }
+        }
+    }
+
+    func createPlaylist(named name: String, adding track: CodecTrack? = nil) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return
+        }
+        guard let client else {
+            errorMessage = "Connect to the server to create playlists."
+            return
+        }
+        Task {
+            do {
+                let playlist = try await client.createPlaylist(named: trimmed)
+                if let track {
+                    try await client.addToPlaylist(id: playlist.id, fingerprint: track.fingerprint)
+                }
+                await refresh()
+            } catch {
+                errorMessage = friendlyMessage(for: error)
+            }
+        }
+    }
+
     /// Resolves a `loud.playback.v2` track reference against the library.
     func track(matching reference: CodecTrackReference) -> CodecTrack? {
         tracksByID[reference.id] ?? tracksByFingerprint[reference.fingerprint]

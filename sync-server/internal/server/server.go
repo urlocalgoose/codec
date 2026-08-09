@@ -93,6 +93,10 @@ func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
 	mux.HandleFunc("GET /api/v1/tracks/{fingerprint}/artwork", s.handleGetArtwork)
 	mux.HandleFunc("HEAD /api/v1/tracks/{fingerprint}/artwork", s.handleGetArtwork)
 	mux.HandleFunc("PUT /api/v1/playlists/{id}", s.handlePlaylist)
+	mux.HandleFunc("POST /api/v1/playlists", s.handleCreatePlaylist)
+	mux.HandleFunc("DELETE /api/v1/playlists/{id}", s.handleDeletePlaylist)
+	mux.HandleFunc("POST /api/v1/playlists/{id}/tracks", s.handleAddPlaylistTrack)
+	mux.HandleFunc("DELETE /api/v1/playlists/{id}/tracks/{fingerprint}", s.handleRemovePlaylistTrack)
 	mux.HandleFunc("PUT /api/v1/playback-session/{device_id}", s.handlePutPlaybackSession)
 	mux.HandleFunc("GET /api/v1/playback-session/{device_id}", s.handleGetPlaybackSession)
 	mux.HandleFunc("GET /api/v1/playback-session/latest", s.handleLatestPlaybackSession)
@@ -192,6 +196,13 @@ func (s *Server) migrate(ctx context.Context) error {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
 			return err
 		}
+	}
+
+	// audio_type arrived after the first release; ALTER isn't idempotent,
+	// so tolerate the duplicate-column error on databases that have it.
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE tracks ADD COLUMN audio_type TEXT`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column") {
+		return err
 	}
 
 	_, err := s.serverID(ctx)

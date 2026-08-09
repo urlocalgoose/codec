@@ -52,6 +52,7 @@
     playbackEventsV2Url,
     pushLibrarySnapshot,
     setSyncAuthToken,
+    setTrackLiked,
     sendPlaybackCommandV2,
     trackAudioUrl,
     updatePlaybackDevice,
@@ -2092,6 +2093,67 @@
     }
   }
 
+  function applyLocalLikeState(track: Track, liked: boolean) {
+    if (!library) {
+      return;
+    }
+
+    const activeLibrary = library;
+    const targetIds = new Set(
+      activeLibrary.tracks
+        .filter((candidate) => candidate.fingerprint === track.fingerprint)
+        .map((candidate) => candidate.id)
+    );
+    const nextTracks = activeLibrary.tracks.map((candidate) =>
+      targetIds.has(candidate.id) ? { ...candidate, is_liked: liked } : candidate
+    );
+    const nextPlaylists = activeLibrary.playlists.map((playlist) => {
+      if (!playlist.is_liked) {
+        return playlist;
+      }
+
+      const trackIds = playlist.track_ids.filter((trackId) => !targetIds.has(trackId));
+      if (liked) {
+        trackIds.push(...targetIds);
+      }
+      return { ...playlist, track_ids: trackIds };
+    });
+
+    syncLibrary({
+      ...activeLibrary,
+      tracks: nextTracks,
+      playlists: nextPlaylists,
+      stats: {
+        ...activeLibrary.stats,
+        likedCount: nextTracks.filter((candidate) => candidate.is_liked).length
+      }
+    });
+  }
+
+  async function toggleLike(track: Track) {
+    if (!rootPath || !library) {
+      return;
+    }
+
+    const previousLibrary = library;
+    const nextLiked = !track.is_liked;
+    applyLocalLikeState(track, nextLiked);
+
+    try {
+      if (isRemoteRoot(rootPath)) {
+        await setTrackLiked(syncServerUrl, track.fingerprint, nextLiked);
+      } else if (nextLiked) {
+        await invoke("copy_track_to_liked", { root_path: rootPath, track_path: track.path });
+      } else {
+        await invoke("remove_liked_track", { root_path: rootPath, track_path: track.path });
+      }
+      refreshActiveLibrary();
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+      syncLibrary(previousLibrary);
+    }
+  }
+
   function playlistSelectionForTrack(track: Track) {
     const ids = new Set(track.playlist_ids);
     if (track.is_liked) {
@@ -2282,6 +2344,7 @@
             onPlayRow={(track, index) => void playTrackRow(track, index)}
             onRemoveQueued={removeQueuedTrackAt}
             onEditPlaylists={openPlaylistMembershipModal}
+            onToggleLike={(track) => void toggleLike(track)}
           />
         {/if}
       {/if}

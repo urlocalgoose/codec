@@ -37,7 +37,8 @@ impl Default for MediaServer {
 
 impl MediaServer {
     pub(crate) fn register_audio(&self, track_path: PathBuf) -> Result<PlaybackSource, String> {
-        let url = self.register_file_path(track_path, "audio/mpeg", true, "media")?;
+        let content_type = crate::sync_transfer::audio_content_type(&track_path);
+        let url = self.register_file_path(track_path, content_type, true, "media")?;
         Ok(PlaybackSource { url })
     }
 

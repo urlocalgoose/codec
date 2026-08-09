@@ -138,7 +138,12 @@ fn sync_library_to_server(
         let audio_url = sync_track_media_url(&server_url, &track.fingerprint, "audio");
         if sync_remote_exists(&client, &audio_url) {
             report.tracks_skipped += 1;
-        } else if let Err(err) = upload_file(&client, &audio_url, &track.path, "audio/mpeg") {
+        } else if let Err(err) = upload_file(
+            &client,
+            &audio_url,
+            &track.path,
+            audio_content_type(std::path::Path::new(&track.path)),
+        ) {
             report.failures.push(SyncFailure {
                 track: track.title.clone(),
                 reason: err,

@@ -78,6 +78,46 @@ public struct CodecClient: Sendable {
         _ = try await sendExpectingSuccess(request)
     }
 
+    // MARK: - Playlists
+
+    public func createPlaylist(named name: String) async throws -> CodecPlaylist {
+        var request = try request(method: "POST", path: "/api/v1/playlists")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["name": name])
+        let data = try await sendExpectingSuccess(request)
+        return try decoder.decode(CodecPlaylist.self, from: data)
+    }
+
+    public func addToPlaylist(id: String, fingerprint: String) async throws {
+        var request = URLRequest(url: try playlistURL(id: id, suffix: "/tracks"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["fingerprint": fingerprint])
+        for (name, value) in authHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        _ = try await sendExpectingSuccess(request)
+    }
+
+    public func removeFromPlaylist(id: String, fingerprint: String) async throws {
+        guard let encoded = fingerprint.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else {
+            throw CodecClientError.invalidBaseURL
+        }
+        var request = URLRequest(url: try playlistURL(id: id, suffix: "/tracks/\(encoded)"))
+        request.httpMethod = "DELETE"
+        for (name, value) in authHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        _ = try await sendExpectingSuccess(request)
+    }
+
+    private func playlistURL(id: String, suffix: String) throws -> URL {
+        guard let encoded = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else {
+            throw CodecClientError.invalidBaseURL
+        }
+        return try endpointURL(path: "/api/v1/playlists/\(encoded)\(suffix)", encodedPath: true)
+    }
+
     // MARK: - Shared playback (loud.playback.v2)
 
     public func playbackState() async throws -> PlaybackState? {

@@ -9,8 +9,8 @@ pub fn copy_track_to_liked_path(
     let root = canonical_dir(root_path.as_ref())?;
     let source = canonical_file(track_path.as_ref())?;
 
-    if !is_mp3(&source) {
-        return Err("Only .mp3 files can be liked.".to_string());
+    if !is_supported_audio(&source) {
+        return Err("Only audio files (mp3, m4a, flac, wav) can be liked.".to_string());
     }
 
     let mut state = read_library_state(&root)?;
@@ -27,8 +27,8 @@ pub fn remove_liked_track_path(
     let root = canonical_dir(root_path.as_ref())?;
     let track_path = canonical_file(track_path.as_ref())?;
 
-    if !is_mp3(&track_path) {
-        return Err("Only .mp3 files can be removed from liked songs.".to_string());
+    if !is_supported_audio(&track_path) {
+        return Err("Only audio files (mp3, m4a, flac, wav) can be removed from liked songs.".to_string());
     }
 
     let mut state = read_library_state(&root)?;
@@ -48,8 +48,8 @@ pub fn set_track_playlist_memberships_path(
     let root = canonical_dir(root_path.as_ref())?;
     let track_path = canonical_file(track_path.as_ref())?;
 
-    if !is_mp3(&track_path) {
-        return Err("Only .mp3 files can be edited.".to_string());
+    if !is_supported_audio(&track_path) {
+        return Err("Only audio files (mp3, m4a, flac, wav) can be edited.".to_string());
     }
 
     let library = scan_library_path(&root)?;

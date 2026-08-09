@@ -97,11 +97,11 @@ pub fn import_library_manifest_path(
             }
         };
 
-        if !is_mp3(&source) {
+        if !is_supported_audio(&source) {
             report.skipped_tracks += 1;
             report.failures.push(ImportFailure {
                 file: import_track.file.clone(),
-                reason: "Only .mp3 files can be imported.".to_string(),
+                reason: "Only audio files (mp3, m4a, flac, wav) can be imported.".to_string(),
             });
             continue;
         }

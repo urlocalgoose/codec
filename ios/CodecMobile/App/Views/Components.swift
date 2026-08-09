@@ -1,4 +1,5 @@
 import AVKit
+import MediaPlayer
 import SwiftUI
 
 /// The system output picker: AirPods, Bluetooth speakers, AirPlay, CarPlay.
@@ -227,6 +228,24 @@ struct PlayableTrackRow: View {
             Label("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward")
         }
 
+        Menu {
+            ForEach(app.userPlaylists) { playlist in
+                Button(playlist.name) {
+                    app.addTrack(track, to: playlist)
+                }
+            }
+            if !app.userPlaylists.isEmpty {
+                Divider()
+            }
+            Button {
+                app.pendingNewPlaylistTrack = track
+            } label: {
+                Label("New Playlist", systemImage: "plus")
+            }
+        } label: {
+            Label("Add to Playlist", systemImage: "music.note.list")
+        }
+
         if downloads.isDownloaded(track) {
             Button(role: .destructive) {
                 downloads.remove(track)
@@ -254,11 +273,35 @@ struct TrackListView: View {
     let tracks: [CodecTrack]
     var showsDownloadAll = true
 
+    enum TrackSort: String, CaseIterable, Identifiable {
+        case standard = "Default"
+        case title = "Title"
+        case artist = "Artist"
+        case newest = "Newest"
+
+        var id: String { rawValue }
+    }
+
+    @State private var sort: TrackSort = .standard
+
+    private var sortedTracks: [CodecTrack] {
+        switch sort {
+        case .standard:
+            return tracks
+        case .title:
+            return tracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        case .artist:
+            return tracks.sorted { $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending }
+        case .newest:
+            return tracks.sorted { ($0.addedAt ?? 0) > ($1.addedAt ?? 0) }
+        }
+    }
+
     var body: some View {
         List {
             HStack(spacing: 10) {
                 Button {
-                    player.playCollection(tracks)
+                    player.playCollection(sortedTracks)
                 } label: {
                     Label("Play", systemImage: "play.fill")
                         .font(.system(size: 15, weight: .semibold))
@@ -272,7 +315,7 @@ struct TrackListView: View {
                 .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: player.currentTrack?.id)
 
                 Button {
-                    player.playCollection(tracks, shuffled: true)
+                    player.playCollection(sortedTracks, shuffled: true)
                 } label: {
                     Label("Shuffle", systemImage: "shuffle")
                         .font(.system(size: 15, weight: .semibold))
@@ -304,8 +347,8 @@ struct TrackListView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
 
-            ForEach(tracks) { track in
-                PlayableTrackRow(track: track, collection: tracks)
+            ForEach(sortedTracks) { track in
+                PlayableTrackRow(track: track, collection: sortedTracks)
             }
 
             if tracks.isEmpty {
@@ -319,6 +362,56 @@ struct TrackListView: View {
         .background(theme.bg)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Sort", selection: $sort) {
+                        ForEach(TrackSort.allCases) { option in
+                            Text(option.rawValue).tag(option)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                }
+            }
+        }
+    }
+}
+
+/// System volume slider (the only sanctioned way to set device volume).
+struct SystemVolumeSlider: UIViewRepresentable {
+    let tint: Color
+
+    func makeUIView(context: Context) -> MPVolumeView {
+        MPVolumeView(frame: .zero)
+    }
+
+    func updateUIView(_ view: MPVolumeView, context: Context) {
+        view.tintColor = UIColor(tint)
+    }
+}
+
+/// Brief top-of-screen banner for AppModel error messages.
+struct ErrorToast: View {
+    @Environment(\.codecTheme) private var theme
+
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(theme.text)
+            .lineLimit(3)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(theme.panel, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(theme.danger.opacity(0.6), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.25), radius: 14, x: 0, y: 6)
+            .padding(.horizontal, 24)
     }
 }
 

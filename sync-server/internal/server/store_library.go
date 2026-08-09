@@ -3,6 +3,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -125,6 +127,98 @@ func (s *Server) upsertPlaylist(ctx context.Context, playlist Playlist) error {
 			updated_at = excluded.updated_at
 	`, playlist.ID, playlist.Name, boolInt(playlist.IsLiked), string(trackIDs), s.now().Unix())
 	return err
+}
+
+func (s *Server) createPlaylist(ctx context.Context, name string) (Playlist, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Playlist{}, errors.New("playlist name is required")
+	}
+	suffix := make([]byte, 8)
+	if _, err := rand.Read(suffix); err != nil {
+		return Playlist{}, err
+	}
+	playlist := Playlist{
+		ID:       "playlist_" + hex.EncodeToString(suffix),
+		Name:     name,
+		Path:     "loud://playlist/" + name,
+		TrackIDs: []string{},
+	}
+	if err := s.upsertPlaylist(ctx, playlist); err != nil {
+		return Playlist{}, err
+	}
+	return playlist, nil
+}
+
+// modifyPlaylistTracks applies mutate to the stored track list and writes it
+// back deduped - the partial-update shape, so callers never replay a whole
+// playlist row and clobber concurrent edits.
+func (s *Server) modifyPlaylistTracks(ctx context.Context, id string, mutate func([]string) []string) (Playlist, error) {
+	playlist, err := s.playlistByID(ctx, id)
+	if err != nil {
+		return Playlist{}, err
+	}
+	playlist.TrackIDs = dedupeStrings(mutate(playlist.TrackIDs))
+	if err := s.upsertPlaylist(ctx, playlist); err != nil {
+		return Playlist{}, err
+	}
+	return playlist, nil
+}
+
+func (s *Server) deletePlaylist(ctx context.Context, id string) error {
+	playlist, err := s.playlistByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if playlist.IsLiked {
+		return errors.New("the liked playlist cannot be deleted")
+	}
+	defer s.libraryVersion.Add(1)
+	_, err = s.db.ExecContext(ctx, `DELETE FROM playlists WHERE id = ?`, id)
+	return err
+}
+
+func (s *Server) playlistByID(ctx context.Context, id string) (Playlist, error) {
+	var playlist Playlist
+	var trackIDs string
+	var liked int
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, is_liked, track_ids_json FROM playlists WHERE id = ?`, id).
+		Scan(&playlist.ID, &playlist.Name, &liked, &trackIDs)
+	if err != nil {
+		return Playlist{}, err
+	}
+	playlist.IsLiked = liked != 0
+	playlist.Path = "loud://playlist/" + playlist.ID
+	if err := json.Unmarshal([]byte(trackIDs), &playlist.TrackIDs); err != nil {
+		playlist.TrackIDs = []string{}
+	}
+	return playlist, nil
+}
+
+func (s *Server) setAudioType(ctx context.Context, fingerprint, contentType string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE tracks SET audio_type = ? WHERE fingerprint = ?`, contentType, fingerprint)
+	return err
+}
+
+func (s *Server) audioType(ctx context.Context, fingerprint string) string {
+	var contentType sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT audio_type FROM tracks WHERE fingerprint = ?`, fingerprint).Scan(&contentType)
+	if err != nil || !contentType.Valid || contentType.String == "" {
+		return audioMediaType
+	}
+	return contentType.String
+}
+
+// normalizeAudioType keeps only real audio content types; anything else
+// (empty, octet-stream, text) falls back to MP3, the historical default.
+func normalizeAudioType(contentType string) string {
+	contentType = strings.TrimSpace(strings.ToLower(strings.Split(contentType, ";")[0]))
+	switch contentType {
+	case "audio/mpeg", "audio/mp4", "audio/flac", "audio/wav", "audio/x-wav", "audio/aac", "audio/ogg":
+		return contentType
+	default:
+		return audioMediaType
+	}
 }
 
 func (s *Server) tracks(ctx context.Context, baseURL string) ([]Track, error) {

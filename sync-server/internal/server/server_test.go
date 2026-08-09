@@ -787,3 +787,107 @@ func TestLibraryETagServes304UntilTheLibraryChanges(t *testing.T) {
 		t.Fatalf("expected empty 304 for gzip client, got %d with %d bytes", res.StatusCode, len(body))
 	}
 }
+
+func TestPlaylistCRUDEndpoints(t *testing.T) {
+	srv, httpServer := testServer(t)
+
+	if err := srv.upsertTrack(context.Background(), Track{Fingerprint: "fp1", Title: "One"}); err != nil {
+		t.Fatal(err)
+	}
+
+	do := func(method, path string, body string) (*http.Response, map[string]any) {
+		t.Helper()
+		var reader io.Reader
+		if body != "" {
+			reader = strings.NewReader(body)
+		}
+		req, err := http.NewRequest(method, httpServer.URL+path, reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { res.Body.Close() })
+		var decoded map[string]any
+		_ = json.NewDecoder(res.Body).Decode(&decoded)
+		return res, decoded
+	}
+
+	res, playlist := do(http.MethodPost, "/api/v1/playlists", `{"name":"Road Trip"}`)
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d", res.StatusCode)
+	}
+	id, _ := playlist["id"].(string)
+	if id == "" || playlist["name"] != "Road Trip" {
+		t.Fatalf("create: unexpected playlist %v", playlist)
+	}
+
+	res, playlist = do(http.MethodPost, "/api/v1/playlists/"+id+"/tracks", `{"fingerprint":"fp1"}`)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("add: expected 200, got %d", res.StatusCode)
+	}
+	if tracks, _ := playlist["track_ids"].([]any); len(tracks) != 1 || tracks[0] != "track_fp1" {
+		t.Fatalf("add: unexpected track_ids %v", playlist["track_ids"])
+	}
+
+	// Adding the same track twice stays deduped.
+	_, playlist = do(http.MethodPost, "/api/v1/playlists/"+id+"/tracks", `{"fingerprint":"fp1"}`)
+	if tracks, _ := playlist["track_ids"].([]any); len(tracks) != 1 {
+		t.Fatalf("dedupe: unexpected track_ids %v", playlist["track_ids"])
+	}
+
+	res, playlist = do(http.MethodDelete, "/api/v1/playlists/"+id+"/tracks/fp1", "")
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("remove: expected 200, got %d", res.StatusCode)
+	}
+	if tracks, _ := playlist["track_ids"].([]any); len(tracks) != 0 {
+		t.Fatalf("remove: unexpected track_ids %v", playlist["track_ids"])
+	}
+
+	if res, _ := do(http.MethodDelete, "/api/v1/playlists/"+id, ""); res.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete: expected 204, got %d", res.StatusCode)
+	}
+	if res, _ := do(http.MethodDelete, "/api/v1/playlists/"+id, ""); res.StatusCode != http.StatusNotFound {
+		t.Fatalf("delete twice: expected 404, got %d", res.StatusCode)
+	}
+	if res, _ := do(http.MethodPost, "/api/v1/playlists/nope/tracks", `{"fingerprint":"fp1"}`); res.StatusCode != http.StatusNotFound {
+		t.Fatalf("add to unknown: expected 404, got %d", res.StatusCode)
+	}
+}
+
+func TestAudioUploadsRememberTheirContentType(t *testing.T) {
+	srv, httpServer := testServer(t)
+	if err := srv.upsertTrack(context.Background(), Track{Fingerprint: "flacfp", Title: "Lossless"}); err != nil {
+		t.Fatal(err)
+	}
+
+	put, err := http.NewRequest(http.MethodPut, httpServer.URL+"/api/v1/tracks/flacfp/audio", strings.NewReader("flac-bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	put.Header.Set("Content-Type", "audio/flac")
+	res, err := http.DefaultClient.Do(put)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("upload: expected 204, got %d", res.StatusCode)
+	}
+
+	get, err := http.Get(httpServer.URL + "/api/v1/tracks/flacfp/audio")
+	if err != nil {
+		t.Fatal(err)
+	}
+	get.Body.Close()
+	if got := get.Header.Get("Content-Type"); got != "audio/flac" {
+		t.Fatalf("expected audio/flac back, got %q", got)
+	}
+
+	// Junk content types fall back to the MP3 default instead of being stored.
+	if normalizeAudioType("application/octet-stream") != "audio/mpeg" {
+		t.Fatal("expected octet-stream to normalize to audio/mpeg")
+	}
+}

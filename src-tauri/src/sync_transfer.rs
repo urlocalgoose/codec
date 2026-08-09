@@ -215,10 +215,29 @@ pub(crate) fn sync_download_file_name(track: &RemoteTrack) -> String {
     } else {
         &track.file_name
     });
-    if !name.to_lowercase().ends_with(".mp3") {
+    let has_supported_extension = ["mp3", "m4a", "flac", "wav"]
+        .iter()
+        .any(|extension| name.to_lowercase().ends_with(&format!(".{extension}")));
+    if !has_supported_extension {
         name.push_str(".mp3");
     }
     name
+}
+
+/// Content type for an audio file, by extension. MP3 is the default so
+/// unknown extensions still stream (players sniff the payload anyway).
+pub(crate) fn audio_content_type(path: &std::path::Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("m4a") => "audio/mp4",
+        Some("flac") => "audio/flac",
+        Some("wav") => "audio/wav",
+        _ => "audio/mpeg",
+    }
 }
 
 pub(crate) fn safe_sync_file_component(value: &str) -> String {

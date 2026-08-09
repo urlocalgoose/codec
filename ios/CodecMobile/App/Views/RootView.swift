@@ -5,8 +5,55 @@ struct RootView: View {
     @Environment(PlayerController.self) private var player
 
     @State private var showNowPlaying = false
+    @State private var newPlaylistName = ""
+    @State private var toastDismissal: Task<Void, Never>?
+
+    private var newPlaylistPromptShown: Binding<Bool> {
+        Binding(
+            get: { app.pendingNewPlaylistTrack != nil },
+            set: { shown in
+                if !shown {
+                    app.pendingNewPlaylistTrack = nil
+                }
+            }
+        )
+    }
 
     var body: some View {
+        content
+            .overlay(alignment: .top) {
+                if !app.errorMessage.isEmpty {
+                    ErrorToast(message: app.errorMessage)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.snappy(duration: 0.25), value: app.errorMessage)
+            .onChange(of: app.errorMessage) {
+                toastDismissal?.cancel()
+                guard !app.errorMessage.isEmpty else {
+                    return
+                }
+                toastDismissal = Task {
+                    try? await Task.sleep(for: .seconds(4))
+                    if !Task.isCancelled {
+                        app.errorMessage = ""
+                    }
+                }
+            }
+            .alert("New Playlist", isPresented: newPlaylistPromptShown) {
+                TextField("Name", text: $newPlaylistName)
+                Button("Create") {
+                    app.createPlaylist(named: newPlaylistName, adding: app.pendingNewPlaylistTrack)
+                    newPlaylistName = ""
+                }
+                Button("Cancel", role: .cancel) {
+                    newPlaylistName = ""
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if !app.hasLibrary {
             ConnectView()
         } else {

@@ -167,6 +167,84 @@ func (s *Server) handlePlaylist(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleCreatePlaylist(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	playlist, err := s.createPlaylist(r.Context(), req.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, playlist)
+}
+
+func (s *Server) handleDeletePlaylist(w http.ResponseWriter, r *http.Request) {
+	if err := s.deletePlaylist(r.Context(), r.PathValue("id")); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, errors.New("unknown playlist"))
+			return
+		}
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleAddPlaylistTrack(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Fingerprint string `json:"fingerprint"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	fingerprint := cleanFingerprint(req.Fingerprint)
+	if fingerprint == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing fingerprint"))
+		return
+	}
+	playlist, err := s.modifyPlaylistTracks(r.Context(), r.PathValue("id"), func(trackIDs []string) []string {
+		return append(trackIDs, "track_"+fingerprint)
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, errors.New("unknown playlist"))
+			return
+		}
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, playlist)
+}
+
+func (s *Server) handleRemovePlaylistTrack(w http.ResponseWriter, r *http.Request) {
+	fingerprint := cleanFingerprint(r.PathValue("fingerprint"))
+	trackID := "track_" + fingerprint
+	playlist, err := s.modifyPlaylistTracks(r.Context(), r.PathValue("id"), func(trackIDs []string) []string {
+		kept := trackIDs[:0]
+		for _, id := range trackIDs {
+			if id != trackID {
+				kept = append(kept, id)
+			}
+		}
+		return kept
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, errors.New("unknown playlist"))
+			return
+		}
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, playlist)
+}
+
 func (s *Server) handlePutAudio(w http.ResponseWriter, r *http.Request) {
 	fingerprint := cleanFingerprint(r.PathValue("fingerprint"))
 	if fingerprint == "" {
@@ -183,6 +261,10 @@ func (s *Server) handlePutAudio(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	if err := s.setAudioType(r.Context(), fingerprint, normalizeAudioType(r.Header.Get("Content-Type"))); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -193,7 +275,7 @@ func (s *Server) handleGetAudio(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	serveMedia(w, r, path, audioMediaType)
+	serveMedia(w, r, path, s.audioType(r.Context(), fingerprint))
 }
 
 func (s *Server) handlePutArtwork(w http.ResponseWriter, r *http.Request) {

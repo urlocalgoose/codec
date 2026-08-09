@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ListPlus, Music2, Play, Shuffle, X } from "lucide-svelte";
+  import { Heart, ListPlus, Music2, Play, Shuffle, X } from "lucide-svelte";
   import { formatDuration } from "$lib/library";
   import type { SortKey, Track } from "$lib/types";
 
@@ -18,7 +18,8 @@
     onClearQueue,
     onPlayRow,
     onRemoveQueued,
-    onEditPlaylists
+    onEditPlaylists,
+    onToggleLike
   }: {
     viewTitle: string;
     isQueueView: boolean;
@@ -35,6 +36,7 @@
     onPlayRow: (track: Track, index: number) => void;
     onRemoveQueued: (index: number) => void;
     onEditPlaylists: (track: Track) => void;
+    onToggleLike: (track: Track) => void;
   } = $props();
 
   function handleRowKeydown(event: KeyboardEvent, track: Track, index: number) {
@@ -101,6 +103,7 @@
         >
           Album
         </button>
+        <span></span>
         <button
           class:active={sortKey === "duration"}
           type="button"
@@ -134,6 +137,20 @@
           </div>
 
           <span class="table-album">{track.album}</span>
+          <button
+            class="like-button"
+            class:liked={track.is_liked}
+            title={track.is_liked ? `Remove ${track.title} from Liked Songs` : `Add ${track.title} to Liked Songs`}
+            aria-label={track.is_liked ? `Remove ${track.title} from Liked Songs` : `Add ${track.title} to Liked Songs`}
+            aria-pressed={track.is_liked}
+            type="button"
+            onclick={(event) => {
+              event.stopPropagation();
+              onToggleLike(track);
+            }}
+          >
+            <Heart size={16} fill={track.is_liked ? "currentColor" : "none"} />
+          </button>
           <span class="table-duration">{formatDuration(track.duration_seconds)}</span>
           {#if isQueueView}
             {#if index > 0 && index <= queuedTracksCount}
