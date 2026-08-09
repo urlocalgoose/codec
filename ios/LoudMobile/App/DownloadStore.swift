@@ -7,7 +7,11 @@ import UIKit
 actor ArtworkLoader {
     static let shared = ArtworkLoader()
 
-    private let cache: NSCache<NSURL, UIImage> = {
+    // NSCache is documented thread-safe, so it lives outside the actor:
+    // views can peek it synchronously and paint cached artwork on first
+    // render instead of flashing a placeholder while hopping through the
+    // actor. nonisolated(unsafe) is the declaration of that guarantee.
+    nonisolated(unsafe) private static let cache: NSCache<NSURL, UIImage> = {
         let cache = NSCache<NSURL, UIImage>()
         cache.countLimit = 400
         cache.totalCostLimit = 128 * 1024 * 1024
@@ -15,8 +19,12 @@ actor ArtworkLoader {
     }()
     private var inFlight: [URL: Task<UIImage?, Never>] = [:]
 
+    nonisolated static func cachedImage(for url: URL) -> UIImage? {
+        cache.object(forKey: url as NSURL)
+    }
+
     func image(for url: URL, headers: [String: String]) async -> UIImage? {
-        if let cached = cache.object(forKey: url as NSURL) {
+        if let cached = Self.cache.object(forKey: url as NSURL) {
             return cached
         }
 
@@ -43,7 +51,7 @@ actor ArtworkLoader {
         inFlight[url] = nil
         if let image {
             let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
-            cache.setObject(image, forKey: url as NSURL, cost: cost)
+            Self.cache.setObject(image, forKey: url as NSURL, cost: cost)
         }
         return image
     }

@@ -260,17 +260,17 @@ struct QueueView: View {
 
                 if !player.manualQueue.isEmpty {
                     Section("In Queue") {
-                        ForEach(Array(player.manualQueue.enumerated()), id: \.offset) { index, track in
+                        ForEach(player.manualQueueEntries) { entry in
                             Button {
-                                player.jumpToManualQueue(at: index)
+                                player.jumpToManualQueue(at: entry.index)
                             } label: {
-                                TrackRow(track: track, showsDownloadState: false)
+                                TrackRow(track: entry.track, showsDownloadState: false)
                             }
                             .buttonStyle(.plain)
                             .listRowBackground(theme.panel)
                             .swipeActions {
                                 Button(role: .destructive) {
-                                    player.removeFromQueue(at: index)
+                                    player.removeFromQueue(at: entry.index)
                                 } label: {
                                     Label("Remove", systemImage: "trash")
                                 }
@@ -282,10 +282,10 @@ struct QueueView: View {
                     }
                 }
 
-                let upcoming = player.upcomingFromSource
+                let upcoming = player.upcomingEntries
                 if !upcoming.isEmpty {
                     Section("Up Next") {
-                        ForEach(upcoming.prefix(50), id: \.index) { entry in
+                        ForEach(upcoming) { entry in
                             Button {
                                 player.jumpToUpcoming(sourceIndex: entry.index)
                             } label: {

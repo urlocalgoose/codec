@@ -62,10 +62,17 @@ struct ArtworkView: View {
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .task(id: track?.fingerprint) {
-            image = nil
             guard let track, let client = app.client, let url = client.artworkURL(for: track) else {
+                image = nil
                 return
             }
+            // Cached artwork paints synchronously — no placeholder flash
+            // when rows are recycled or rebuilt.
+            if let cached = ArtworkLoader.cachedImage(for: url) {
+                image = cached
+                return
+            }
+            image = nil
             image = await ArtworkLoader.shared.image(for: url, headers: client.authHeaders)
         }
     }

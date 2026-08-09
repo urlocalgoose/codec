@@ -164,13 +164,40 @@ final class PlayerController {
         manualQueue = []
     }
 
-    /// Upcoming tracks from the source, paired with their real indices so
-    /// the queue screen can jump to or remove them.
-    var upcomingFromSource: [(index: Int, track: LoudTrack)] {
+    /// A queue row with an identity that follows the TRACK, not its
+    /// position. Positional ids made every row after a drop change identity,
+    /// so SwiftUI rebuilt them all (and re-fetched their artwork) — that was
+    /// the visible lag when releasing a drag.
+    struct QueueEntry: Identifiable {
+        let id: String
+        let index: Int
+        let track: LoudTrack
+    }
+
+    var manualQueueEntries: [QueueEntry] {
+        Self.queueEntries(for: Array(manualQueue.enumerated()), prefix: "q")
+    }
+
+    /// Capped at what the queue screen shows; building the full tail of a
+    /// large source on every render was wasted work.
+    var upcomingEntries: [QueueEntry] {
         guard sourceIndex + 1 < source.count else {
             return []
         }
-        return (sourceIndex + 1..<source.count).map { ($0, source[$0]) }
+        let start = sourceIndex + 1
+        let slice = source[start...].prefix(50).enumerated().map { (start + $0.offset, $0.element) }
+        return Self.queueEntries(for: slice, prefix: "u")
+    }
+
+    /// Duplicate tracks get occurrence-numbered ids so identities stay
+    /// unique and stable across reorders.
+    private static func queueEntries(for indexed: [(Int, LoudTrack)], prefix: String) -> [QueueEntry] {
+        var occurrences: [String: Int] = [:]
+        return indexed.map { index, track in
+            let occurrence = occurrences[track.id, default: 0]
+            occurrences[track.id] = occurrence + 1
+            return QueueEntry(id: "\(prefix)-\(track.id)-\(occurrence)", index: index, track: track)
+        }
     }
 
     /// Tap a manual-queue entry: it plays now, everything queued before it
