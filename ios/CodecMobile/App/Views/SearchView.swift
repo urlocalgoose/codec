@@ -1,12 +1,12 @@
 import SwiftUI
 
 struct SearchView: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(AppModel.self) private var app
 
     @State private var query = ""
 
-    private var results: [LoudTrack] {
+    private var results: [CodecTrack] {
         app.searchTracks(query)
     }
 

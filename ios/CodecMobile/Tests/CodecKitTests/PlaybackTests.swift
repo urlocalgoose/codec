@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import LoudKit
+@testable import CodecKit
 
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -61,7 +61,7 @@ private let stateJSON = #"""
             kind: "play",
             deviceID: "device-phone",
             targetDeviceID: "device-mac",
-            track: LoudTrackReference(id: "track_1", path: "loud://track/abc", fingerprint: "abc"),
+            track: CodecTrackReference(id: "track_1", path: "loud://track/abc", fingerprint: "abc"),
             positionSeconds: 3.5
         )
 
@@ -78,7 +78,7 @@ private let stateJSON = #"""
 }
 
 @Suite struct LikeTests {
-    private func libraryFixture() throws -> LoudLibrary {
+    private func libraryFixture() throws -> CodecLibrary {
         let json = #"""
         {
           "root_path": "loud://sync-server", "scanned_at": 1,
@@ -91,7 +91,7 @@ private let stateJSON = #"""
           ]
         }
         """#
-        return try JSONDecoder().decode(LoudLibrary.self, from: Data(json.utf8))
+        return try JSONDecoder().decode(CodecLibrary.self, from: Data(json.utf8))
     }
 
     @Test func settingLikedUpdatesTrackPlaylistAndStats() throws {
@@ -116,7 +116,7 @@ private let stateJSON = #"""
             Data(#"{"fingerprint":"isrc:US/TEST","liked":true}"#.utf8),
             HTTPURLResponse(url: base, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
         )]
-        let client = LoudClient(baseURL: base, token: "secret", transport: transport)
+        let client = CodecClient(baseURL: base, token: "secret", transport: transport)
 
         try await client.setLiked(fingerprint: "isrc:US/TEST", liked: true)
 

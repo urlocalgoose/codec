@@ -20,7 +20,7 @@ struct AudioRoutePicker: UIViewRepresentable {
 }
 
 struct SectionLabel: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
 
     let text: String
 
@@ -37,10 +37,10 @@ struct SectionLabel: View {
 
 /// Artwork with auth headers and an in-memory cache.
 struct ArtworkView: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(AppModel.self) private var app
 
-    let track: LoudTrack?
+    let track: CodecTrack?
     var size: CGFloat = 48
     var cornerRadius: CGFloat = 6
 
@@ -79,11 +79,11 @@ struct ArtworkView: View {
 }
 
 struct TrackRow: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(PlayerController.self) private var player
     @Environment(DownloadStore.self) private var downloads
 
-    let track: LoudTrack
+    let track: CodecTrack
     var showsDownloadState = true
 
     private var isCurrent: Bool {
@@ -135,13 +135,13 @@ struct TrackRow: View {
 /// A track row wired for a List: tap to play, swipe right to queue, swipe
 /// left to like or download, long-press for the full menu.
 struct PlayableTrackRow: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
     @Environment(DownloadStore.self) private var downloads
 
-    let track: LoudTrack
-    let collection: [LoudTrack]
+    let track: CodecTrack
+    let collection: [CodecTrack]
     var showsDownloadState = true
 
     var body: some View {
@@ -245,13 +245,13 @@ struct PlayableTrackRow: View {
 
 /// One list of playable tracks: sleek list bones, deck keys on top.
 struct TrackListView: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
     @Environment(DownloadStore.self) private var downloads
 
     let title: String
-    let tracks: [LoudTrack]
+    let tracks: [CodecTrack]
     var showsDownloadAll = true
 
     var body: some View {

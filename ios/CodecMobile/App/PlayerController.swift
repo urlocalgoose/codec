@@ -15,18 +15,18 @@ enum RepeatMode: String, CaseIterable {
 @MainActor
 @Observable
 final class PlayerController {
-    private(set) var currentTrack: LoudTrack?
+    private(set) var currentTrack: CodecTrack?
     private(set) var isPlaying = false
     private(set) var currentTime: Double = 0
     var shuffle = false
     var repeatMode: RepeatMode = .off
 
     /// The ordered source the current track came from (playlist, album, search…).
-    private(set) var source: [LoudTrack] = []
+    private(set) var source: [CodecTrack] = []
     private(set) var sourceIndex = 0
     /// Tracks manually queued with "Play Next" — they win over the source.
-    private(set) var manualQueue: [LoudTrack] = []
-    private var history: [LoudTrack] = []
+    private(set) var manualQueue: [CodecTrack] = []
+    private var history: [CodecTrack] = []
 
     var duration: Double {
         let mediaDuration = player?.currentItem?.duration.seconds ?? .nan
@@ -38,8 +38,8 @@ final class PlayerController {
 
     /// What the queue screen shows: now playing, then the manual queue,
     /// then the rest of the source.
-    var upNext: [LoudTrack] {
-        var items: [LoudTrack] = []
+    var upNext: [CodecTrack] {
+        var items: [CodecTrack] = []
         items.append(contentsOf: manualQueue)
         if sourceIndex + 1 < source.count {
             items.append(contentsOf: source[(sourceIndex + 1)...])
@@ -47,7 +47,7 @@ final class PlayerController {
         return items
     }
 
-    var client: LoudClient?
+    var client: CodecClient?
     var downloads: DownloadStore?
 
     // MARK: Shared playback (loud.playback.v2) state
@@ -66,9 +66,9 @@ final class PlayerController {
 
     private(set) var syncEnabled = false
     private(set) var syncState: PlaybackState?
-    private(set) var playbackDevices: [LoudPlaybackDevice] = []
+    private(set) var playbackDevices: [CodecPlaybackDevice] = []
     /// Set by the app so context references resolve against the library.
-    var resolveTrack: ((LoudTrackReference) -> LoudTrack?)?
+    var resolveTrack: ((CodecTrackReference) -> CodecTrack?)?
 
     private static let previousDoubleTapWindowMS: Int64 = 3000
     private var lastPreviousTapMS: Int64 = 0
@@ -111,7 +111,7 @@ final class PlayerController {
 
     // MARK: - Starting playback
 
-    func play(_ track: LoudTrack, from tracks: [LoudTrack]) {
+    func play(_ track: CodecTrack, from tracks: [CodecTrack]) {
         source = makeQueue(from: tracks.isEmpty ? [track] : tracks, startingAt: track, shuffled: shuffle)
         sourceIndex = 0
         manualQueue = []
@@ -125,7 +125,7 @@ final class PlayerController {
         startPlayback(at: 0)
     }
 
-    func playCollection(_ tracks: [LoudTrack], shuffled: Bool = false) {
+    func playCollection(_ tracks: [CodecTrack], shuffled: Bool = false) {
         guard let first = shuffled ? tracks.randomElement() : tracks.first else {
             return
         }
@@ -134,7 +134,7 @@ final class PlayerController {
     }
 
     /// Jumps the line: plays right after the current track.
-    func playNext(_ track: LoudTrack) {
+    func playNext(_ track: CodecTrack) {
         manualQueue.insert(track, at: 0)
         if currentTrack == nil {
             advance()
@@ -142,7 +142,7 @@ final class PlayerController {
     }
 
     /// Joins the end of the manual queue.
-    func playLater(_ track: LoudTrack) {
+    func playLater(_ track: CodecTrack) {
         manualQueue.append(track)
         if currentTrack == nil {
             advance()
@@ -171,7 +171,7 @@ final class PlayerController {
     struct QueueEntry: Identifiable {
         let id: String
         let index: Int
-        let track: LoudTrack
+        let track: CodecTrack
     }
 
     var manualQueueEntries: [QueueEntry] {
@@ -191,7 +191,7 @@ final class PlayerController {
 
     /// Duplicate tracks get occurrence-numbered ids so identities stay
     /// unique and stable across reorders.
-    private static func queueEntries(for indexed: [(Int, LoudTrack)], prefix: String) -> [QueueEntry] {
+    private static func queueEntries(for indexed: [(Int, CodecTrack)], prefix: String) -> [QueueEntry] {
         var occurrences: [String: Int] = [:]
         return indexed.map { index, track in
             let occurrence = occurrences[track.id, default: 0]
@@ -421,7 +421,7 @@ final class PlayerController {
 
     // MARK: - Engine
 
-    private func makeQueue(from tracks: [LoudTrack], startingAt track: LoudTrack, shuffled: Bool) -> [LoudTrack] {
+    private func makeQueue(from tracks: [CodecTrack], startingAt track: CodecTrack, shuffled: Bool) -> [CodecTrack] {
         if shuffled {
             let rest = tracks.filter { $0.id != track.id }.shuffled()
             return [track] + rest
@@ -544,7 +544,7 @@ final class PlayerController {
         publishPresenceSoon()
     }
 
-    private func playbackURL(for track: LoudTrack) -> URL? {
+    private func playbackURL(for track: CodecTrack) -> URL? {
         if let local = downloads?.localAudioURL(for: track) {
             return local
         }
@@ -624,7 +624,7 @@ final class PlayerController {
         }
     }
 
-    private func updateNowPlayingMetadata(for track: LoudTrack) {
+    private func updateNowPlayingMetadata(for track: CodecTrack) {
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
             MPMediaItemPropertyArtist: track.artist,
@@ -681,7 +681,7 @@ final class PlayerController {
 // truth, and this phone only makes sound when it is the active device.
 
 extension PlayerController {
-    func startSync(client: LoudClient) {
+    func startSync(client: CodecClient) {
         self.client = client
         syncEnabled = true
 
@@ -761,7 +761,7 @@ extension PlayerController {
     func sendSyncCommand(
         _ kind: String,
         targetDeviceID: String? = nil,
-        track: LoudTrack? = nil,
+        track: CodecTrack? = nil,
         position: Double? = nil,
         shuffle shuffleOverride: Bool? = nil,
         repeatMode repeatOverride: String? = nil
@@ -774,7 +774,7 @@ extension PlayerController {
             kind: kind,
             deviceID: deviceID,
             targetDeviceID: targetDeviceID ?? syncState?.activeDeviceID ?? deviceID,
-            track: track.map(LoudTrackReference.init(track:)),
+            track: track.map(CodecTrackReference.init(track:)),
             context: contextSnapshot(shuffle: shuffleOverride, repeatMode: repeatOverride),
             positionSeconds: position,
             shuffle: shuffleOverride,
@@ -794,10 +794,10 @@ extension PlayerController {
 
     private func contextSnapshot(shuffle shuffleOverride: Bool? = nil, repeatMode repeatOverride: String? = nil) -> PlaybackContext {
         PlaybackContext(
-            playbackSource: source.map(LoudTrackReference.init(track:)),
+            playbackSource: source.map(CodecTrackReference.init(track:)),
             playbackIndex: max(0, min(sourceIndex, max(source.count - 1, 0))),
-            queuedTracks: manualQueue.map(LoudTrackReference.init(track:)),
-            playHistory: history.map(LoudTrackReference.init(track:)),
+            queuedTracks: manualQueue.map(CodecTrackReference.init(track:)),
+            playHistory: history.map(CodecTrackReference.init(track:)),
             shuffle: shuffleOverride ?? shuffle,
             repeatMode: repeatOverride ?? repeatMode.rawValue
         )
@@ -841,7 +841,7 @@ extension PlayerController {
         publishPresenceSoon()
     }
 
-    private func syncLocalAudio(to state: PlaybackState, track: LoudTrack) {
+    private func syncLocalAudio(to state: PlaybackState, track: CodecTrack) {
         let position = state.position(atClientTimeMS: Self.nowMS(), clockOffsetMS: clockOffsetMS)
 
         if loadedFingerprint != track.fingerprint || player == nil {
@@ -958,7 +958,7 @@ extension PlayerController {
             return
         }
 
-        let device = LoudPlaybackDevice(
+        let device = CodecPlaybackDevice(
             deviceID: deviceID,
             name: deviceName,
             trackID: currentTrack?.id,
@@ -974,11 +974,11 @@ extension PlayerController {
 
     /// Devices for the "Playing on" picker: this phone first, then the rest,
     /// freshest presence first.
-    var deviceOptions: [LoudPlaybackDevice] {
+    var deviceOptions: [CodecPlaybackDevice] {
         var options = playbackDevices.filter { $0.deviceID != deviceID }
         options.sort { $0.updatedAt > $1.updatedAt }
         let me = playbackDevices.first { $0.deviceID == deviceID }
-            ?? LoudPlaybackDevice(deviceID: deviceID, name: deviceName)
+            ?? CodecPlaybackDevice(deviceID: deviceID, name: deviceName)
         return [me] + options
     }
 

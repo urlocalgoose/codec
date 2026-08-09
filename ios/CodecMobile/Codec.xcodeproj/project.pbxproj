@@ -7,14 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		100000000000000000000101 /* LoudMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000001 /* LoudMobileApp.swift */; };
+		100000000000000000000101 /* CodecApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000001 /* CodecApp.swift */; };
 		100000000000000000000103 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000003 /* DesignTokens.swift */; };
 		100000000000000000000106 /* CodieHand-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000006 /* CodieHand-Regular.ttf */; };
 		100000000000000000000110 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000010 /* AppModel.swift */; };
 		100000000000000000000111 /* PlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000011 /* PlayerController.swift */; };
 		100000000000000000000112 /* DownloadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000012 /* DownloadStore.swift */; };
 		100000000000000000000113 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000013 /* Models.swift */; };
-		100000000000000000000114 /* LoudClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000014 /* LoudClient.swift */; };
+		100000000000000000000114 /* CodecClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000014 /* CodecClient.swift */; };
 		100000000000000000000115 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000015 /* Components.swift */; };
 		100000000000000000000116 /* ConnectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000016 /* ConnectView.swift */; };
 		100000000000000000000117 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000017 /* RootView.swift */; };
@@ -28,16 +28,16 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		100000000000000000000001 /* LoudMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoudMobileApp.swift; sourceTree = "<group>"; };
+		100000000000000000000001 /* CodecApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodecApp.swift; sourceTree = "<group>"; };
 		100000000000000000000003 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		100000000000000000000006 /* CodieHand-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodieHand-Regular.ttf"; sourceTree = "<group>"; };
 		100000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		100000000000000000000008 /* LoudMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LoudMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		100000000000000000000008 /* Codec.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Codec.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000010 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		100000000000000000000011 /* PlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerController.swift; sourceTree = "<group>"; };
 		100000000000000000000012 /* DownloadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadStore.swift; sourceTree = "<group>"; };
-		100000000000000000000013 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/LoudKit/Models.swift; sourceTree = SOURCE_ROOT; };
-		100000000000000000000014 /* LoudClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/LoudKit/LoudClient.swift; sourceTree = SOURCE_ROOT; };
+		100000000000000000000013 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/CodecKit/Models.swift; sourceTree = SOURCE_ROOT; };
+		100000000000000000000014 /* CodecClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/CodecKit/CodecClient.swift; sourceTree = SOURCE_ROOT; };
 		100000000000000000000015 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		100000000000000000000016 /* ConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectView.swift; sourceTree = "<group>"; };
 		100000000000000000000017 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -45,7 +45,7 @@
 		100000000000000000000019 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		10000000000000000000001A /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
 		10000000000000000000001B /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
-		10000000000000000000001C /* PlaybackModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/LoudKit/PlaybackModels.swift; sourceTree = SOURCE_ROOT; };
+		10000000000000000000001C /* PlaybackModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/CodecKit/PlaybackModels.swift; sourceTree = SOURCE_ROOT; };
 		10000000000000000000001D /* Themes.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Themes.generated.swift; sourceTree = "<group>"; };
 		10000000000000000000001E /* ThemePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePickerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -65,7 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				100000000000000000000302 /* App */,
-				100000000000000000000303 /* LoudKit */,
+				100000000000000000000303 /* CodecKit */,
 				100000000000000000000304 /* Resources */,
 				100000000000000000000305 /* Products */,
 			);
@@ -74,7 +74,7 @@
 		100000000000000000000302 /* App */ = {
 			isa = PBXGroup;
 			children = (
-				100000000000000000000001 /* LoudMobileApp.swift */,
+				100000000000000000000001 /* CodecApp.swift */,
 				100000000000000000000010 /* AppModel.swift */,
 				100000000000000000000011 /* PlayerController.swift */,
 				100000000000000000000012 /* DownloadStore.swift */,
@@ -86,14 +86,14 @@
 			path = App;
 			sourceTree = "<group>";
 		};
-		100000000000000000000303 /* LoudKit */ = {
+		100000000000000000000303 /* CodecKit */ = {
 			isa = PBXGroup;
 			children = (
 				100000000000000000000013 /* Models.swift */,
 				10000000000000000000001C /* PlaybackModels.swift */,
-				100000000000000000000014 /* LoudClient.swift */,
+				100000000000000000000014 /* CodecClient.swift */,
 			);
-			name = LoudKit;
+			name = CodecKit;
 			sourceTree = "<group>";
 		};
 		100000000000000000000304 /* Resources */ = {
@@ -107,7 +107,7 @@
 		100000000000000000000305 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				100000000000000000000008 /* LoudMobile.app */,
+				100000000000000000000008 /* Codec.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -130,9 +130,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		100000000000000000000401 /* LoudMobile */ = {
+		100000000000000000000401 /* Codec */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 100000000000000000000701 /* Build configuration list for PBXNativeTarget "LoudMobile" */;
+			buildConfigurationList = 100000000000000000000701 /* Build configuration list for PBXNativeTarget "Codec" */;
 			buildPhases = (
 				100000000000000000000501 /* Sources */,
 				100000000000000000000201 /* Frameworks */,
@@ -142,9 +142,9 @@
 			);
 			dependencies = (
 			);
-			name = LoudMobile;
-			productName = LoudMobile;
-			productReference = 100000000000000000000008 /* LoudMobile.app */;
+			name = Codec;
+			productName = Codec;
+			productReference = 100000000000000000000008 /* Codec.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -162,7 +162,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 100000000000000000000702 /* Build configuration list for PBXProject "LoudMobile" */;
+			buildConfigurationList = 100000000000000000000702 /* Build configuration list for PBXProject "Codec" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -176,7 +176,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				100000000000000000000401 /* LoudMobile */,
+				100000000000000000000401 /* Codec */,
 			);
 		};
 /* End PBXProject section */
@@ -197,7 +197,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				100000000000000000000101 /* LoudMobileApp.swift in Sources */,
+				100000000000000000000101 /* CodecApp.swift in Sources */,
 				100000000000000000000110 /* AppModel.swift in Sources */,
 				100000000000000000000111 /* PlayerController.swift in Sources */,
 				100000000000000000000112 /* DownloadStore.swift in Sources */,
@@ -206,7 +206,7 @@
 				10000000000000000000011E /* ThemePickerView.swift in Sources */,
 				100000000000000000000113 /* Models.swift in Sources */,
 				10000000000000000000011C /* PlaybackModels.swift in Sources */,
-				100000000000000000000114 /* LoudClient.swift in Sources */,
+				100000000000000000000114 /* CodecClient.swift in Sources */,
 				100000000000000000000115 /* Components.swift in Sources */,
 				100000000000000000000116 /* ConnectView.swift in Sources */,
 				100000000000000000000117 /* RootView.swift in Sources */,
@@ -347,7 +347,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = sh.codie.codec.sleek;
+				PRODUCT_BUNDLE_IDENTIFIER = sh.codie.codec.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -371,7 +371,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = sh.codie.codec.sleek;
+				PRODUCT_BUNDLE_IDENTIFIER = sh.codie.codec.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -385,7 +385,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		100000000000000000000701 /* Build configuration list for PBXNativeTarget "LoudMobile" */ = {
+		100000000000000000000701 /* Build configuration list for PBXNativeTarget "Codec" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				100000000000000000000803 /* Debug */,
@@ -394,7 +394,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		100000000000000000000702 /* Build configuration list for PBXProject "LoudMobile" */ = {
+		100000000000000000000702 /* Build configuration list for PBXProject "Codec" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				100000000000000000000801 /* Debug */,

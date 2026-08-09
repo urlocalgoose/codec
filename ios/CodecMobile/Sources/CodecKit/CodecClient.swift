@@ -3,24 +3,24 @@ import Foundation
 import FoundationNetworking
 #endif
 
-public protocol LoudTransport: Sendable {
+public protocol CodecTransport: Sendable {
     func data(for request: URLRequest) async throws -> (Data, URLResponse)
 }
 
-extension URLSession: LoudTransport {}
+extension URLSession: CodecTransport {}
 
-/// Client for the Loud sync server (`loud-sync-server`).
+/// Client for the Codec sync server (`loud-sync-server`).
 ///
 /// Speaks the plain v1 API with optional shared-token auth: when the server
 /// is started with `LOUD_AUTH_TOKEN`, every request carries
 /// `Authorization: Bearer <token>`.
-public struct LoudClient: Sendable {
+public struct CodecClient: Sendable {
     public let baseURL: URL
     public let token: String?
-    private let transport: LoudTransport
+    private let transport: CodecTransport
     private let decoder = JSONDecoder()
 
-    public init(baseURL: URL, token: String? = nil, transport: LoudTransport = URLSession.shared) {
+    public init(baseURL: URL, token: String? = nil, transport: CodecTransport = URLSession.shared) {
         self.baseURL = baseURL
         let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.token = (trimmed?.isEmpty ?? true) ? nil : trimmed
@@ -36,22 +36,22 @@ public struct LoudClient: Sendable {
         return ["Authorization": "Bearer \(token)"]
     }
 
-    public func health() async throws -> LoudHealth {
-        try await send(request(method: "GET", path: "/health"), as: LoudHealth.self)
+    public func health() async throws -> CodecHealth {
+        try await send(request(method: "GET", path: "/health"), as: CodecHealth.self)
     }
 
-    public func library() async throws -> LoudLibrary {
-        try await send(request(method: "GET", path: "/api/v1/library"), as: LoudLibrary.self)
+    public func library() async throws -> CodecLibrary {
+        try await send(request(method: "GET", path: "/api/v1/library"), as: CodecLibrary.self)
     }
 
     /// Canonical audio URL for a track, used for both streaming and downloads.
     /// Prefers the URL the server embedded in the library payload and falls
     /// back to building one from the fingerprint.
-    public func audioURL(for track: LoudTrack) -> URL? {
+    public func audioURL(for track: CodecTrack) -> URL? {
         track.audioURL ?? mediaURL(fingerprint: track.fingerprint, kind: "audio")
     }
 
-    public func artworkURL(for track: LoudTrack) -> URL? {
+    public func artworkURL(for track: CodecTrack) -> URL? {
         track.artworkURL ?? mediaURL(fingerprint: track.fingerprint, kind: "artwork")
     }
 
@@ -66,7 +66,7 @@ public struct LoudClient: Sendable {
 
     public func setLiked(fingerprint: String, liked: Bool) async throws {
         guard let encoded = fingerprint.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else {
-            throw LoudClientError.invalidBaseURL
+            throw CodecClientError.invalidBaseURL
         }
         var request = URLRequest(url: try endpointURL(path: "/api/v1/tracks/\(encoded)/liked", encodedPath: true))
         request.httpMethod = "PUT"
@@ -97,15 +97,15 @@ public struct LoudClient: Sendable {
         return try decoder.decode(PlaybackState.self, from: data)
     }
 
-    public func playbackDevices() async throws -> [LoudPlaybackDevice] {
+    public func playbackDevices() async throws -> [CodecPlaybackDevice] {
         let request = try request(method: "GET", path: "/api/v1/playback/devices")
         let data = try await sendExpectingSuccess(request)
-        return (try? decoder.decode([LoudPlaybackDevice].self, from: data)) ?? []
+        return (try? decoder.decode([CodecPlaybackDevice].self, from: data)) ?? []
     }
 
-    public func publishPlaybackDevice(_ device: LoudPlaybackDevice) async throws {
+    public func publishPlaybackDevice(_ device: CodecPlaybackDevice) async throws {
         guard let encoded = device.deviceID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else {
-            throw LoudClientError.invalidBaseURL
+            throw CodecClientError.invalidBaseURL
         }
         var request = URLRequest(url: try endpointURL(path: "/api/v1/playback/devices/\(encoded)", encodedPath: true))
         request.httpMethod = "PUT"
@@ -139,10 +139,10 @@ public struct LoudClient: Sendable {
     private func sendExpectingSuccess(_ request: URLRequest) async throws -> Data {
         let (data, response) = try await transport.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw LoudClientError.invalidResponse
+            throw CodecClientError.invalidResponse
         }
         guard (200..<300).contains(http.statusCode) else {
-            throw LoudClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            throw CodecClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
         return data
     }
@@ -152,7 +152,7 @@ public struct LoudClient: Sendable {
               components.scheme != nil,
               components.host != nil
         else {
-            throw LoudClientError.invalidBaseURL
+            throw CodecClientError.invalidBaseURL
         }
 
         let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -167,7 +167,7 @@ public struct LoudClient: Sendable {
         }
 
         guard let url = components.url else {
-            throw LoudClientError.invalidBaseURL
+            throw CodecClientError.invalidBaseURL
         }
         return url
     }
@@ -175,16 +175,16 @@ public struct LoudClient: Sendable {
     private func send<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
         let (data, response) = try await transport.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw LoudClientError.invalidResponse
+            throw CodecClientError.invalidResponse
         }
         guard (200..<300).contains(http.statusCode) else {
-            throw LoudClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            throw CodecClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
         return try decoder.decode(type, from: data)
     }
 }
 
-public enum LoudClientError: Error, Equatable, LocalizedError {
+public enum CodecClientError: Error, Equatable, LocalizedError {
     case invalidBaseURL
     case invalidResponse
     case httpStatus(Int, String)

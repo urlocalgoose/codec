@@ -3,7 +3,7 @@ import SwiftUI
 /// Full-screen player: sleek bones (breathing artwork, clean layout) with
 /// the deck's transport — latching keys, haptics, themed everything.
 struct NowPlayingView: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
     @Environment(DownloadStore.self) private var downloads
@@ -211,7 +211,7 @@ struct NowPlayingView: View {
     }
 
     @ViewBuilder
-    private func downloadButton(_ track: LoudTrack) -> some View {
+    private func downloadButton(_ track: CodecTrack) -> some View {
         switch downloads.state(for: track) {
         case .downloaded:
             Button {
@@ -244,7 +244,7 @@ struct NowPlayingView: View {
 }
 
 struct QueueView: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(PlayerController.self) private var player
     @Environment(\.dismiss) private var dismiss
 

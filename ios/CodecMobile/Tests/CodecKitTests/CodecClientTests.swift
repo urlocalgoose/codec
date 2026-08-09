@@ -1,19 +1,19 @@
 import Foundation
 import Testing
-@testable import LoudKit
+@testable import CodecKit
 
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 
-final class RecordingTransport: LoudTransport, @unchecked Sendable {
+final class RecordingTransport: CodecTransport, @unchecked Sendable {
     var requests: [URLRequest] = []
     var responses: [(Data, URLResponse)] = []
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
         guard !responses.isEmpty else {
-            throw LoudClientError.invalidResponse
+            throw CodecClientError.invalidResponse
         }
         return responses.removeFirst()
     }
@@ -23,7 +23,7 @@ private func httpResponse(url: URL, status: Int = 200) -> HTTPURLResponse {
     HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: nil)!
 }
 
-@Suite struct LoudClientTests {
+@Suite struct CodecClientTests {
     let base = URL(string: "http://192.168.1.20:8787")!
 
     @Test func healthHitsTheHealthEndpoint() async throws {
@@ -32,7 +32,7 @@ private func httpResponse(url: URL, status: Int = 200) -> HTTPURLResponse {
             Data(#"{"ok":true,"schema":"loud.sync.v1","playback_schema":"loud.playback.v2"}"#.utf8),
             httpResponse(url: base)
         )]
-        let client = LoudClient(baseURL: base, transport: transport)
+        let client = CodecClient(baseURL: base, transport: transport)
 
         let health = try await client.health()
 
@@ -49,7 +49,7 @@ private func httpResponse(url: URL, status: Int = 200) -> HTTPURLResponse {
             Data(#"{"ok":true,"schema":"loud.sync.v1","playback_schema":null}"#.utf8),
             httpResponse(url: base)
         )]
-        let client = LoudClient(baseURL: base, token: "  secret-token \n", transport: transport)
+        let client = CodecClient(baseURL: base, token: "  secret-token \n", transport: transport)
 
         _ = try await client.health()
 
@@ -77,7 +77,7 @@ private func httpResponse(url: URL, status: Int = 200) -> HTTPURLResponse {
         """#
         let transport = RecordingTransport()
         transport.responses = [(Data(json.utf8), httpResponse(url: base))]
-        let client = LoudClient(baseURL: base, transport: transport)
+        let client = CodecClient(baseURL: base, transport: transport)
 
         let library = try await client.library()
 
@@ -94,7 +94,7 @@ private func httpResponse(url: URL, status: Int = 200) -> HTTPURLResponse {
         let json = #"{"root_path":"loud://sync-server","scanned_at":1,"artists":null,"albums":null,"playlists":null,"tracks":null}"#
         let transport = RecordingTransport()
         transport.responses = [(Data(json.utf8), httpResponse(url: base))]
-        let client = LoudClient(baseURL: base, transport: transport)
+        let client = CodecClient(baseURL: base, transport: transport)
 
         let library = try await client.library()
 
@@ -104,7 +104,7 @@ private func httpResponse(url: URL, status: Int = 200) -> HTTPURLResponse {
     }
 
     @Test func mediaURLEncodesFingerprints() {
-        let client = LoudClient(baseURL: base)
+        let client = CodecClient(baseURL: base)
 
         let url = client.mediaURL(fingerprint: "isrc:US/TEST", kind: "audio")
 
@@ -114,12 +114,12 @@ private func httpResponse(url: URL, status: Int = 200) -> HTTPURLResponse {
     @Test func httpErrorsSurfaceStatusCodes() async {
         let transport = RecordingTransport()
         transport.responses = [(Data(), httpResponse(url: base, status: 401))]
-        let client = LoudClient(baseURL: base, token: "wrong", transport: transport)
+        let client = CodecClient(baseURL: base, token: "wrong", transport: transport)
 
         do {
             _ = try await client.health()
             Issue.record("expected an error")
-        } catch let error as LoudClientError {
+        } catch let error as CodecClientError {
             #expect(error == .httpStatus(401, ""))
         } catch {
             Issue.record("unexpected error type: \(error)")

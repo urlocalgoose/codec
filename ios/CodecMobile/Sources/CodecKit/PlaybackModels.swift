@@ -1,7 +1,7 @@
 import Foundation
 
 /// Cross-device reference to a canonical track (`loud.playback.v2`).
-public struct LoudTrackReference: Codable, Equatable, Sendable {
+public struct CodecTrackReference: Codable, Equatable, Sendable {
     public let id: String
     public let path: String
     public let fingerprint: String
@@ -12,16 +12,16 @@ public struct LoudTrackReference: Codable, Equatable, Sendable {
         self.fingerprint = fingerprint
     }
 
-    public init(track: LoudTrack) {
+    public init(track: CodecTrack) {
         self.init(id: track.id, path: "loud://track/\(track.fingerprint)", fingerprint: track.fingerprint)
     }
 }
 
 public struct PlaybackContext: Codable, Equatable, Sendable {
-    public var playbackSource: [LoudTrackReference]
+    public var playbackSource: [CodecTrackReference]
     public var playbackIndex: Int
-    public var queuedTracks: [LoudTrackReference]
-    public var playHistory: [LoudTrackReference]
+    public var queuedTracks: [CodecTrackReference]
+    public var playHistory: [CodecTrackReference]
     public var shuffle: Bool
     public var repeatMode: String
 
@@ -35,10 +35,10 @@ public struct PlaybackContext: Codable, Equatable, Sendable {
     }
 
     public init(
-        playbackSource: [LoudTrackReference] = [],
+        playbackSource: [CodecTrackReference] = [],
         playbackIndex: Int = 0,
-        queuedTracks: [LoudTrackReference] = [],
-        playHistory: [LoudTrackReference] = [],
+        queuedTracks: [CodecTrackReference] = [],
+        playHistory: [CodecTrackReference] = [],
         shuffle: Bool = false,
         repeatMode: String = "off"
     ) {
@@ -52,10 +52,10 @@ public struct PlaybackContext: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        playbackSource = try container.decodeIfPresent([LoudTrackReference].self, forKey: .playbackSource) ?? []
+        playbackSource = try container.decodeIfPresent([CodecTrackReference].self, forKey: .playbackSource) ?? []
         playbackIndex = try container.decodeIfPresent(Int.self, forKey: .playbackIndex) ?? 0
-        queuedTracks = try container.decodeIfPresent([LoudTrackReference].self, forKey: .queuedTracks) ?? []
-        playHistory = try container.decodeIfPresent([LoudTrackReference].self, forKey: .playHistory) ?? []
+        queuedTracks = try container.decodeIfPresent([CodecTrackReference].self, forKey: .queuedTracks) ?? []
+        playHistory = try container.decodeIfPresent([CodecTrackReference].self, forKey: .playHistory) ?? []
         shuffle = try container.decodeIfPresent(Bool.self, forKey: .shuffle) ?? false
         repeatMode = try container.decodeIfPresent(String.self, forKey: .repeatMode) ?? "off"
     }
@@ -88,7 +88,7 @@ public struct PlaybackState: Codable, Equatable, Sendable {
     public let revision: Int64
     public let activeDeviceID: String?
     public let state: String
-    public let track: LoudTrackReference?
+    public let track: CodecTrackReference?
     public let context: PlaybackContext
     public let clock: PlaybackClock
     public let volume: Double
@@ -122,7 +122,7 @@ public struct PlaybackState: Codable, Equatable, Sendable {
 
 /// A device row from `GET /api/v1/playback/devices`; also the payload we
 /// publish for this device's presence.
-public struct LoudPlaybackDevice: Codable, Equatable, Sendable, Identifiable {
+public struct CodecPlaybackDevice: Codable, Equatable, Sendable, Identifiable {
     public let deviceID: String
     public let name: String
     public let trackID: String?
@@ -175,7 +175,7 @@ public struct PlaybackCommand: Encodable, Sendable {
     public let kind: String
     public let deviceID: String
     public var targetDeviceID: String?
-    public var track: LoudTrackReference?
+    public var track: CodecTrackReference?
     public var context: PlaybackContext?
     public var positionSeconds: Double?
     public var shuffle: Bool?
@@ -197,7 +197,7 @@ public struct PlaybackCommand: Encodable, Sendable {
         kind: String,
         deviceID: String,
         targetDeviceID: String? = nil,
-        track: LoudTrackReference? = nil,
+        track: CodecTrackReference? = nil,
         context: PlaybackContext? = nil,
         positionSeconds: Double? = nil,
         shuffle: Bool? = nil,
@@ -217,8 +217,8 @@ public struct PlaybackCommand: Encodable, Sendable {
 
 /// One event from `GET /api/v2/playback/events` (SSE).
 public struct PlaybackEventPayload: Decodable, Sendable {
-    public let device: LoudPlaybackDevice?
-    public let devices: [LoudPlaybackDevice]?
+    public let device: CodecPlaybackDevice?
+    public let devices: [CodecPlaybackDevice]?
     public let playbackState: PlaybackState?
 
     enum CodingKeys: String, CodingKey {

@@ -57,7 +57,7 @@ private struct MiniPlayerInset: ViewModifier {
 /// Floating card with the deck's materials: theme panel, hairline border,
 /// accent progress ticking along the bottom.
 struct MiniPlayerBar: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(PlayerController.self) private var player
 
     let onOpen: () -> Void

@@ -51,7 +51,7 @@ Tailscale address, not localhost) and add it to your Home Screen.
 ### iOS (native)
 
 ```bash
-open ios/LoudMobile/LoudMobile.xcodeproj
+open ios/CodecMobile/Codec.xcodeproj
 ```
 
 Build to your device with Xcode, then paste your server URL into the app.
@@ -121,7 +121,7 @@ bun run server:dev   # build web app + run Go server on :8787
 bun run check        # svelte-check
 bun run test         # frontend (bun) + Rust tests
 cd sync-server && go test ./...          # Go server tests
-cd ios/LoudMobile && swift test          # iOS sync client tests
+cd ios/CodecMobile && swift test          # iOS sync client tests
 ```
 
 Repo layout:
@@ -130,7 +130,7 @@ Repo layout:
 src/                  Svelte app (routes, lib, components)
 src-tauri/            Rust core: scanning, import, state, media server
 sync-server/          Go sync server (SQLite + media on disk)
-ios/LoudMobile/       SwiftUI iOS app
+ios/CodecMobile/       SwiftUI iOS app
 docs/                 contracts and guides
 ```
 

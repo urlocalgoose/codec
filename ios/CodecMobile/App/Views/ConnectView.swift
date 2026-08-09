@@ -2,7 +2,7 @@ import SwiftUI
 
 /// First-run screen: server URL + optional token, deck style.
 struct ConnectView: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
 

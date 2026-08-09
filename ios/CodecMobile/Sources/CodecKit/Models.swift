@@ -1,7 +1,7 @@
 import Foundation
 
 /// Response from `GET /health`.
-public struct LoudHealth: Decodable, Equatable, Sendable {
+public struct CodecHealth: Decodable, Equatable, Sendable {
     public let ok: Bool
     public let schema: String
     public let playbackSchema: String?
@@ -15,14 +15,14 @@ public struct LoudHealth: Decodable, Equatable, Sendable {
 
 /// The `Library` payload from `GET /api/v1/library`, matching the Go server
 /// and the web app's `src/lib/types.ts`.
-public struct LoudLibrary: Codable, Equatable, Sendable {
+public struct CodecLibrary: Codable, Equatable, Sendable {
     public let rootPath: String
     public let scannedAt: Int64
-    public let stats: LoudLibraryStats
-    public let artists: [LoudArtistSummary]
-    public let albums: [LoudAlbumSummary]
-    public let playlists: [LoudPlaylist]
-    public let tracks: [LoudTrack]
+    public let stats: CodecLibraryStats
+    public let artists: [CodecArtistSummary]
+    public let albums: [CodecAlbumSummary]
+    public let playlists: [CodecPlaylist]
+    public let tracks: [CodecTrack]
 
     enum CodingKeys: String, CodingKey {
         case rootPath = "root_path"
@@ -38,21 +38,21 @@ public struct LoudLibrary: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         rootPath = try container.decodeIfPresent(String.self, forKey: .rootPath) ?? ""
         scannedAt = try container.decodeIfPresent(Int64.self, forKey: .scannedAt) ?? 0
-        stats = try container.decodeIfPresent(LoudLibraryStats.self, forKey: .stats) ?? .empty
-        artists = try container.decodeIfPresent([LoudArtistSummary].self, forKey: .artists) ?? []
-        albums = try container.decodeIfPresent([LoudAlbumSummary].self, forKey: .albums) ?? []
-        playlists = try container.decodeIfPresent([LoudPlaylist].self, forKey: .playlists) ?? []
-        tracks = try container.decodeIfPresent([LoudTrack].self, forKey: .tracks) ?? []
+        stats = try container.decodeIfPresent(CodecLibraryStats.self, forKey: .stats) ?? .empty
+        artists = try container.decodeIfPresent([CodecArtistSummary].self, forKey: .artists) ?? []
+        albums = try container.decodeIfPresent([CodecAlbumSummary].self, forKey: .albums) ?? []
+        playlists = try container.decodeIfPresent([CodecPlaylist].self, forKey: .playlists) ?? []
+        tracks = try container.decodeIfPresent([CodecTrack].self, forKey: .tracks) ?? []
     }
 
     public init(
         rootPath: String,
         scannedAt: Int64,
-        stats: LoudLibraryStats,
-        artists: [LoudArtistSummary],
-        albums: [LoudAlbumSummary],
-        playlists: [LoudPlaylist],
-        tracks: [LoudTrack]
+        stats: CodecLibraryStats,
+        artists: [CodecArtistSummary],
+        albums: [CodecAlbumSummary],
+        playlists: [CodecPlaylist],
+        tracks: [CodecTrack]
     ) {
         self.rootPath = rootPath
         self.scannedAt = scannedAt
@@ -66,9 +66,9 @@ public struct LoudLibrary: Codable, Equatable, Sendable {
     /// A copy of the library with every copy of the identified song
     /// (un)liked and the Liked Songs playlist kept in step — the optimistic
     /// local mirror of `PUT /api/v1/tracks/{fingerprint}/liked`.
-    public func settingLiked(fingerprint: String, liked: Bool) -> LoudLibrary {
+    public func settingLiked(fingerprint: String, liked: Bool) -> CodecLibrary {
         var changedIDs = Set<String>()
-        let nextTracks = tracks.map { track -> LoudTrack in
+        let nextTracks = tracks.map { track -> CodecTrack in
             guard track.fingerprint == fingerprint else {
                 return track
             }
@@ -76,7 +76,7 @@ public struct LoudLibrary: Codable, Equatable, Sendable {
             return track.withLiked(liked)
         }
 
-        let nextPlaylists = playlists.map { playlist -> LoudPlaylist in
+        let nextPlaylists = playlists.map { playlist -> CodecPlaylist in
             guard playlist.isLiked else {
                 return playlist
             }
@@ -84,10 +84,10 @@ public struct LoudLibrary: Codable, Equatable, Sendable {
             if liked {
                 ids.append(contentsOf: changedIDs.sorted())
             }
-            return LoudPlaylist(id: playlist.id, name: playlist.name, trackIDs: ids, isLiked: true)
+            return CodecPlaylist(id: playlist.id, name: playlist.name, trackIDs: ids, isLiked: true)
         }
 
-        let nextStats = LoudLibraryStats(
+        let nextStats = CodecLibraryStats(
             trackCount: stats.trackCount,
             playlistCount: stats.playlistCount,
             likedCount: nextTracks.filter(\.isLiked).count,
@@ -96,7 +96,7 @@ public struct LoudLibrary: Codable, Equatable, Sendable {
             durationSeconds: stats.durationSeconds
         )
 
-        return LoudLibrary(
+        return CodecLibrary(
             rootPath: rootPath,
             scannedAt: scannedAt,
             stats: nextStats,
@@ -108,7 +108,7 @@ public struct LoudLibrary: Codable, Equatable, Sendable {
     }
 }
 
-public struct LoudLibraryStats: Codable, Equatable, Sendable {
+public struct CodecLibraryStats: Codable, Equatable, Sendable {
     public let trackCount: Int
     public let playlistCount: Int
     public let likedCount: Int
@@ -116,7 +116,7 @@ public struct LoudLibraryStats: Codable, Equatable, Sendable {
     public let albumCount: Int
     public let durationSeconds: Double
 
-    public static let empty = LoudLibraryStats(
+    public static let empty = CodecLibraryStats(
         trackCount: 0, playlistCount: 0, likedCount: 0,
         artistCount: 0, albumCount: 0, durationSeconds: 0
     )
@@ -134,7 +134,7 @@ public struct LoudLibraryStats: Codable, Equatable, Sendable {
     }
 }
 
-public struct LoudArtistSummary: Codable, Equatable, Sendable, Identifiable {
+public struct CodecArtistSummary: Codable, Equatable, Sendable, Identifiable {
     public let name: String
     public let trackCount: Int
     public let albumCount: Int
@@ -143,7 +143,7 @@ public struct LoudArtistSummary: Codable, Equatable, Sendable, Identifiable {
     public var id: String { name }
 }
 
-public struct LoudAlbumSummary: Codable, Equatable, Sendable, Identifiable {
+public struct CodecAlbumSummary: Codable, Equatable, Sendable, Identifiable {
     public let name: String
     public let artist: String
     public let trackCount: Int
@@ -161,7 +161,7 @@ public struct LoudAlbumSummary: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-public struct LoudPlaylist: Codable, Equatable, Sendable, Identifiable {
+public struct CodecPlaylist: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let name: String
     public let trackIDs: [String]
@@ -190,7 +190,7 @@ public struct LoudPlaylist: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-public struct LoudTrack: Codable, Equatable, Sendable, Identifiable, Hashable {
+public struct CodecTrack: Codable, Equatable, Sendable, Identifiable, Hashable {
     public let id: String
     public let title: String
     public let artist: String
@@ -268,8 +268,8 @@ public struct LoudTrack: Codable, Equatable, Sendable, Identifiable, Hashable {
         self.fingerprint = fingerprint
     }
 
-    public func withLiked(_ liked: Bool) -> LoudTrack {
-        LoudTrack(
+    public func withLiked(_ liked: Bool) -> CodecTrack {
+        CodecTrack(
             id: id,
             title: title,
             artist: artist,

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Codec (formerly Loud) is a local-first music player/library manager built as a Tauri v2 desktop app (SvelteKit + Svelte 5 frontend, Rust backend), with a portable Go sync server that serves the same web UI as a mobile PWA and syncs libraries between devices, plus a native SwiftUI iOS app.
 
-**Naming rule:** "Codec" is the brand (UI strings, app names, docs). The `loud.*` wire schemas, `.loud/` state folder, `loud://` roots, `LOUD_AUTH_TOKEN`, storage keys, and `Loud*`-prefixed code identifiers are historical and MUST stay — renaming them breaks existing libraries and synced devices.
+**Naming rule:** "Codec" is the brand (UI strings, app names, docs). The `loud.*` wire schemas, `.loud/` state folder, `loud://` roots, `LOUD_AUTH_TOKEN`, storage keys, and storage keys are historical and MUST stay — renaming them breaks existing libraries and synced devices. (Code identifiers were renamed to `Codec*` in 2026-08; only wire/storage names keep the prefix.)
 
 ## Commands
 
@@ -25,7 +25,7 @@ bun test -t "name"                                   # filter by test name
 cargo test --manifest-path src-tauri/Cargo.toml      # rust tests
 cargo test --manifest-path src-tauri/Cargo.toml some_test_name   # single rust test
 cd sync-server && go test ./...                      # Go server tests (NOT in `bun run test`)
-cd ios/LoudMobile && swift test                      # iOS tests (runs on macOS)
+cd ios/CodecMobile && swift test                      # iOS tests (runs on macOS)
 ```
 
 ## Architecture
@@ -40,7 +40,7 @@ Three clients speak one contract to one server:
 
 2. **Go sync server** — `sync-server/`, module `codec-sync-server`, single dependency (`modernc.org/sqlite`, no cgo). One package split by concern: `server.go` (setup/routing/migrations), `hub.go` (SSE pub/sub), `handlers.go`, `store_library.go`, `store_playback.go`, `playback_v2.go` (playback state machine), `httputil.go`, `summaries.go`, `helpers.go`. Optional shared-token auth via `LOUD_AUTH_TOKEN` (Basic for browsers, Bearer for API clients; `/health` stays public).
 
-3. **iOS app** — `ios/LoudMobile/` (SwiftPM + xcodeproj). Speaks the same v1/v2 API as the web client.
+3. **iOS app** — `ios/CodecMobile/` (SwiftPM + xcodeproj). Speaks the same v1/v2 API as the web client.
 
 ### Sync contracts
 

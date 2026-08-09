@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct HomeView: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
 
@@ -122,10 +122,10 @@ struct HomeView: View {
 }
 
 private struct PlaylistCard: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
 
-    let playlist: LoudPlaylist
-    let cover: LoudTrack?
+    let playlist: CodecPlaylist
+    let cover: CodecTrack?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -149,10 +149,10 @@ private struct PlaylistCard: View {
 }
 
 private struct AlbumTile: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
 
-    let album: LoudAlbumSummary
-    let cover: LoudTrack?
+    let album: CodecAlbumSummary
+    let cover: CodecTrack?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -180,10 +180,10 @@ private struct AlbumTile: View {
 }
 
 private struct RecentTile: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(PlayerController.self) private var player
 
-    let track: LoudTrack
+    let track: CodecTrack
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

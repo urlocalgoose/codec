@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct LibraryView: View {
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(DownloadStore.self) private var downloads
 

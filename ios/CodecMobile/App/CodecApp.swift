@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct LoudMobileApp: App {
+struct CodecApp: App {
     @State private var app = AppModel()
     @State private var player = PlayerController()
     @State private var downloads = DownloadStore()
@@ -14,7 +14,7 @@ struct LoudMobileApp: App {
                 .environment(player)
                 .environment(downloads)
                 .environment(themeStore)
-                .environment(\.loudTheme, themeStore.theme)
+                .environment(\.codecTheme, themeStore.theme)
                 .preferredColorScheme(themeStore.theme.isLight ? .light : .dark)
                 .tint(themeStore.theme.accent)
                 .task {

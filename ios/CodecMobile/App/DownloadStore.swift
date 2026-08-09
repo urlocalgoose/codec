@@ -73,18 +73,18 @@ final class DownloadStore {
 
     init() {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "Loud", directoryHint: .isDirectory)
+            .appending(path: "Codec", directoryHint: .isDirectory)
             .appending(path: "audio", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         directory = base
         loadExisting()
     }
 
-    func state(for track: LoudTrack) -> State? {
+    func state(for track: CodecTrack) -> State? {
         states[track.fingerprint]
     }
 
-    func isDownloaded(_ track: LoudTrack) -> Bool {
+    func isDownloaded(_ track: CodecTrack) -> Bool {
         states[track.fingerprint] == .downloaded
     }
 
@@ -92,18 +92,18 @@ final class DownloadStore {
         states.values.filter { $0 == .downloaded }.count
     }
 
-    func downloadedTracks(in library: [LoudTrack]) -> [LoudTrack] {
+    func downloadedTracks(in library: [CodecTrack]) -> [CodecTrack] {
         library.filter { states[$0.fingerprint] == .downloaded }
     }
 
-    func localAudioURL(for track: LoudTrack) -> URL? {
+    func localAudioURL(for track: CodecTrack) -> URL? {
         guard states[track.fingerprint] == .downloaded else {
             return nil
         }
         return fileURL(for: track.fingerprint)
     }
 
-    func download(_ track: LoudTrack, using client: LoudClient) {
+    func download(_ track: CodecTrack, using client: CodecClient) {
         guard states[track.fingerprint] == nil, let url = client.audioURL(for: track) else {
             return
         }
@@ -116,7 +116,7 @@ final class DownloadStore {
 
     /// Downloads a whole collection at most four at a time — firing hundreds
     /// of simultaneous transfers just made every one of them slow.
-    func downloadAll(_ tracks: [LoudTrack], using client: LoudClient) {
+    func downloadAll(_ tracks: [CodecTrack], using client: CodecClient) {
         var pending: [(String, URL)] = []
         for track in tracks where states[track.fingerprint] == nil {
             guard let url = client.audioURL(for: track) else {
@@ -165,7 +165,7 @@ final class DownloadStore {
         }
     }
 
-    func remove(_ track: LoudTrack) {
+    func remove(_ track: CodecTrack) {
         try? FileManager.default.removeItem(at: fileURL(for: track.fingerprint))
         states[track.fingerprint] = nil
     }

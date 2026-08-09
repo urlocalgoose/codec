@@ -3,7 +3,7 @@ import SwiftUI
 /// The desktop's theme modal, iOS-native: same swatch chips, same themes.
 struct ThemePickerView: View {
     @Environment(ThemeStore.self) private var themeStore
-    @Environment(\.loudTheme) private var theme
+    @Environment(\.codecTheme) private var theme
     @Environment(\.dismiss) private var dismiss
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 10)]
@@ -12,7 +12,7 @@ struct ThemePickerView: View {
         NavigationStack {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(loudThemes) { option in
+                    ForEach(codecThemes) { option in
                         Button {
                             themeStore.themeID = option.id
                         } label: {
@@ -38,7 +38,7 @@ struct ThemePickerView: View {
         .sensoryFeedback(.selection, trigger: themeStore.themeID)
     }
 
-    private func themeChip(_ option: LoudTheme) -> some View {
+    private func themeChip(_ option: CodecTheme) -> some View {
         let selected = themeStore.themeID == option.id
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 5) {

@@ -4,8 +4,8 @@
 
 import SwiftUI
 
-let loudThemes: [LoudTheme] = [
-    LoudTheme(
+let codecThemes: [CodecTheme] = [
+    CodecTheme(
         id: "oxide",
         name: "Oxide",
         bg: Color(red: 0.0627, green: 0.0588, blue: 0.0471),
@@ -30,7 +30,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.9569, green: 0.4824, blue: 0.2471), Color(red: 0.1412, green: 0.1294, blue: 0.098), Color(red: 0.9608, green: 0.9373, blue: 0.8863)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "graphite",
         name: "Graphite",
         bg: Color(red: 0.0627, green: 0.0745, blue: 0.0706),
@@ -55,7 +55,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.6078, green: 0.6392, blue: 0.6275), Color(red: 0.0824, green: 0.0941, blue: 0.0902), Color(red: 0.9333, green: 0.949, blue: 0.9294)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "cream",
         name: "Cream",
         bg: Color(red: 0.1255, green: 0.0902, blue: 0.0588),
@@ -80,7 +80,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.7725, green: 0.4196, blue: 0.2078), Color(red: 0.9333, green: 0.8784, blue: 0.7451), Color(red: 0.1294, green: 0.098, blue: 0.0588)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "forest",
         name: "Forest",
         bg: Color(red: 0.0588, green: 0.1255, blue: 0.0941),
@@ -105,7 +105,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.4471, green: 0.7608, blue: 0.5608), Color(red: 0.0784, green: 0.1608, blue: 0.1216), Color(red: 0.9333, green: 0.9686, blue: 0.8745)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "ember",
         name: "Ember",
         bg: Color(red: 0.0863, green: 0.051, blue: 0.0392),
@@ -130,7 +130,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 1, green: 0.4157, blue: 0.2392), Color(red: 0.1412, green: 0.0745, blue: 0.0588), Color(red: 1, green: 0.9412, blue: 0.8745)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "denim",
         name: "Denim",
         bg: Color(red: 0.051, green: 0.0784, blue: 0.1333),
@@ -155,7 +155,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.451, green: 0.6549, blue: 1), Color(red: 0.0627, green: 0.098, blue: 0.1608), Color(red: 0.9333, green: 0.9569, blue: 1)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "lagoon",
         name: "Lagoon",
         bg: Color(red: 0.0392, green: 0.0941, blue: 0.098),
@@ -180,7 +180,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.3294, green: 0.8314, blue: 0.7725), Color(red: 0.0549, green: 0.1412, blue: 0.149), Color(red: 0.9098, green: 1, blue: 0.9765)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "berry",
         name: "Berry",
         bg: Color(red: 0.0863, green: 0.051, blue: 0.0824),
@@ -205,7 +205,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.949, green: 0.4667, blue: 0.7098), Color(red: 0.1412, green: 0.0745, blue: 0.1294), Color(red: 1, green: 0.9412, blue: 0.9725)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "solar",
         name: "Solar",
         bg: Color(red: 0.0902, green: 0.0784, blue: 0.0275),
@@ -230,7 +230,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.9569, green: 0.7725, blue: 0.2588), Color(red: 0.1294, green: 0.1098, blue: 0.051), Color(red: 1, green: 0.9647, blue: 0.8392)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "terminal",
         name: "Terminal",
         bg: Color(red: 0.0196, green: 0.0392, blue: 0.0235),
@@ -255,7 +255,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.4902, green: 1, blue: 0.5412), Color(red: 0.0275, green: 0.0745, blue: 0.0431), Color(red: 0.9137, green: 1, blue: 0.9098)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "blueprint",
         name: "Blueprint",
         bg: Color(red: 0.051, green: 0.0745, blue: 0.1333),
@@ -280,7 +280,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.5451, green: 0.7216, blue: 1), Color(red: 0.0627, green: 0.0902, blue: 0.1569), Color(red: 0.9412, green: 0.9608, blue: 1)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "candy",
         name: "Candy",
         bg: Color(red: 0.0902, green: 0.0627, blue: 0.098),
@@ -305,7 +305,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 1, green: 0.5412, blue: 0.7804), Color(red: 0.1373, green: 0.0824, blue: 0.1333), Color(red: 1, green: 0.9529, blue: 0.9843)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "coffee",
         name: "Coffee",
         bg: Color(red: 0.0824, green: 0.0627, blue: 0.051),
@@ -330,7 +330,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.8196, green: 0.6039, blue: 0.3843), Color(red: 0.1216, green: 0.0902, blue: 0.0706), Color(red: 0.9647, green: 0.9098, blue: 0.8314)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "orchid",
         name: "Orchid",
         bg: Color(red: 0.0706, green: 0.051, blue: 0.102),
@@ -355,7 +355,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.7804, green: 0.6078, blue: 1), Color(red: 0.1137, green: 0.0824, blue: 0.1569), Color(red: 0.9686, green: 0.9373, blue: 1)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "marine",
         name: "Marine",
         bg: Color(red: 0.0275, green: 0.0745, blue: 0.1059),
@@ -380,7 +380,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.3608, green: 0.7843, blue: 1), Color(red: 0.0431, green: 0.1098, blue: 0.1529), Color(red: 0.9176, green: 0.9725, blue: 1)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "moss",
         name: "Moss",
         bg: Color(red: 0.0627, green: 0.0863, blue: 0.0471),
@@ -405,7 +405,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.6667, green: 0.7882, blue: 0.4196), Color(red: 0.0902, green: 0.1294, blue: 0.0706), Color(red: 0.9529, green: 0.9725, blue: 0.8745)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "ruby",
         name: "Ruby",
         bg: Color(red: 0.0902, green: 0.0431, blue: 0.0549),
@@ -430,7 +430,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 1, green: 0.3922, blue: 0.4353), Color(red: 0.1451, green: 0.0706, blue: 0.0824), Color(red: 1, green: 0.9412, blue: 0.9412)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "paper",
         name: "Paper",
         bg: Color(red: 0.9098, green: 0.8863, blue: 0.8275),
@@ -455,7 +455,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.1843, green: 0.4902, blue: 0.3725), Color(red: 0.9333, green: 0.9137, blue: 0.8627), Color(red: 0.0941, green: 0.0784, blue: 0.0588)],
         isLight: true
     ),
-    LoudTheme(
+    CodecTheme(
         id: "linen",
         name: "Linen",
         bg: Color(red: 0.9255, green: 0.8902, blue: 0.8235),
@@ -480,7 +480,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.2745, green: 0.4353, blue: 0.8196), Color(red: 0.9647, green: 0.9333, blue: 0.8745), Color(red: 0.1137, green: 0.098, blue: 0.0706)],
         isLight: true
     ),
-    LoudTheme(
+    CodecTheme(
         id: "daylight",
         name: "Daylight",
         bg: Color(red: 0.9294, green: 0.9529, blue: 0.9686),
@@ -505,7 +505,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.7059, green: 0.4275, blue: 0.1137), Color(red: 0.9686, green: 0.9843, blue: 0.9922), Color(red: 0.0706, green: 0.1255, blue: 0.1647)],
         isLight: true
     ),
-    LoudTheme(
+    CodecTheme(
         id: "sage-light",
         name: "Sage Light",
         bg: Color(red: 0.8745, green: 0.9098, blue: 0.8471),
@@ -530,7 +530,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.2196, green: 0.4314, blue: 0.3255), Color(red: 0.9294, green: 0.9529, blue: 0.9059), Color(red: 0.0902, green: 0.1255, blue: 0.0824)],
         isLight: true
     ),
-    LoudTheme(
+    CodecTheme(
         id: "blush-light",
         name: "Blush Light",
         bg: Color(red: 0.9451, green: 0.8706, blue: 0.8824),
@@ -555,7 +555,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.7255, green: 0.2627, blue: 0.3922), Color(red: 1, green: 0.9412, blue: 0.9451), Color(red: 0.1529, green: 0.0941, blue: 0.1059)],
         isLight: true
     ),
-    LoudTheme(
+    CodecTheme(
         id: "glacier",
         name: "Glacier",
         bg: Color(red: 0.8745, green: 0.9255, blue: 0.9373),
@@ -580,7 +580,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.0941, green: 0.4745, blue: 0.5608), Color(red: 0.9373, green: 0.9725, blue: 0.9804), Color(red: 0.0627, green: 0.1255, blue: 0.1529)],
         isLight: true
     ),
-    LoudTheme(
+    CodecTheme(
         id: "lavender-light",
         name: "Lavender",
         bg: Color(red: 0.9059, green: 0.8824, blue: 0.9451),
@@ -605,7 +605,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.4471, green: 0.3216, blue: 0.702), Color(red: 0.9569, green: 0.9373, blue: 0.9843), Color(red: 0.1255, green: 0.0902, blue: 0.1686)],
         isLight: true
     ),
-    LoudTheme(
+    CodecTheme(
         id: "peach-light",
         name: "Peach",
         bg: Color(red: 0.9451, green: 0.8745, blue: 0.8157),
@@ -630,7 +630,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.6627, green: 0.3412, blue: 0.1843), Color(red: 1, green: 0.9412, blue: 0.8824), Color(red: 0.1412, green: 0.0941, blue: 0.0588)],
         isLight: true
     ),
-    LoudTheme(
+    CodecTheme(
         id: "mint-light",
         name: "Mint",
         bg: Color(red: 0.8627, green: 0.9255, blue: 0.8902),
@@ -655,7 +655,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.0902, green: 0.5098, blue: 0.4314), Color(red: 0.9373, green: 0.9725, blue: 0.9529), Color(red: 0.0706, green: 0.1255, blue: 0.0941)],
         isLight: true
     ),
-    LoudTheme(
+    CodecTheme(
         id: "mono-light",
         name: "Mono Light",
         bg: Color(red: 0.898, green: 0.898, blue: 0.8784),
@@ -680,7 +680,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.2941, green: 0.298, blue: 0.2784), Color(red: 0.9412, green: 0.9412, blue: 0.9176), Color(red: 0.0941, green: 0.0941, blue: 0.0824)],
         isLight: true
     ),
-    LoudTheme(
+    CodecTheme(
         id: "butter",
         name: "Butter",
         bg: Color(red: 0.9333, green: 0.902, blue: 0.7804),
@@ -705,7 +705,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.1804, green: 0.4118, blue: 0.4431), Color(red: 0.9804, green: 0.9451, blue: 0.8078), Color(red: 0.1216, green: 0.102, blue: 0.0549)],
         isLight: true
     ),
-    LoudTheme(
+    CodecTheme(
         id: "noir",
         name: "Noir",
         bg: Color(red: 0.0196, green: 0.0196, blue: 0.0157),
@@ -730,7 +730,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.8706, green: 0.8392, blue: 0.7686), Color(red: 0.0353, green: 0.0353, blue: 0.0314), Color(red: 0.9569, green: 0.9333, blue: 0.8863)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "skyline",
         name: "Skyline",
         bg: Color(red: 0.051, green: 0.0784, blue: 0.1373),
@@ -755,7 +755,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 1, green: 0.7059, blue: 0.3608), Color(red: 0.0667, green: 0.1059, blue: 0.1725), Color(red: 0.9333, green: 0.9608, blue: 1)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "acid",
         name: "Acid",
         bg: Color(red: 0.0471, green: 0.0627, blue: 0.0235),
@@ -780,7 +780,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 0.8431, green: 1, blue: 0.2902), Color(red: 0.0667, green: 0.0824, blue: 0.0353), Color(red: 0.9647, green: 1, blue: 0.851)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "mixtape",
         name: "Mixtape",
         bg: Color(red: 0.0667, green: 0.0627, blue: 0.098),
@@ -805,7 +805,7 @@ let loudThemes: [LoudTheme] = [
         swatch: [Color(red: 1, green: 0.498, blue: 0.3137), Color(red: 0.1059, green: 0.0941, blue: 0.1333), Color(red: 0.9569, green: 0.9412, blue: 1)],
         isLight: false
     ),
-    LoudTheme(
+    CodecTheme(
         id: "icebox",
         name: "Icebox",
         bg: Color(red: 0.0431, green: 0.098, blue: 0.1098),

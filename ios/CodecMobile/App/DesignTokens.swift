@@ -3,7 +3,7 @@ import SwiftUI
 
 /// One desktop theme, ported 1:1 from src/app.css. The full list lives in
 /// Themes.generated.swift (regenerate with `bun run gen:ios-themes`).
-struct LoudTheme: Identifiable, Equatable {
+struct CodecTheme: Identifiable, Equatable {
     let id: String
     let name: String
     let bg: Color
@@ -28,7 +28,7 @@ struct LoudTheme: Identifiable, Equatable {
     let swatch: [Color]
     let isLight: Bool
 
-    static let fallback = loudThemes[0]
+    static let fallback = codecThemes[0]
 }
 
 @MainActor
@@ -40,27 +40,27 @@ final class ThemeStore {
         didSet { UserDefaults.standard.set(themeID, forKey: Self.storageKey) }
     }
 
-    var theme: LoudTheme {
-        loudThemes.first { $0.id == themeID } ?? .fallback
+    var theme: CodecTheme {
+        codecThemes.first { $0.id == themeID } ?? .fallback
     }
 
     init() {
-        themeID = UserDefaults.standard.string(forKey: Self.storageKey) ?? LoudTheme.fallback.id
+        themeID = UserDefaults.standard.string(forKey: Self.storageKey) ?? CodecTheme.fallback.id
     }
 }
 
-private struct LoudThemeKey: EnvironmentKey {
-    static let defaultValue = LoudTheme.fallback
+private struct CodecThemeKey: EnvironmentKey {
+    static let defaultValue = CodecTheme.fallback
 }
 
 extension EnvironmentValues {
-    var loudTheme: LoudTheme {
-        get { self[LoudThemeKey.self] }
-        set { self[LoudThemeKey.self] = newValue }
+    var codecTheme: CodecTheme {
+        get { self[CodecThemeKey.self] }
+        set { self[CodecThemeKey.self] = newValue }
     }
 }
 
-enum LoudFont {
+enum CodecFont {
     static func hand(_ size: CGFloat) -> Font {
         .custom("Codie Hand", size: size)
     }

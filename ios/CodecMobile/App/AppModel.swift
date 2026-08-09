@@ -25,18 +25,18 @@ final class AppModel {
     }
 
     var connection: Connection = .disconnected
-    var library: LoudLibrary? {
+    var library: CodecLibrary? {
         didSet { rebuildTrackIndexes() }
     }
     var errorMessage = ""
 
     /// O(1) lookups for resolving playback-context references; a 700-track
     /// context resolved by linear scans was enough to jank the main thread.
-    private var tracksByID: [String: LoudTrack] = [:]
-    private var tracksByFingerprint: [String: LoudTrack] = [:]
+    private var tracksByID: [String: CodecTrack] = [:]
+    private var tracksByFingerprint: [String: CodecTrack] = [:]
     /// Pre-lowercased "title artist album" per track so search does not
     /// re-lowercase the whole library on every keystroke.
-    private var searchBlobs: [(blob: String, track: LoudTrack)] = []
+    private var searchBlobs: [(blob: String, track: CodecTrack)] = []
 
     private func rebuildTrackIndexes() {
         let tracks = library?.tracks ?? []
@@ -46,7 +46,7 @@ final class AppModel {
         rebuildCollections()
     }
 
-    private(set) var client: LoudClient?
+    private(set) var client: CodecClient?
 
     init() {
         serverURLString = UserDefaults.standard.string(forKey: StorageKey.serverURL) ?? ""
@@ -108,16 +108,16 @@ final class AppModel {
         Self.deleteCachedLibrary()
     }
 
-    private func makeClient() -> LoudClient? {
+    private func makeClient() -> CodecClient? {
         let normalized = normalizeServerURLString(serverURLString)
         guard !normalized.isEmpty, let url = URL(string: normalized), url.host() != nil else {
             return nil
         }
-        return LoudClient(baseURL: url, token: token)
+        return CodecClient(baseURL: url, token: token)
     }
 
     private func friendlyMessage(for error: Error) -> String {
-        if let clientError = error as? LoudClientError {
+        if let clientError = error as? CodecClientError {
             return clientError.errorDescription ?? String(describing: clientError)
         }
         let nsError = error as NSError
@@ -142,13 +142,13 @@ final class AppModel {
 
     /// Reads like state from the library (not a stale track copy), so hearts
     /// update everywhere the moment a toggle lands.
-    func isLiked(_ track: LoudTrack) -> Bool {
+    func isLiked(_ track: CodecTrack) -> Bool {
         tracksByFingerprint[track.fingerprint]?.isLiked ?? track.isLiked
     }
 
     /// Optimistic toggle: flip locally right away, tell the server, roll back
     /// if the server says no.
-    func toggleLike(_ track: LoudTrack) {
+    func toggleLike(_ track: CodecTrack) {
         guard let client, let current = library else {
             errorMessage = "Connect to the server to like songs."
             return
@@ -171,30 +171,30 @@ final class AppModel {
     }
 
     /// Resolves a `loud.playback.v2` track reference against the library.
-    func track(matching reference: LoudTrackReference) -> LoudTrack? {
+    func track(matching reference: CodecTrackReference) -> CodecTrack? {
         tracksByID[reference.id] ?? tracksByFingerprint[reference.fingerprint]
     }
 
     // MARK: - Library slices
 
-    var tracks: [LoudTrack] { library?.tracks ?? [] }
+    var tracks: [CodecTrack] { library?.tracks ?? [] }
 
     // The Home/Library collections are cached and rebuilt once per library
     // change — as computed properties they re-sorted and re-grouped the
     // whole library on every SwiftUI render pass.
-    private(set) var likedTracks: [LoudTrack] = []
-    private(set) var userPlaylists: [LoudPlaylist] = []
-    private(set) var recentlyAdded: [LoudTrack] = []
+    private(set) var likedTracks: [CodecTrack] = []
+    private(set) var userPlaylists: [CodecPlaylist] = []
+    private(set) var recentlyAdded: [CodecTrack] = []
     /// Albums we actually have, not one stray song tagged with an album name.
-    private(set) var fullAlbums: [LoudAlbumSummary] = []
+    private(set) var fullAlbums: [CodecAlbumSummary] = []
     private(set) var recentItems: [RecentItem] = []
 
     /// What the Home grid shows: newest first, grouped into album tiles when
     /// we have the album, single-track tiles otherwise, capped so "recently
     /// added" never means "the whole library".
     enum RecentItem: Identifiable {
-        case album(LoudAlbumSummary, cover: LoudTrack)
-        case single(LoudTrack)
+        case album(CodecAlbumSummary, cover: CodecTrack)
+        case single(CodecTrack)
 
         var id: String {
             switch self {
@@ -235,12 +235,12 @@ final class AppModel {
         recentItems = items
     }
 
-    func tracks(in playlist: LoudPlaylist) -> [LoudTrack] {
+    func tracks(in playlist: CodecPlaylist) -> [CodecTrack] {
         let ids = Set(playlist.trackIDs)
         return tracks.filter { ids.contains($0.id) }
     }
 
-    func tracks(inAlbum album: LoudAlbumSummary) -> [LoudTrack] {
+    func tracks(inAlbum album: CodecAlbumSummary) -> [CodecTrack] {
         let key = albumKey(artist: album.artist, name: album.name)
         return tracks
             .filter { albumKey(artist: $0.albumArtist ?? $0.artist, name: $0.album) == key }
@@ -253,11 +253,11 @@ final class AppModel {
         "\(artist)|\(name)".lowercased()
     }
 
-    func tracks(byArtist artist: LoudArtistSummary) -> [LoudTrack] {
+    func tracks(byArtist artist: CodecArtistSummary) -> [CodecTrack] {
         tracks.filter { $0.artist == artist.name }
     }
 
-    func searchTracks(_ query: String) -> [LoudTrack] {
+    func searchTracks(_ query: String) -> [CodecTrack] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !needle.isEmpty else {
             return []
@@ -269,19 +269,19 @@ final class AppModel {
 
     private static var cacheURL: URL {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "Loud", directoryHint: .isDirectory)
+            .appending(path: "Codec", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appending(path: "library.json")
     }
 
-    private static func readCachedLibrary() -> LoudLibrary? {
+    private static func readCachedLibrary() -> CodecLibrary? {
         guard let data = try? Data(contentsOf: cacheURL) else {
             return nil
         }
-        return try? JSONDecoder().decode(LoudLibrary.self, from: data)
+        return try? JSONDecoder().decode(CodecLibrary.self, from: data)
     }
 
-    private static func writeCachedLibrary(_ library: LoudLibrary) {
+    private static func writeCachedLibrary(_ library: CodecLibrary) {
         guard let data = try? JSONEncoder().encode(library) else {
             return
         }

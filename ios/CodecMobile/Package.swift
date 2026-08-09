@@ -3,16 +3,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "LoudMobile",
+    name: "Codec",
     platforms: [
         .iOS(.v17),
         .macOS(.v14)
     ],
     products: [
-        .library(name: "LoudKit", targets: ["LoudKit"])
+        .library(name: "CodecKit", targets: ["CodecKit"])
     ],
     targets: [
-        .target(name: "LoudKit"),
-        .testTarget(name: "LoudKitTests", dependencies: ["LoudKit"])
+        .target(name: "CodecKit"),
+        .testTarget(name: "CodecKitTests", dependencies: ["CodecKit"])
     ]
 )
