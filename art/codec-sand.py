@@ -1,5 +1,6 @@
-# The Codec mark's sand is simulated, not drawn: ~1.4M grains scattered on a
-# plate, vibrated by the C's radial wave. Each step, grains drift down the
+# The Codec mark IS the simulation: ~1.4M grains scattered on a plate,
+# vibrated by a radial wave - no letterform, just what the sound does to
+# the sand. Each step, grains drift down the
 # vibration-energy gradient (away from antinodes, toward the quiet nodes)
 # and get thermal kicks proportional to how hard the plate shakes under
 # them - classic Chladni dynamics. What you see is where the sand ended up.
@@ -7,7 +8,7 @@
 #   python3 codec-sand.py           (needs numpy + Pillow, ~10s per layer)
 #
 # Then open codec-logo.html / codec-logo-cropped.html (or screenshot them
-# headless) to composite the C over its sand.
+# headless) to composite the sand over the pool gradient.
 import numpy as np
 from PIL import Image
 
@@ -53,5 +54,5 @@ def simulate(cx, cy, wavelength, damp, calm_radius, n=1_400_000, steps=170, seed
     img = np.concatenate([rgb * alpha, alpha], axis=2)
     Image.fromarray((img * 255).astype(np.uint8), "RGBA").save(out)
 
-simulate(470, 512, wavelength=180.0, damp=400, calm_radius=235, out="codec-sand.png")
+simulate(512, 512, wavelength=170.0, damp=400, calm_radius=110, out="codec-sand.png")
 simulate(330, 512, wavelength=200.0, damp=460, calm_radius=330, out="codec-sand-cropped.png")
