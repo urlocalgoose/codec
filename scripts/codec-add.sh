@@ -28,6 +28,7 @@ CODEC_SERVER_URL="${CODEC_SERVER_URL:-http://127.0.0.1:8787}"
 CODEC_AUTH_TOKEN_FILE="${CODEC_AUTH_TOKEN_FILE:-$HOME/.codec/auth-token}"
 CODEC_IMPORT_BIN="${CODEC_IMPORT_BIN:-$HOME/.codec/bin/codec_import}"
 S2Y_WORKERS="${S2Y_WORKERS:-8}"
+S2Y_PYTHON="${S2Y_PYTHON:-python3}"
 
 usage() {
   echo "usage: codec-add <spotify-playlist-url | liked>" >&2
@@ -65,11 +66,22 @@ fi
 echo "==> s2y: downloading via $WORKING"
 (
   cd "$S2Y_DIR"
-  SPOTIFY_CLIENT_ID="$SPOTIFY_CLIENT_ID" python3 main.py "$WORKING" \
-    "${SOURCE_ARGS[@]}" \
-    --workers "$S2Y_WORKERS" \
-    --save-each \
-    --loud-manifest "$MANIFEST"
+  # Prefer the Rust CLI (S2Y_BIN) when configured: same flags as main.py,
+  # plus a public-page fallback for playlists Spotify's API refuses to
+  # serve (their own algorithmic/editorial ones 404 since late 2024).
+  if [[ -n "${S2Y_BIN:-}" ]]; then
+    SPOTIFY_CLIENT_ID="$SPOTIFY_CLIENT_ID" "$S2Y_BIN" "$WORKING" \
+      "${SOURCE_ARGS[@]}" \
+      --workers "$S2Y_WORKERS" \
+      --save-each \
+      --loud-manifest "$MANIFEST"
+  else
+    SPOTIFY_CLIENT_ID="$SPOTIFY_CLIENT_ID" "$S2Y_PYTHON" main.py "$WORKING" \
+      "${SOURCE_ARGS[@]}" \
+      --workers "$S2Y_WORKERS" \
+      --save-each \
+      --loud-manifest "$MANIFEST"
+  fi
 )
 
 echo "==> codec: importing $MANIFEST and syncing to $CODEC_SERVER_URL"
