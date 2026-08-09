@@ -10,6 +10,7 @@
 		100000000000000000000101 /* CodecApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000001 /* CodecApp.swift */; };
 		100000000000000000000103 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000003 /* DesignTokens.swift */; };
 		100000000000000000000106 /* CodieHand-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000006 /* CodieHand-Regular.ttf */; };
+		100000000000000000000107 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000009 /* Assets.xcassets */; };
 		100000000000000000000110 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000010 /* AppModel.swift */; };
 		100000000000000000000111 /* PlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000011 /* PlayerController.swift */; };
 		100000000000000000000112 /* DownloadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000012 /* DownloadStore.swift */; };
@@ -32,6 +33,7 @@
 		100000000000000000000003 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		100000000000000000000006 /* CodieHand-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodieHand-Regular.ttf"; sourceTree = "<group>"; };
 		100000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		100000000000000000000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		100000000000000000000008 /* Codec.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Codec.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000010 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		100000000000000000000011 /* PlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerController.swift; sourceTree = "<group>"; };
@@ -82,6 +84,7 @@
 				10000000000000000000001D /* Themes.generated.swift */,
 				100000000000000000000306 /* Views */,
 				100000000000000000000007 /* Info.plist */,
+				100000000000000000000009 /* Assets.xcassets */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -187,6 +190,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				100000000000000000000106 /* CodieHand-Regular.ttf in Resources */,
+				100000000000000000000107 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -340,6 +344,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -364,6 +369,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (

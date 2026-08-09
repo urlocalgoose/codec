@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="art/codec-logo.png" alt="Codec" width="180">
+</p>
+
 # Codec
 
 Your music, your files, your server. Codec is an open-source, folder-first music

@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; width: 1024px; height: 1024px; overflow: hidden; }
+  svg text { font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif; font-weight: 900; }
+</style>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="pool" cx="44%" cy="42%" r="85%">
+      <stop offset="0%" stop-color="#3d2512"/>
+      <stop offset="45%" stop-color="#221609"/>
+      <stop offset="100%" stop-color="#0b0805"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff9a3c" stop-opacity="0.28"/>
+      <stop offset="60%" stop-color="#ff9a3c" stop-opacity="0.07"/>
+      <stop offset="100%" stop-color="#ff9a3c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cg" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0%" stop-color="#ffcf7d"/>
+      <stop offset="50%" stop-color="#f79433"/>
+      <stop offset="100%" stop-color="#d8641c"/>
+    </linearGradient>
+    <filter id="fine" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="11" stitchTiles="stitch"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  1.1 1.1 1.1 0 0"/>
+    </filter>
+    <filter id="coarse" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.055" numOctaves="3" seed="4" stitchTiles="stitch"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 1  0 0 0 0 0.72  0 0 0 0 0.45  0.9 0.9 0.9 0 0"/>
+    </filter>
+    <radialGradient id="vig" cx="50%" cy="48%" r="72%">
+      <stop offset="0%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="75%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.55"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#pool)"/>
+  <circle cx="470" cy="500" r="460" fill="url(#glow)"/>
+  <path d="M 720.8 345.9 A 305 305 0 0 1 720.8 678.1" fill="none" stroke="url(#cg)" stroke-width="27" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 792.1 299.6 A 390 390 0 0 1 792.1 724.4" fill="none" stroke="url(#cg)" stroke-width="22" stroke-linecap="round" opacity="0.55"/>
+  <path d="M 863.4 253.3 A 475 475 0 0 1 863.4 770.7" fill="none" stroke="url(#cg)" stroke-width="18" stroke-linecap="round" opacity="0.28"/>
+  <text x="430" y="512" text-anchor="middle" dominant-baseline="central" font-size="640" fill="url(#cg)">C</text>
+  <rect width="1024" height="1024" filter="url(#coarse)" opacity="0.14" style="mix-blend-mode: soft-light"/>
+  <rect width="1024" height="1024" filter="url(#fine)" opacity="0.16" style="mix-blend-mode: overlay"/>
+  <rect width="1024" height="1024" fill="url(#vig)"/>
+</svg>
