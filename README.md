@@ -103,6 +103,15 @@ will import new tracks, match existing ones by identity, and apply likes and
 playlists. Spec: [docs/loud-import-v1.md](docs/loud-import-v1.md), JSON schema:
 [docs/loud-import.schema.json](docs/loud-import.schema.json).
 
+Two helpers ship with the repo:
+
+- `cargo run --bin codec_import -- <music-root> <manifest.json> [--server URL
+  --token TOKEN]` imports a manifest headlessly and optionally pushes the
+  result to a sync server.
+- [`scripts/codec-add.sh`](scripts/codec-add.sh) chains a downloader and the
+  importer into one command (configured via env vars / an env file): give it
+  a playlist link, get the songs on every device.
+
 ## Development
 
 ```bash
