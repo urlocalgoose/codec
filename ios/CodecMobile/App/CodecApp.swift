@@ -17,8 +17,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 struct CodecApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-    @Environment(\.scenePhase) private var scenePhase
-
     @State private var app = AppModel()
     @State private var player = PlayerController()
     @State private var downloads = DownloadStore.shared
@@ -44,13 +42,6 @@ struct CodecApp: App {
                     if app.hasLibrary || !app.serverURLString.isEmpty {
                         await app.connect()
                         app.syncPlayer(player)
-                    }
-                }
-                .onChange(of: scenePhase) {
-                    if scenePhase == .active {
-                        Task {
-                            await app.reprobeFastPath()
-                        }
                     }
                 }
         }

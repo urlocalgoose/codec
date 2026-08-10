@@ -41,7 +41,7 @@ struct HomeView: View {
                                 HStack(spacing: 12) {
                                     ForEach(app.userPlaylists) { playlist in
                                         NavigationLink {
-                                            TrackListView(title: playlist.name, tracks: app.tracks(in: playlist))
+                                            PlaylistDetailView(playlistID: playlist.id)
                                         } label: {
                                             PlaylistCard(
                                                 playlist: playlist,

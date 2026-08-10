@@ -14,29 +14,6 @@ extension URLSession: CodecTransport {}
 /// Speaks the plain v1 API with optional shared-token auth: when the server
 /// is started with `LOUD_AUTH_TOKEN`, every request carries
 /// `Authorization: Bearer <token>`.
-/// Shared media route: when the phone can reach the server directly on the
-/// LAN, media streams skip the tunnel. Probed by the app, consulted by every
-/// media URL builder; nil means "use the configured base URL".
-public final class MediaRoute: @unchecked Sendable {
-    public static let shared = MediaRoute()
-
-    private let lock = NSLock()
-    private var url: URL?
-
-    public var fastBaseURL: URL? {
-        get {
-            lock.lock()
-            defer { lock.unlock() }
-            return url
-        }
-        set {
-            lock.lock()
-            defer { lock.unlock() }
-            url = newValue
-        }
-    }
-}
-
 public struct CodecClient: Sendable {
     public let baseURL: URL
     public let token: String?
@@ -68,71 +45,23 @@ public struct CodecClient: Sendable {
     }
 
     /// Canonical audio URL for a track, used for both streaming and downloads.
-    /// When a LAN fast path is active it wins; otherwise the URL the server
-    /// embedded in the library payload, then one built from the fingerprint.
+    /// Prefers the URL the server embedded in the library payload and falls
+    /// back to building one from the fingerprint.
     public func audioURL(for track: CodecTrack) -> URL? {
-        if MediaRoute.shared.fastBaseURL != nil {
-            return mediaURL(fingerprint: track.fingerprint, kind: "audio")
-        }
-        return track.audioURL ?? mediaURL(fingerprint: track.fingerprint, kind: "audio")
+        track.audioURL ?? mediaURL(fingerprint: track.fingerprint, kind: "audio")
     }
 
     public func artworkURL(for track: CodecTrack) -> URL? {
-        if MediaRoute.shared.fastBaseURL != nil {
-            return mediaURL(fingerprint: track.fingerprint, kind: "artwork")
-        }
-        return track.artworkURL ?? mediaURL(fingerprint: track.fingerprint, kind: "artwork")
+        track.artworkURL ?? mediaURL(fingerprint: track.fingerprint, kind: "artwork")
     }
 
     public func mediaURL(fingerprint: String, kind: String) -> URL? {
         guard let encoded = fingerprint.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else {
             return nil
         }
-        let base = MediaRoute.shared.fastBaseURL ?? baseURL
-        var basePath = base.path
-        if basePath.hasSuffix("/") {
-            basePath.removeLast()
-        }
-        guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
-            return nil
-        }
-        components.percentEncodedPath = basePath + "/api/v1/tracks/\(encoded)/\(kind)"
-        return components.url
+        return try? endpointURL(path: "/api/v1/tracks/\(encoded)/\(kind)", encodedPath: true)
     }
 
-    /// Probes the server-advertised LAN URLs and activates the first one that
-    /// answers /health with the same server identity.
-    public func probeFastPath(serverID: String?, lanURLs: [String]?) async {
-        guard let serverID, let lanURLs, !lanURLs.isEmpty else {
-            MediaRoute.shared.fastBaseURL = nil
-            return
-        }
-        // Already talking to a direct URL? Nothing to gain.
-        if let host = baseURL.host, lanURLs.contains(where: { URL(string: $0)?.host == host }) {
-            MediaRoute.shared.fastBaseURL = nil
-            return
-        }
-        for candidate in lanURLs {
-            guard let url = URL(string: candidate) else {
-                continue
-            }
-            var request = URLRequest(url: url.appending(path: "health"))
-            request.timeoutInterval = 2
-            for (name, value) in authHeaders {
-                request.setValue(value, forHTTPHeaderField: name)
-            }
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  let http = response as? HTTPURLResponse, http.statusCode == 200,
-                  let health = try? JSONDecoder().decode(CodecHealth.self, from: data),
-                  health.serverID == serverID
-            else {
-                continue
-            }
-            MediaRoute.shared.fastBaseURL = url
-            return
-        }
-        MediaRoute.shared.fastBaseURL = nil
-    }
 
     // MARK: - Likes
 
@@ -165,6 +94,18 @@ public struct CodecClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(["fingerprint": fingerprint])
+        for (name, value) in authHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        _ = try await sendExpectingSuccess(request)
+    }
+
+    /// Replaces the playlist's ordered track list - the reorder operation.
+    public func setPlaylistTracks(id: String, trackIDs: [String]) async throws {
+        var request = URLRequest(url: try playlistURL(id: id, suffix: "/tracks"))
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["track_ids": trackIDs])
         for (name, value) in authHeaders {
             request.setValue(value, forHTTPHeaderField: name)
         }

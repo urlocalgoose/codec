@@ -6,14 +6,12 @@ public struct CodecHealth: Decodable, Equatable, Sendable {
     public let schema: String
     public let playbackSchema: String?
     public let serverID: String?
-    public let lanURLs: [String]?
 
     enum CodingKeys: String, CodingKey {
         case ok
         case schema
         case playbackSchema = "playback_schema"
         case serverID = "server_id"
-        case lanURLs = "lan_urls"
     }
 }
 
@@ -70,6 +68,26 @@ public struct CodecLibrary: Codable, Equatable, Sendable {
     /// A copy of the library with every copy of the identified song
     /// (un)liked and the Liked Songs playlist kept in step — the optimistic
     /// local mirror of `PUT /api/v1/tracks/{fingerprint}/liked`.
+    /// A copy with one playlist's track list replaced - the local half of an
+    /// optimistic playlist edit.
+    public func settingPlaylistTracks(playlistID: String, trackIDs: [String]) -> CodecLibrary {
+        let nextPlaylists = playlists.map { playlist -> CodecPlaylist in
+            guard playlist.id == playlistID else {
+                return playlist
+            }
+            return CodecPlaylist(id: playlist.id, name: playlist.name, trackIDs: trackIDs, isLiked: playlist.isLiked)
+        }
+        return CodecLibrary(
+            rootPath: rootPath,
+            scannedAt: scannedAt,
+            stats: stats,
+            artists: artists,
+            albums: albums,
+            playlists: nextPlaylists,
+            tracks: tracks
+        )
+    }
+
     public func settingLiked(fingerprint: String, liked: Bool) -> CodecLibrary {
         var changedIDs = Set<String>()
         let nextTracks = tracks.map { track -> CodecTrack in

@@ -88,7 +88,6 @@ final class PlayerController {
     fileprivate var remoteClockTask: Task<Void, Never>?
     fileprivate var loadedFingerprint: String?
     private var preloadedItem: (fingerprint: String, item: AVPlayerItem)?
-    private var statusObservation: NSKeyValueObservation?
 
     /// True while another device is the one actually making sound.
     var remoteDeviceIsActive: Bool {
@@ -511,29 +510,11 @@ final class PlayerController {
         } else {
             item = AVPlayerItem(asset: makeAsset(for: url))
         }
-        item.preferredForwardBufferDuration = 6
+        // Buffer well ahead - everything streams through the tunnel, so a
+        // deep buffer is what keeps playback smooth.
+        item.preferredForwardBufferDuration = 30
         let nextPlayer = AVPlayer(playerItem: item)
-        // Start as soon as the first chunk lands instead of pre-buffering.
-        nextPlayer.automaticallyWaitsToMinimizeStalling = false
         player = nextPlayer
-
-        // If the LAN fast path dies mid-stream (left the house WiFi), drop
-        // back to the tunnel URL and retry once.
-        statusObservation = item.observe(\.status) { [weak self] observed, _ in
-            guard observed.status == .failed else {
-                return
-            }
-            Task { @MainActor in
-                guard let self else {
-                    return
-                }
-                if MediaRoute.shared.fastBaseURL != nil {
-                    MediaRoute.shared.fastBaseURL = nil
-                    self.preloadedItem = nil
-                    self.startPlayback(at: self.currentTime)
-                }
-            }
-        }
 
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification,
@@ -623,8 +604,6 @@ final class PlayerController {
             NotificationCenter.default.removeObserver(endObserver)
         }
         endObserver = nil
-        statusObservation?.invalidate()
-        statusObservation = nil
         player?.pause()
     }
 

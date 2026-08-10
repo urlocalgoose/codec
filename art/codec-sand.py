@@ -59,8 +59,8 @@ def simulate(cx, cy, out, wavelength=300.0, damp=360.0, calm_radius=130,
     b *= 0.30 + 0.70 * np.exp(-rr / 480)
 
     t = np.clip(b * 1.2, 0, 1)[..., None]
-    base = np.array([228, 115, 36], np.float32) / 255
-    hot = np.array([255, 232, 175], np.float32) / 255
+    base = np.array([132, 140, 158], np.float32) / 255
+    hot = np.array([238, 243, 252], np.float32) / 255
     rgb = base * (1 - t) + hot * t
     alpha = np.clip(b * 1.4, 0, 1)[..., None]
     img = np.concatenate([rgb * alpha, alpha], axis=2)

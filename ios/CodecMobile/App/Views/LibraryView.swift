@@ -35,7 +35,7 @@ struct LibraryView: View {
                     Section {
                         ForEach(app.userPlaylists) { playlist in
                             NavigationLink {
-                                TrackListView(title: playlist.name, tracks: app.tracks(in: playlist))
+                                PlaylistDetailView(playlistID: playlist.id)
                             } label: {
                                 row(playlist.name, systemImage: "music.note.list", count: playlist.trackIDs.count)
                             }

@@ -36,15 +36,11 @@ type Server struct {
 	// Bumped on every library write; drives the library ETag so unchanged
 	// refreshes cost a 304 instead of the full payload.
 	libraryVersion atomic.Int64
-	lanURLs        []string
 }
 
 type HandlerOptions struct {
 	WebDir    string
 	AuthToken string
-	// LANURLs are direct http URLs for this server on the local network,
-	// advertised via /health so clients on the same LAN can skip the tunnel.
-	LANURLs []string
 }
 
 func Open(dataDir string) (*Server, error) {
@@ -83,7 +79,6 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
-	s.lanURLs = options.LANURLs
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/library", s.handleLibrary)
@@ -101,6 +96,7 @@ func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
 	mux.HandleFunc("POST /api/v1/playlists", s.handleCreatePlaylist)
 	mux.HandleFunc("DELETE /api/v1/playlists/{id}", s.handleDeletePlaylist)
 	mux.HandleFunc("POST /api/v1/playlists/{id}/tracks", s.handleAddPlaylistTrack)
+	mux.HandleFunc("PUT /api/v1/playlists/{id}/tracks", s.handleSetPlaylistTracks)
 	mux.HandleFunc("DELETE /api/v1/playlists/{id}/tracks/{fingerprint}", s.handleRemovePlaylistTrack)
 	mux.HandleFunc("PUT /api/v1/playback-session/{device_id}", s.handlePutPlaybackSession)
 	mux.HandleFunc("GET /api/v1/playback-session/{device_id}", s.handleGetPlaybackSession)

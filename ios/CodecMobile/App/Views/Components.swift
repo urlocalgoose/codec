@@ -263,6 +263,121 @@ struct PlayableTrackRow: View {
 }
 
 /// One list of playable tracks: sleek list bones, deck keys on top.
+/// Press feedback for the big collection actions: visible squish + spring.
+struct SquishyButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .animation(.spring(response: 0.28, dampingFraction: 0.55), value: configuration.isPressed)
+    }
+}
+
+/// Play / Shuffle / Download-all header shared by track lists and playlists.
+/// Every tap lands with a haptic, and the download button reflects real
+/// state: idle, aggregate progress while transferring, checkmark when the
+/// whole collection is offline.
+struct CollectionActionHeader: View {
+    @Environment(\.codecTheme) private var theme
+    @Environment(AppModel.self) private var app
+    @Environment(PlayerController.self) private var player
+    @Environment(DownloadStore.self) private var downloads
+
+    let tracks: [CodecTrack]
+    var showsDownloadAll = true
+
+    @State private var playTaps = 0
+    @State private var shuffleTaps = 0
+    @State private var downloadTaps = 0
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button {
+                playTaps += 1
+                player.playCollection(tracks)
+            } label: {
+                Label("Play", systemImage: "play.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(theme.accentText)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(theme.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(SquishyButtonStyle())
+            .sensoryFeedback(.impact(flexibility: .rigid, intensity: 0.9), trigger: playTaps)
+
+            Button {
+                shuffleTaps += 1
+                player.playCollection(tracks, shuffled: true)
+            } label: {
+                Label("Shuffle", systemImage: "shuffle")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(theme.text)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(theme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(SquishyButtonStyle())
+            .sensoryFeedback(.impact(flexibility: .rigid, intensity: 0.7), trigger: shuffleTaps)
+
+            if showsDownloadAll, let client = app.client, !tracks.isEmpty {
+                downloadAllButton(client)
+            }
+        }
+        .padding(.vertical, 6)
+        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 10, trailing: 20))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
+    @ViewBuilder
+    private func downloadAllButton(_ client: CodecClient) -> some View {
+        let states = tracks.map { downloads.state(for: $0) }
+        let downloaded = states.filter { $0 == .downloaded }.count
+        let transferring = states.contains {
+            if case .downloading = $0 {
+                return true
+            }
+            return false
+        }
+
+        if downloaded == tracks.count {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(theme.accent)
+                .frame(width: 50)
+                .padding(.vertical, 12)
+                .background(theme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        } else if transferring {
+            ProgressView(value: max(Double(downloaded) / Double(max(tracks.count, 1)), 0.03))
+                .progressViewStyle(.circular)
+                .tint(theme.accent)
+                .frame(width: 50)
+                .padding(.vertical, 8)
+                .background(theme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        } else {
+            Button {
+                downloadTaps += 1
+                downloads.downloadAll(tracks, using: client)
+            } label: {
+                Image(systemName: "arrow.down.to.line")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(theme.text)
+                    .frame(width: 50)
+                    .padding(.vertical, 12)
+                    .background(theme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .buttonStyle(SquishyButtonStyle())
+            .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.8), trigger: downloadTaps)
+        }
+    }
+}
+
 struct TrackListView: View {
     @Environment(\.codecTheme) private var theme
     @Environment(AppModel.self) private var app
@@ -299,53 +414,7 @@ struct TrackListView: View {
 
     var body: some View {
         List {
-            HStack(spacing: 10) {
-                Button {
-                    player.playCollection(sortedTracks)
-                } label: {
-                    Label("Play", systemImage: "play.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(theme.accentText)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(theme.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: player.currentTrack?.id)
-
-                Button {
-                    player.playCollection(sortedTracks, shuffled: true)
-                } label: {
-                    Label("Shuffle", systemImage: "shuffle")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(theme.text)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(theme.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(.plain)
-
-                if showsDownloadAll, let client = app.client {
-                    Button {
-                        downloads.downloadAll(tracks, using: client)
-                    } label: {
-                        Image(systemName: "arrow.down.to.line")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(theme.text)
-                            .frame(width: 50)
-                            .padding(.vertical, 12)
-                            .background(theme.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, 6)
-            .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 10, trailing: 20))
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
+            CollectionActionHeader(tracks: sortedTracks, showsDownloadAll: showsDownloadAll)
 
             ForEach(sortedTracks) { track in
                 PlayableTrackRow(track: track, collection: sortedTracks)

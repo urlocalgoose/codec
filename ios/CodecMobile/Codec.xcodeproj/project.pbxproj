@@ -26,6 +26,7 @@
 		10000000000000000000011C /* PlaybackModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000001C /* PlaybackModels.swift */; };
 		10000000000000000000011D /* Themes.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000001D /* Themes.generated.swift */; };
 		10000000000000000000011E /* ThemePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000001E /* ThemePickerView.swift */; };
+		10000000000000000000011F /* PlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000001F /* PlaylistDetailView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,6 +51,7 @@
 		10000000000000000000001C /* PlaybackModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/CodecKit/PlaybackModels.swift; sourceTree = SOURCE_ROOT; };
 		10000000000000000000001D /* Themes.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Themes.generated.swift; sourceTree = "<group>"; };
 		10000000000000000000001E /* ThemePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePickerView.swift; sourceTree = "<group>"; };
+		10000000000000000000001F /* PlaylistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistDetailView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -126,6 +128,7 @@
 				10000000000000000000001A /* SearchView.swift */,
 				10000000000000000000001B /* NowPlayingView.swift */,
 				10000000000000000000001E /* ThemePickerView.swift */,
+				10000000000000000000001F /* PlaylistDetailView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -208,6 +211,7 @@
 				100000000000000000000103 /* DesignTokens.swift in Sources */,
 				10000000000000000000011D /* Themes.generated.swift in Sources */,
 				10000000000000000000011E /* ThemePickerView.swift in Sources */,
+				10000000000000000000011F /* PlaylistDetailView.swift in Sources */,
 				100000000000000000000113 /* Models.swift in Sources */,
 				10000000000000000000011C /* PlaybackModels.swift in Sources */,
 				100000000000000000000114 /* CodecClient.swift in Sources */,

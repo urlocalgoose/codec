@@ -22,9 +22,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	if id, err := s.serverID(r.Context()); err == nil {
 		response["server_id"] = id
 	}
-	if len(s.lanURLs) > 0 {
-		response["lan_urls"] = s.lanURLs
-	}
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -217,6 +214,34 @@ func (s *Server) handleAddPlaylistTrack(w http.ResponseWriter, r *http.Request) 
 	}
 	playlist, err := s.modifyPlaylistTracks(r.Context(), r.PathValue("id"), func(trackIDs []string) []string {
 		return append(trackIDs, "track_"+fingerprint)
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, errors.New("unknown playlist"))
+			return
+		}
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, playlist)
+}
+
+// handleSetPlaylistTracks replaces the playlist's ordered track list - the
+// reorder operation. Membership edits should use the add/remove endpoints.
+func (s *Server) handleSetPlaylistTracks(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TrackIDs []string `json:"track_ids"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.TrackIDs == nil {
+		writeError(w, http.StatusBadRequest, errors.New("track_ids is required"))
+		return
+	}
+	playlist, err := s.modifyPlaylistTracks(r.Context(), r.PathValue("id"), func([]string) []string {
+		return req.TrackIDs
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

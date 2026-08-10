@@ -73,31 +73,18 @@ final class AppModel {
 
         connection = .connecting
         do {
-            let health = try await nextClient.health()
+            _ = try await nextClient.health()
             let nextLibrary = try await nextClient.library()
             client = nextClient
             library = nextLibrary
             connection = .connected
             Self.writeCachedLibrary(nextLibrary)
-            lastHealth = health
-            await reprobeFastPath()
         } catch {
             connection = library != nil ? .offline : .disconnected
             errorMessage = friendlyMessage(for: error)
         }
     }
 
-    /// The server advertises its LAN URLs; if one answers with the same
-    /// identity, media streams go direct instead of through the tunnel.
-    /// Re-run whenever the network may have changed (foreground, connect).
-    private var lastHealth: CodecHealth?
-
-    func reprobeFastPath() async {
-        guard let client, let health = lastHealth else {
-            return
-        }
-        await client.probeFastPath(serverID: health.serverID, lanURLs: health.lanURLs)
-    }
 
     func refresh() async {
         guard let client else {
@@ -191,30 +178,63 @@ final class AppModel {
     var pendingNewPlaylistTrack: CodecTrack?
 
     func addTrack(_ track: CodecTrack, to playlist: CodecPlaylist) {
-        guard let client else {
+        guard let client, let current = library else {
             errorMessage = "Connect to the server to edit playlists."
             return
+        }
+        if !playlist.trackIDs.contains(track.id) {
+            library = current.settingPlaylistTracks(
+                playlistID: playlist.id,
+                trackIDs: playlist.trackIDs + [track.id]
+            )
         }
         Task {
             do {
                 try await client.addToPlaylist(id: playlist.id, fingerprint: track.fingerprint)
                 await refresh()
             } catch {
+                library = current
                 errorMessage = friendlyMessage(for: error)
             }
         }
     }
 
     func removeTrack(_ track: CodecTrack, from playlist: CodecPlaylist) {
-        guard let client else {
+        guard let client, let current = library else {
             errorMessage = "Connect to the server to edit playlists."
             return
         }
+        library = current.settingPlaylistTracks(
+            playlistID: playlist.id,
+            trackIDs: playlist.trackIDs.filter { $0 != track.id }
+        )
         Task {
             do {
                 try await client.removeFromPlaylist(id: playlist.id, fingerprint: track.fingerprint)
                 await refresh()
             } catch {
+                library = current
+                errorMessage = friendlyMessage(for: error)
+            }
+        }
+    }
+
+    /// Reorder: applies the move locally right away, then persists the full
+    /// ordered list.
+    func movePlaylistTracks(_ playlist: CodecPlaylist, from offsets: IndexSet, to destination: Int) {
+        guard let client, let current = library else {
+            errorMessage = "Connect to the server to edit playlists."
+            return
+        }
+        var ids = playlist.trackIDs
+        ids.move(fromOffsets: offsets, toOffset: destination)
+        library = current.settingPlaylistTracks(playlistID: playlist.id, trackIDs: ids)
+        let ordered = ids
+        Task {
+            do {
+                try await client.setPlaylistTracks(id: playlist.id, trackIDs: ordered)
+            } catch {
+                library = current
                 errorMessage = friendlyMessage(for: error)
             }
         }
@@ -307,9 +327,14 @@ final class AppModel {
         recentItems = items
     }
 
+    /// Playlist tracks in the playlist's own order - the order is the
+    /// playlist, so edits and playback both follow it.
     func tracks(in playlist: CodecPlaylist) -> [CodecTrack] {
-        let ids = Set(playlist.trackIDs)
-        return tracks.filter { ids.contains($0.id) }
+        playlist.trackIDs.compactMap { tracksByID[$0] }
+    }
+
+    func playlist(withID id: String) -> CodecPlaylist? {
+        library?.playlists.first { $0.id == id }
     }
 
     func tracks(inAlbum album: CodecAlbumSummary) -> [CodecTrack] {

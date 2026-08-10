@@ -891,3 +891,46 @@ func TestAudioUploadsRememberTheirContentType(t *testing.T) {
 		t.Fatal("expected octet-stream to normalize to audio/mpeg")
 	}
 }
+
+func TestReorderPlaylistTracks(t *testing.T) {
+	srv, httpServer := testServer(t)
+	ctx := context.Background()
+	for _, fp := range []string{"r1", "r2", "r3"} {
+		if err := srv.upsertTrack(ctx, Track{Fingerprint: fp, Title: fp}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	playlist, err := srv.createPlaylist(ctx, "Ordered")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fp := range []string{"r1", "r2", "r3"} {
+		if _, err := srv.modifyPlaylistTracks(ctx, playlist.ID, func(ids []string) []string {
+			return append(ids, "track_"+fp)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	body := strings.NewReader(`{"track_ids":["track_r3","track_r1","track_r2"]}`)
+	req, err := http.NewRequest(http.MethodPut, httpServer.URL+"/api/v1/playlists/"+playlist.ID+"/tracks", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var updated Playlist
+	if err := json.NewDecoder(res.Body).Decode(&updated); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"track_r3", "track_r1", "track_r2"}
+	if len(updated.TrackIDs) != 3 || updated.TrackIDs[0] != want[0] || updated.TrackIDs[1] != want[1] || updated.TrackIDs[2] != want[2] {
+		t.Fatalf("unexpected order %v", updated.TrackIDs)
+	}
+}
