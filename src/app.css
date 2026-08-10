@@ -39,9 +39,9 @@
   --button-press-y: 5px;
   --button-latched-y: 4px;
   --button-primary-text: #130f0a;
-  --radius-sm: 3px;
-  --radius-md: 4px;
-  --radius-button: 3px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-button: 10px;
   --control-h: 38px;
   --space-1: 4px;
   --space-2: 8px;
@@ -1144,7 +1144,7 @@ button svg {
   height: 100vh;
   display: grid;
   grid-template-columns: 238px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) 128px;
+  grid-template-rows: minmax(0, 1fr) 146px;
   background: var(--color-bg);
   overflow: hidden;
 }
@@ -1224,7 +1224,7 @@ button svg {
 .theme-open-button:hover,
 .nav-stack button.active,
 .playlist-scroll button.active {
-  background: var(--color-surface);
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
   color: var(--color-text);
 }
 
@@ -1461,8 +1461,8 @@ button svg {
   align-items: center;
   gap: 10px;
   border: 0;
-  border-radius: var(--radius-md);
-  padding: 0 10px;
+  border-radius: 21px;
+  padding: 0 14px;
   background: color-mix(in srgb, var(--color-bg) 74%, var(--color-panel) 26%);
   color: var(--color-subtle);
   box-shadow:
@@ -1501,13 +1501,11 @@ button svg {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 0;
-  border-radius: var(--radius-button);
-  overflow: hidden;
+  gap: 8px;
 }
 
 .topbar-actions button {
-  border-radius: 0;
+  border-radius: var(--radius-button);
 }
 
 .topbar-actions button + button {
@@ -1696,7 +1694,14 @@ button svg {
 
 .track-surface {
   min-width: 0;
-  margin-inline: -22px;
+  margin-inline: 0;
+}
+
+.track-table {
+  border: 1px solid var(--color-line);
+  border-radius: 16px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-panel) 55%, var(--color-bg));
 }
 
 .list-toolbar {
@@ -1729,19 +1734,13 @@ button svg {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 0;
-  border-radius: var(--radius-button);
-  overflow: hidden;
+  gap: 8px;
 }
 
 .list-actions .ui-button {
-  border-radius: 0;
-}
-
-.list-actions .ui-button + .ui-button {
-  box-shadow:
-    inset 1px 0 0 var(--color-line),
-    var(--button-shadow-rest);
+  border-radius: var(--radius-button);
+  min-height: 40px;
+  padding-inline: 18px;
 }
 
 .list-actions .ui-button:first-child {
@@ -1777,11 +1776,12 @@ button svg {
 }
 
 .track-head {
-  min-height: 36px;
+  min-height: 34px;
   padding: 0 12px;
-  background: var(--color-panel-2);
+  background: transparent;
   color: var(--color-subtle);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   box-shadow: inset 0 -1px 0 var(--color-line);
 }
@@ -1897,12 +1897,14 @@ button svg {
   grid-template-columns: minmax(220px, 1fr) minmax(360px, 1.25fr) minmax(190px, 0.75fr);
   align-items: center;
   gap: 18px;
-  border-top: 0;
-  padding: 14px 20px 16px;
+  margin: 4px 14px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  padding: 12px 18px 14px;
   background:
-    linear-gradient(0deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.025)),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.03)),
     var(--color-panel);
-  box-shadow: inset 0 1px 0 var(--color-line);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
   min-width: 0;
 }
 
