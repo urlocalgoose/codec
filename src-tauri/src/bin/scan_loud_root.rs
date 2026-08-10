@@ -6,7 +6,7 @@ mod library;
 fn main() -> Result<(), String> {
     let root = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "/path/to/Documents/Music".to_string());
+        .ok_or("usage: scan_loud_root <music-folder>")?;
     let library = library::scan_library_path(root)?;
     let liked = library.tracks.iter().filter(|track| track.is_liked).count();
     let playlists = library

@@ -98,7 +98,7 @@ struct TrackMetadata {
 fn main() -> Result<(), String> {
     let root_arg = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "/path/to/Documents/Music".to_string());
+        .ok_or("usage: migrate_music_to_loud <music-folder>")?;
     let root = canonical_dir(Path::new(&root_arg))?;
     let backup_root = root.with_file_name(format!(
         "{}-legacy-{}",
