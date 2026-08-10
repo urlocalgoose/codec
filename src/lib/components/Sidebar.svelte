@@ -1,17 +1,12 @@
 <script lang="ts">
   import {
     Check,
-    CloudDownload,
-    CloudUpload,
     Disc3,
     Home,
     Library,
     ListMusic,
-    LoaderCircle,
-    Link,
-    Palette,
     Radio,
-    Server,
+    Settings,
     Users
   } from "lucide-svelte";
   import type { Playlist } from "$lib/types";
@@ -19,40 +14,18 @@
   let {
     selectedView,
     userPlaylists,
-    activeThemeName,
-    syncing,
-    canUpload,
-    syncMessage,
     guestMode = false,
     auxCode = "",
-    auxBusy = false,
-    syncServerDraft = $bindable(),
     onSelectView,
-    onOpenThemeModal,
-    onSyncToServer,
-    onSyncFromServer,
-    onStartAux,
-    onEndAux,
-    onCopyAuxLink,
+    onOpenSettings,
     onShowAux
   }: {
     selectedView: string;
     userPlaylists: Playlist[];
-    activeThemeName: string;
-    syncing: boolean;
-    canUpload: boolean;
-    syncMessage: string;
     guestMode?: boolean;
     auxCode?: string;
-    auxBusy?: boolean;
-    syncServerDraft: string;
     onSelectView: (view: string) => void;
-    onOpenThemeModal: () => void;
-    onSyncToServer: () => void;
-    onSyncFromServer: () => void;
-    onStartAux: () => void;
-    onEndAux: () => void;
-    onCopyAuxLink: () => void;
+    onOpenSettings: () => void;
     onShowAux: () => void;
   } = $props();
 
@@ -67,6 +40,8 @@
 </script>
 
 <aside class="sidebar" aria-label="Library navigation">
+  <div class="sidebar-wordmark">code<span>c</span></div>
+
   <nav class="nav-stack" aria-label="Primary">
     {#each primaryViews as view (view.id)}
       <button
@@ -82,115 +57,42 @@
     {/each}
   </nav>
 
-  <section class="playlist-nav" aria-label="Playlists">
-    <div class="section-label">
-      <span>Playlists</span>
-    </div>
-    <div class="playlist-scroll">
-      {#each userPlaylists as playlist (playlist.id)}
-        <button
-          class:active={selectedView === playlist.id}
-          type="button"
-          onclick={() => onSelectView(playlist.id)}
-        >
-          <span>{playlist.name}</span>
-          <small>{playlist.track_ids.length}</small>
-        </button>
-      {/each}
-    </div>
-  </section>
-
-  <section class="theme-nav" aria-label="Themes">
-    <div class="section-label">
-      <span>Theme</span>
-    </div>
-    <button class="theme-open-button" type="button" onclick={onOpenThemeModal}>
-      <Palette size={18} />
-      <span>{activeThemeName}</span>
-    </button>
-  </section>
-
-  {#if !guestMode}
-    <section class="aux-nav" aria-label="Aux">
+  {#if userPlaylists.length > 0}
+    <section class="playlist-nav" aria-label="Playlists">
       <div class="section-label">
-        <span>Aux</span>
+        <span>Playlists</span>
       </div>
-      {#if auxCode}
-        <div class="aux-live">
-          <button class="aux-code" title="Show the QR" type="button" onclick={onShowAux}>{auxCode}</button>
+      <div class="playlist-scroll">
+        {#each userPlaylists as playlist (playlist.id)}
           <button
-            class="ui-button compact"
-            title="Copy the join link"
-            aria-label="Copy the join link"
+            class:active={selectedView === playlist.id}
             type="button"
-            onclick={onCopyAuxLink}
+            onclick={() => onSelectView(playlist.id)}
           >
-            <Link size={15} />
+            <span>{playlist.name}</span>
+            <small>{playlist.track_ids.length}</small>
           </button>
-        </div>
-        <button class="ui-button compact" disabled={auxBusy} type="button" onclick={onEndAux}>
-          End the aux
-        </button>
-      {:else}
-        <button
-          class="ui-button compact"
-          disabled={auxBusy}
-          title="Start a shared listening session"
-          type="button"
-          onclick={onStartAux}
-        >
-          <Radio size={15} />
-          Start an aux
-        </button>
-      {/if}
+        {/each}
+      </div>
     </section>
   {/if}
 
-  {#if guestMode}
-    <section class="aux-nav" aria-label="Aux">
-      <div class="section-label">
-        <span>Aux</span>
-      </div>
-      <p class="aux-guest-note">You're on the aux <strong>{auxCode}</strong> — add songs to the queue.</p>
-    </section>
-  {:else}
-  <section class="sync-nav" aria-label="Sync">
-    <div class="section-label">
-      <span>Sync</span>
-    </div>
-    <label class="sync-url-field compact">
-      <Server size={16} />
-      <input bind:value={syncServerDraft} placeholder="Server URL" type="url" />
-    </label>
-    <div class="sync-actions">
-      <button
-        class="ui-button compact"
-        disabled={syncing || !canUpload}
-        title="Upload this library to the sync server"
-        aria-label="Upload this library to the sync server"
-        type="button"
-        onclick={onSyncToServer}
-      >
-        {#if syncing}
-          <LoaderCircle class="spin-icon" size={16} />
-        {:else}
-          <CloudUpload size={16} />
-        {/if}
+  <div class="sidebar-footer">
+    {#if guestMode}
+      <span class="sidebar-aux-chip" title="You're on the aux">
+        <Radio size={14} />
+        {auxCode}
+      </span>
+    {:else}
+      {#if auxCode}
+        <button class="sidebar-aux-chip live" title="Aux is live — show the QR" type="button" onclick={onShowAux}>
+          <Radio size={14} />
+          {auxCode}
+        </button>
+      {/if}
+      <button class="sidebar-settings" title="Settings" aria-label="Settings" type="button" onclick={onOpenSettings}>
+        <Settings size={17} />
       </button>
-      <button
-        class="ui-button compact"
-        disabled={syncing}
-        title="Pull library from the sync server"
-        aria-label="Pull library from the sync server"
-        type="button"
-        onclick={onSyncFromServer}
-      >
-        <CloudDownload size={16} />
-      </button>
-    </div>
-    {#if syncMessage}
-      <small class="sync-status">{syncMessage}</small>
     {/if}
-  </section>
-{/if}
+  </div>
 </aside>

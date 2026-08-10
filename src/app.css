@@ -3133,3 +3133,160 @@ button.aux-code {
   font-weight: 900;
   font-size: 1.05rem;
 }
+
+
+/* ---------- Mobile-shell alignment: sidebar, settings, rows ---------- */
+
+.sidebar-wordmark {
+  padding: 4px 10px 2px;
+  font-size: 1.5rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  color: var(--color-text);
+}
+
+.sidebar-wordmark span {
+  color: var(--color-accent);
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar-settings {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--color-subtle);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.sidebar-settings:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.sidebar-aux-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 13px;
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-accent);
+  font-weight: 900;
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+
+.settings-modal {
+  display: grid;
+  gap: 18px;
+  width: min(440px, 92vw);
+}
+
+.settings-modal header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-group {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-subtle);
+  margin-bottom: 4px;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--radius-button);
+  padding: 8px 12px;
+  background: var(--color-panel-2);
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  transition: background 120ms ease;
+}
+
+.settings-row:hover:not(:disabled) {
+  background: var(--color-surface);
+}
+
+.settings-row:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.settings-row small {
+  color: var(--color-subtle);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.settings-aux-code {
+  color: var(--color-accent);
+  letter-spacing: 0.18em;
+}
+
+.settings-note {
+  margin: 4px 2px 0;
+  font-size: 0.8rem;
+  color: var(--color-subtle);
+}
+
+/* iOS row metrics: bold title, quiet artist, hairline separators */
+
+.track-row {
+  min-height: 58px;
+}
+
+.track-title-cell .artwork {
+  width: 42px;
+  height: 42px;
+  border-radius: 9px;
+}
+
+.track-title-cell strong {
+  font-size: 0.94rem;
+  font-weight: 800;
+}
+
+.track-title-cell span {
+  font-size: 0.8rem;
+}
+
+/* Collection actions: the phone's Play / Shuffle pills */
+
+.list-actions .ui-button {
+  min-height: 44px;
+  padding-inline: 26px;
+  font-weight: 800;
+  border-radius: 13px;
+}

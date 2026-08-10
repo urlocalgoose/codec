@@ -8,6 +8,7 @@
   import BrowseGrid from "$lib/components/BrowseGrid.svelte";
   import PlayerBar from "$lib/components/PlayerBar.svelte";
   import PlaylistModal from "$lib/components/PlaylistModal.svelte";
+  import SettingsModal from "$lib/components/SettingsModal.svelte";
   import SetupScreen from "$lib/components/SetupScreen.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
   import SyncServerModal from "$lib/components/SyncServerModal.svelte";
@@ -141,6 +142,7 @@
   let auxCode = "";
   let auxBusy = false;
   let auxModalOpen = false;
+  let settingsModalOpen = false;
   let searchQuery = "";
   let sortKey: SortKey = "default";
   let loading = false;
@@ -2365,6 +2367,38 @@
   }
 </script>
 
+{#if settingsModalOpen}
+  <SettingsModal
+    activeThemeName={activeTheme.name}
+    {syncing}
+    canUpload={Boolean(library)}
+    {syncMessage}
+    {importing}
+    importDisabled={isRemoteRoot(rootPath)}
+    {auxCode}
+    {auxBusy}
+    onOpenThemeModal={() => {
+      settingsModalOpen = false;
+      openThemeModal();
+    }}
+    onOpenSyncServerModal={() => {
+      settingsModalOpen = false;
+      openSyncServerModal();
+    }}
+    onSyncToServer={() => void syncToServer()}
+    onSyncFromServer={() => void syncFromServer()}
+    onImportManifest={() => void chooseImportManifest()}
+    onRefresh={refreshActiveLibrary}
+    onStartAux={() => void startAux()}
+    onShowAux={() => {
+      settingsModalOpen = false;
+      auxModalOpen = true;
+    }}
+    onEndAux={() => void endAux()}
+    onClose={() => (settingsModalOpen = false)}
+  />
+{/if}
+
 {#if auxModalOpen && auxCode}
   <AuxModal
     {auxCode}
@@ -2395,34 +2429,15 @@
     <Sidebar
       {selectedView}
       {userPlaylists}
-      activeThemeName={activeTheme.name}
-      {syncing}
-      canUpload={Boolean(library)}
-      {syncMessage}
       {guestMode}
       {auxCode}
-      {auxBusy}
-      bind:syncServerDraft
       onSelectView={selectView}
-      onOpenThemeModal={openThemeModal}
-      onSyncToServer={() => void syncToServer()}
-      onSyncFromServer={() => void syncFromServer()}
-      onStartAux={() => void startAux()}
-      onEndAux={() => void endAux()}
-      onCopyAuxLink={() => void copyAuxLink()}
+      onOpenSettings={() => (settingsModalOpen = true)}
       onShowAux={() => (auxModalOpen = true)}
     />
 
     <section class="content">
-      <TopBar
-        bind:this={topBar}
-        bind:searchQuery
-        {importing}
-        importDisabled={isRemoteRoot(rootPath)}
-        onOpenSyncServerModal={openSyncServerModal}
-        onImportManifest={() => void chooseImportManifest()}
-        onRefresh={refreshActiveLibrary}
-      />
+      <TopBar bind:this={topBar} bind:searchQuery />
 
       {#if loading}
         <section class="loading-state">
