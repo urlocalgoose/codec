@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 )
 
 func (s *Server) upsertPlaybackSession(ctx context.Context, session PlaybackSession) error {
@@ -80,11 +81,16 @@ func (s *Server) upsertPlaybackDevice(ctx context.Context, device PlaybackDevice
 }
 
 func (s *Server) playbackDevices(ctx context.Context) ([]PlaybackDevice, error) {
+	// Only devices that have phoned home recently: presence publishes every
+	// 30s, so anything older than this window is offline (or long gone).
+	// Clients stamp updated_at in milliseconds.
+	cutoff := s.now().Add(-2 * time.Minute).UnixMilli()
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT device_id, name, track_id, track_fingerprint, track_title, is_playing, position_seconds, volume, updated_at
 		FROM playback_devices
+		WHERE updated_at >= ?
 		ORDER BY updated_at DESC, name
-	`)
+	`, cutoff)
 	if err != nil {
 		return nil, err
 	}

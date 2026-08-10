@@ -356,13 +356,21 @@ func (s *Server) mediaPath(ctx context.Context, fingerprint, column string) (str
 	if err := s.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT %s FROM tracks WHERE fingerprint = ?`, column), fingerprint).Scan(&path); err != nil {
 		return "", err
 	}
-	if !path.Valid || path.String == "" {
-		return "", os.ErrNotExist
+	if path.Valid && path.String != "" {
+		if _, err := os.Stat(path.String); err == nil {
+			return path.String, nil
+		}
 	}
-	if _, err := os.Stat(path.String); err != nil {
+	// The stored path may predate a data-dir move; the canonical location
+	// under the current data dir is the fallback.
+	canonical := s.audioPath(fingerprint)
+	if column == "artwork_path" {
+		canonical = s.artworkPath(fingerprint)
+	}
+	if _, err := os.Stat(canonical); err != nil {
 		return "", err
 	}
-	return path.String, nil
+	return canonical, nil
 }
 
 func (s *Server) audioPath(fingerprint string) string {
