@@ -535,6 +535,9 @@ final class PlayerController {
                     return
                 }
                 self.currentTime = time.seconds.isFinite ? time.seconds : 0
+                if self.isPlaying, nextPlayer.timeControlStatus == .paused {
+                    self.acceptSystemPause()
+                }
                 self.updateNowPlayingPlaybackState()
             }
         }
@@ -611,6 +614,97 @@ final class PlayerController {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default)
         try? session.setActive(true)
+        configureSystemObservers()
+    }
+
+    // MARK: - System interruptions
+
+    /// Other apps taking the audio session (a video, a call, Siri) pause the
+    /// player underneath us; without these observers the play button and
+    /// clock keep pretending. State follows the system, always.
+    private var systemObserversConfigured = false
+
+    private func configureSystemObservers() {
+        guard !systemObserversConfigured else {
+            return
+        }
+        systemObserversConfigured = true
+
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
+            Task { @MainActor in
+                self?.handleInterruption(typeValue: typeValue, optionsValue: optionsValue)
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+            Task { @MainActor in
+                self?.handleRouteChange(reasonValue: reasonValue)
+            }
+        }
+    }
+
+    private func handleInterruption(typeValue: UInt?, optionsValue: UInt?) {
+        guard let typeValue,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue)
+        else {
+            return
+        }
+
+        switch type {
+        case .began:
+            acceptSystemPause()
+        case .ended:
+            if AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0).contains(.shouldResume),
+               currentTrack != nil, player != nil {
+                try? AVAudioSession.sharedInstance().setActive(true)
+                player?.play()
+                isPlaying = true
+                updateNowPlayingPlaybackState()
+                publishPresenceSoon()
+                if syncEnabled, isActiveSyncDevice {
+                    sendSyncCommand("play", position: currentTime)
+                }
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleRouteChange(reasonValue: UInt?) {
+        guard let reasonValue,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue),
+              reason == .oldDeviceUnavailable
+        else {
+            return
+        }
+        // Headphones yanked: pause like every music app does.
+        player?.pause()
+        acceptSystemPause()
+    }
+
+    /// The system paused us (interruption, route loss, another app). Fold
+    /// that into our state and tell the server so every device agrees.
+    private func acceptSystemPause() {
+        guard isPlaying else {
+            return
+        }
+        isPlaying = false
+        updateNowPlayingPlaybackState()
+        publishPresenceSoon()
+        if syncEnabled, isActiveSyncDevice {
+            sendSyncCommand("pause", position: currentTime)
+        }
     }
 
     // MARK: - Lock screen / Control Center
