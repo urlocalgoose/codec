@@ -51,6 +51,7 @@ func main() {
 	handler := srv.HandlerWithOptions(server.HandlerOptions{
 		WebDir:    *webDir,
 		AuthToken: *authToken,
+		LANURLs:   lanURLs(*addr),
 	})
 	if err := http.ListenAndServe(*addr, handler); err != nil {
 		log.Fatal(err)
@@ -98,6 +99,19 @@ func advertisedURLs(addr string) []string {
 	urls := []string{"http://" + net.JoinHostPort("127.0.0.1", port)}
 	for _, ip := range advertisedIPv4s() {
 		urls = append(urls, "http://"+net.JoinHostPort(ip, port))
+	}
+	return urls
+}
+
+// lanURLs is advertisedURLs minus loopback - what remote clients on the
+// same network can actually reach.
+func lanURLs(addr string) []string {
+	var urls []string
+	for _, url := range advertisedURLs(addr) {
+		if strings.Contains(url, "127.0.0.1") || strings.Contains(url, "localhost") {
+			continue
+		}
+		urls = append(urls, url)
 	}
 	return urls
 }

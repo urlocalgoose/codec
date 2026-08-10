@@ -73,16 +73,30 @@ final class AppModel {
 
         connection = .connecting
         do {
-            _ = try await nextClient.health()
+            let health = try await nextClient.health()
             let nextLibrary = try await nextClient.library()
             client = nextClient
             library = nextLibrary
             connection = .connected
             Self.writeCachedLibrary(nextLibrary)
+            lastHealth = health
+            await reprobeFastPath()
         } catch {
             connection = library != nil ? .offline : .disconnected
             errorMessage = friendlyMessage(for: error)
         }
+    }
+
+    /// The server advertises its LAN URLs; if one answers with the same
+    /// identity, media streams go direct instead of through the tunnel.
+    /// Re-run whenever the network may have changed (foreground, connect).
+    private var lastHealth: CodecHealth?
+
+    func reprobeFastPath() async {
+        guard let client, let health = lastHealth else {
+            return
+        }
+        await client.probeFastPath(serverID: health.serverID, lanURLs: health.lanURLs)
     }
 
     func refresh() async {

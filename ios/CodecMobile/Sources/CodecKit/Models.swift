@@ -5,11 +5,15 @@ public struct CodecHealth: Decodable, Equatable, Sendable {
     public let ok: Bool
     public let schema: String
     public let playbackSchema: String?
+    public let serverID: String?
+    public let lanURLs: [String]?
 
     enum CodingKeys: String, CodingKey {
         case ok
         case schema
         case playbackSchema = "playback_schema"
+        case serverID = "server_id"
+        case lanURLs = "lan_urls"
     }
 }
 

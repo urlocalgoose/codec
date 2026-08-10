@@ -14,11 +14,18 @@ import (
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	response := map[string]any{
 		"ok":              true,
 		"schema":          syncSchema,
 		"playback_schema": playbackSchemaV2,
-	})
+	}
+	if id, err := s.serverID(r.Context()); err == nil {
+		response["server_id"] = id
+	}
+	if len(s.lanURLs) > 0 {
+		response["lan_urls"] = s.lanURLs
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {

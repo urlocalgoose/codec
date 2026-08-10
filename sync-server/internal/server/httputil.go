@@ -59,6 +59,9 @@ func serveMedia(w http.ResponseWriter, r *http.Request, path, contentType string
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Accept-Ranges", "bytes")
+	// Media is fingerprint-addressed: the bytes behind a URL never change,
+	// so clients may cache them forever.
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
 }
 
