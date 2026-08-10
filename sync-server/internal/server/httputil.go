@@ -252,16 +252,51 @@ func withCORS(next http.Handler) http.Handler {
 	})
 }
 
-func withAuth(next http.Handler, token string) http.Handler {
+func withAuth(next http.Handler, token string, s *Server) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" || authorizedRequest(r, token) {
+		// The static web shell is public - it holds no data, and aux guests
+		// have to be able to load the app before they hold a token. Every
+		// /api route (library, media, playback) stays protected.
+		publicShell := r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/api/")
+		if publicShell || r.URL.Path == "/api/v1/aux/join" || authorizedRequest(r, token) {
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Media grants: another server's devices streaming tracks this
+		// server granted for a shared queue. GET audio/artwork only.
+		if grant := presentedToken(r); grant != "" && s.mediaGrantAllows(grant, r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Aux guests: scoped tokens minted per session, valid only for the
+		// guest surface, dead the moment the host ends the session.
+		if guest := presentedToken(r); guest != "" && s.isAuxGuestToken(guest) {
+			if auxGuestAllowed(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			writeError(w, http.StatusForbidden, fmt.Errorf("aux guests cannot do that"))
 			return
 		}
 
 		w.Header().Set("WWW-Authenticate", `Basic realm="Codec"`)
 		writeError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
 	})
+}
+
+// presentedToken extracts whatever credential the request carries, without
+// judging it.
+func presentedToken(r *http.Request) string {
+	if _, password, ok := r.BasicAuth(); ok && password != "" {
+		return password
+	}
+	const prefix = "Bearer "
+	if header := r.Header.Get("Authorization"); strings.HasPrefix(header, prefix) {
+		return strings.TrimPrefix(header, prefix)
+	}
+	return r.URL.Query().Get("access_token")
 }
 
 func authorizedRequest(r *http.Request, token string) bool {

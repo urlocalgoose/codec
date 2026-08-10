@@ -38,6 +38,17 @@ export function likedTracks(library: Library): Track[] {
 }
 
 export function trackReference(track: Track): TrackReference {
+  if (track.media_url) {
+    return {
+      id: track.id,
+      path: track.path,
+      fingerprint: track.fingerprint,
+      title: track.title,
+      artist: track.artist,
+      media_url: track.media_url,
+      artwork_url: track.artwork_url ?? undefined
+    };
+  }
   return {
     id: track.id,
     path: track.path,
@@ -57,8 +68,38 @@ export function findTrackByReference(
     library.tracks.find((track) => track.path === reference.path) ??
     library.tracks.find((track) => track.id === reference.id) ??
     library.tracks.find((track) => track.fingerprint === reference.fingerprint) ??
-    null
+    foreignTrackFromReference(reference)
   );
+}
+
+/** A track queued from another Codec server rides with a granted media URL
+ * and display metadata - synthesize a playable Track so the aux queue never
+ * depends on the host library containing it. */
+export function foreignTrackFromReference(reference: TrackReference): Track | null {
+  if (!reference.media_url) {
+    return null;
+  }
+
+  return {
+    id: reference.id || `foreign:${reference.fingerprint}`,
+    path: reference.path || `aux://${reference.fingerprint}`,
+    file_name: "",
+    title: reference.title || "Shared track",
+    artist: reference.artist || "From the aux",
+    album: "",
+    album_artist: null,
+    genre: null,
+    year: null,
+    track_number: null,
+    duration_seconds: null,
+    artwork_url: reference.artwork_url ?? null,
+    playlist_ids: [],
+    added_at: null,
+    size_bytes: 0,
+    is_liked: false,
+    fingerprint: reference.fingerprint,
+    media_url: reference.media_url
+  };
 }
 
 export function tracksFromReferences(library: Library, references: TrackReference[]): Track[] {

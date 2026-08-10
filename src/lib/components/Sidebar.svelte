@@ -8,7 +8,9 @@
     Library,
     ListMusic,
     LoaderCircle,
+    Link,
     Palette,
+    Radio,
     Server,
     Users
   } from "lucide-svelte";
@@ -21,11 +23,18 @@
     syncing,
     canUpload,
     syncMessage,
+    guestMode = false,
+    auxCode = "",
+    auxBusy = false,
     syncServerDraft = $bindable(),
     onSelectView,
     onOpenThemeModal,
     onSyncToServer,
-    onSyncFromServer
+    onSyncFromServer,
+    onStartAux,
+    onEndAux,
+    onCopyAuxLink,
+    onShowAux
   }: {
     selectedView: string;
     userPlaylists: Playlist[];
@@ -33,11 +42,18 @@
     syncing: boolean;
     canUpload: boolean;
     syncMessage: string;
+    guestMode?: boolean;
+    auxCode?: string;
+    auxBusy?: boolean;
     syncServerDraft: string;
     onSelectView: (view: string) => void;
     onOpenThemeModal: () => void;
     onSyncToServer: () => void;
     onSyncFromServer: () => void;
+    onStartAux: () => void;
+    onEndAux: () => void;
+    onCopyAuxLink: () => void;
+    onShowAux: () => void;
   } = $props();
 
   const primaryViews = [
@@ -94,6 +110,50 @@
     </button>
   </section>
 
+  {#if !guestMode}
+    <section class="aux-nav" aria-label="Aux">
+      <div class="section-label">
+        <span>Aux</span>
+      </div>
+      {#if auxCode}
+        <div class="aux-live">
+          <button class="aux-code" title="Show the QR" type="button" onclick={onShowAux}>{auxCode}</button>
+          <button
+            class="ui-button compact"
+            title="Copy the join link"
+            aria-label="Copy the join link"
+            type="button"
+            onclick={onCopyAuxLink}
+          >
+            <Link size={15} />
+          </button>
+        </div>
+        <button class="ui-button compact" disabled={auxBusy} type="button" onclick={onEndAux}>
+          End the aux
+        </button>
+      {:else}
+        <button
+          class="ui-button compact"
+          disabled={auxBusy}
+          title="Start a shared listening session"
+          type="button"
+          onclick={onStartAux}
+        >
+          <Radio size={15} />
+          Start an aux
+        </button>
+      {/if}
+    </section>
+  {/if}
+
+  {#if guestMode}
+    <section class="aux-nav" aria-label="Aux">
+      <div class="section-label">
+        <span>Aux</span>
+      </div>
+      <p class="aux-guest-note">You're on the aux <strong>{auxCode}</strong> — add songs to the queue.</p>
+    </section>
+  {:else}
   <section class="sync-nav" aria-label="Sync">
     <div class="section-label">
       <span>Sync</span>
@@ -132,4 +192,5 @@
       <small class="sync-status">{syncMessage}</small>
     {/if}
   </section>
+{/if}
 </aside>

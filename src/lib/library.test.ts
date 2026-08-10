@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  foreignTrackFromReference,
   createQueue,
   findTrackByReference,
   formatDuration,
@@ -143,5 +144,37 @@ describe("library helpers", () => {
       albumCount: 2,
       durationSeconds: 335
     });
+  });
+});
+
+describe("foreign aux tracks", () => {
+  test("a reference with a granted media URL synthesizes a playable track", () => {
+    const track = foreignTrackFromReference({
+      id: "track_abc",
+      path: "aux://abc",
+      fingerprint: "abc",
+      title: "Their Song",
+      artist: "Their Artist",
+      media_url: "https://their-server/api/v1/tracks/abc/audio?access_token=grant_x",
+      artwork_url: "https://their-server/api/v1/tracks/abc/artwork?access_token=grant_x"
+    });
+
+    expect(track?.title).toBe("Their Song");
+    expect(track?.media_url).toContain("grant_x");
+    expect(track?.fingerprint).toBe("abc");
+  });
+
+  test("a plain local reference does not synthesize anything", () => {
+    expect(foreignTrackFromReference({ id: "t", path: "/a.mp3", fingerprint: "f" })).toBeNull();
+  });
+
+  test("re-queueing a foreign track keeps its grant in the reference", () => {
+    const track = foreignTrackFromReference({
+      id: "track_abc",
+      path: "aux://abc",
+      fingerprint: "abc",
+      media_url: "https://their-server/audio"
+    });
+    expect(trackReference(track!)).toMatchObject({ media_url: "https://their-server/audio" });
   });
 });

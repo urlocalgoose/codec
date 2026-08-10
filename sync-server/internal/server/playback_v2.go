@@ -388,6 +388,10 @@ func cleanTrackReference(reference TrackReference) TrackReference {
 		ID:          strings.TrimSpace(reference.ID),
 		Path:        strings.TrimSpace(reference.Path),
 		Fingerprint: strings.TrimSpace(reference.Fingerprint),
+		Title:       strings.TrimSpace(reference.Title),
+		Artist:      strings.TrimSpace(reference.Artist),
+		MediaURL:    strings.TrimSpace(reference.MediaURL),
+		ArtworkURL:  strings.TrimSpace(reference.ArtworkURL),
 	}
 }
 

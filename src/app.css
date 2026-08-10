@@ -3037,3 +3037,99 @@ audio {
   margin: 0;
   color: var(--color-subtle);
 }
+
+
+/* ---------- Aux ---------- */
+
+.aux-nav {
+  display: grid;
+  gap: 8px;
+}
+
+.aux-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.aux-code {
+  flex: 1;
+  padding: 7px 10px;
+  border-radius: var(--radius-button);
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-text);
+  font-weight: 900;
+  font-size: 1.05rem;
+  letter-spacing: 0.28em;
+  text-align: center;
+}
+
+.aux-guest-note {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--color-subtle);
+}
+
+.aux-guest-note strong {
+  color: var(--color-accent);
+  letter-spacing: 0.14em;
+}
+
+.hidden-for-guests {
+  display: none !important;
+}
+
+
+.aux-modal {
+  display: grid;
+  gap: 14px;
+  justify-items: center;
+  max-width: 360px;
+}
+
+.aux-modal header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.aux-modal-hint {
+  margin: 0;
+  text-align: center;
+  color: var(--color-subtle);
+  font-size: 0.85rem;
+  max-width: 30ch;
+}
+
+.aux-qr-wrap {
+  padding: 12px;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.aux-qr-wrap canvas {
+  display: block;
+  border-radius: 6px;
+}
+
+.aux-modal-code {
+  font-size: 1.6rem;
+  font-weight: 900;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  color: var(--color-accent);
+}
+
+.aux-modal-actions {
+  display: flex;
+  gap: 10px;
+}
+
+button.aux-code {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+  font-size: 1.05rem;
+}

@@ -252,7 +252,8 @@ export async function fetchRemoteLibrary(serverUrl: string, fetcher: typeof fetc
 export function normalizeLibrary(library: Partial<MusicLibrary>): MusicLibrary {
   const tracks = safeArray<Track>(library.tracks).map((track) => ({
     ...track,
-    playlist_ids: safeArray(track.playlist_ids)
+    playlist_ids: safeArray(track.playlist_ids),
+    artwork_url: track.artwork_url ? withAccessToken(track.artwork_url) : track.artwork_url
   }));
   const playlists = safeArray<Playlist>(library.playlists).map((playlist) => ({
     ...playlist,
@@ -389,6 +390,54 @@ export async function setTrackLiked(
   if (!response.ok) {
     throw syncApiError("Could not update liked state", serverUrl, response);
   }
+}
+
+export interface AuxSession {
+  code: string;
+  guest_token?: string;
+}
+
+export async function createAuxSession(serverUrl: string, fetcher: typeof fetch = fetch): Promise<AuxSession> {
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/aux`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}"
+  });
+  if (!response.ok) {
+    throw syncApiError("Could not start the aux", serverUrl, response);
+  }
+  return (await response.json()) as AuxSession;
+}
+
+export async function listAuxSessions(serverUrl: string, fetcher: typeof fetch = fetch): Promise<AuxSession[]> {
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/aux`, {});
+  if (!response.ok) {
+    throw syncApiError("Could not list aux sessions", serverUrl, response);
+  }
+  return (await response.json()) as AuxSession[];
+}
+
+export async function endAuxSession(serverUrl: string, code: string, fetcher: typeof fetch = fetch): Promise<void> {
+  const response = await authorizedFetch(fetcher, 
+    `${normalizeServerUrl(serverUrl)}/api/v1/aux/${encodeURIComponent(code)}`,
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    throw syncApiError("Could not end the aux", serverUrl, response);
+  }
+}
+
+/** Trades a short aux code for a scoped guest token. Public - no auth. */
+export async function joinAuxSession(serverUrl: string, code: string, fetcher: typeof fetch = fetch): Promise<AuxSession> {
+  const response = await fetcher(`${normalizeServerUrl(serverUrl)}/api/v1/aux/join`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code })
+  });
+  if (!response.ok) {
+    throw syncApiError("That aux code is not live", serverUrl, response);
+  }
+  return (await response.json()) as AuxSession;
 }
 
 export async function fetchPlaybackDevices(

@@ -93,6 +93,11 @@ func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
 	mux.HandleFunc("GET /api/v1/tracks/{fingerprint}/artwork", s.handleGetArtwork)
 	mux.HandleFunc("HEAD /api/v1/tracks/{fingerprint}/artwork", s.handleGetArtwork)
 	mux.HandleFunc("PUT /api/v1/playlists/{id}", s.handlePlaylist)
+	mux.HandleFunc("POST /api/v1/aux", s.handleCreateAux)
+	mux.HandleFunc("GET /api/v1/aux", s.handleListAux)
+	mux.HandleFunc("DELETE /api/v1/aux/{code}", s.handleEndAux)
+	mux.HandleFunc("POST /api/v1/aux/join", s.handleJoinAux)
+	mux.HandleFunc("POST /api/v1/media-grants", s.handleCreateMediaGrant)
 	mux.HandleFunc("POST /api/v1/playlists", s.handleCreatePlaylist)
 	mux.HandleFunc("DELETE /api/v1/playlists/{id}", s.handleDeletePlaylist)
 	mux.HandleFunc("POST /api/v1/playlists/{id}/tracks", s.handleAddPlaylistTrack)
@@ -115,7 +120,7 @@ func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
 		handler = serveWebApp(strings.TrimSpace(options.WebDir), mux)
 	}
 	if strings.TrimSpace(options.AuthToken) != "" {
-		handler = withAuth(handler, strings.TrimSpace(options.AuthToken))
+		handler = withAuth(handler, strings.TrimSpace(options.AuthToken), s)
 	}
 	return logRequests(withCORS(handler))
 }
@@ -197,6 +202,22 @@ func (s *Server) migrate(ctx context.Context) error {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
 			return err
 		}
+	}
+
+	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS media_grants (
+		token TEXT PRIMARY KEY,
+		fingerprints_json TEXT NOT NULL,
+		created_at INTEGER NOT NULL
+	)`); err != nil {
+		return err
+	}
+
+	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS aux_sessions (
+		code TEXT PRIMARY KEY,
+		guest_token TEXT NOT NULL UNIQUE,
+		created_at INTEGER NOT NULL
+	)`); err != nil {
+		return err
 	}
 
 	// audio_type arrived after the first release; ALTER isn't idempotent,

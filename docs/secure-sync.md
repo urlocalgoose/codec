@@ -51,3 +51,17 @@ Svelte UI -> Go server -> SQLite + media directory
 
 Desktop, mobile PWA, and any later native app should speak to that same server
 contract.
+
+
+## Aux guests (`loud.aux.v1`)
+
+Aux sessions are shared listening: the host mints a short code
+(`POST /api/v1/aux`, host token required), and guests trade the code for a
+scoped guest token at the public `POST /api/v1/aux/join`. Guest tokens can
+read the library, stream media, and use the shared `loud.playback.v2`
+queue/commands - nothing else (no sync, uploads, likes, playlist edits, or
+aux management; those return 403). Ending the session
+(`DELETE /api/v1/aux/{code}`) invalidates its guest token immediately.
+
+To make join links work, the static web app shell is served without auth;
+every `/api` route (including all media) remains token-protected.

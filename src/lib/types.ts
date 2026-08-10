@@ -38,12 +38,19 @@ export interface Track {
   size_bytes: number;
   is_liked: boolean;
   fingerprint: string;
+  /** Present only on foreign tracks queued from another Codec server: a
+   * granted URL the audio streams from directly. */
+  media_url?: string | null;
 }
 
 export interface TrackReference {
   id: string;
   path: string;
   fingerprint: string;
+  title?: string;
+  artist?: string;
+  media_url?: string;
+  artwork_url?: string;
 }
 
 export interface LibraryStats {

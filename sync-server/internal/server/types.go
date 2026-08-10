@@ -138,6 +138,13 @@ type TrackReference struct {
 	ID          string `json:"id"`
 	Path        string `json:"path"`
 	Fingerprint string `json:"fingerprint"`
+	// Foreign-track fields: a track queued from ANOTHER Codec server rides
+	// with everything needed to play it - a granted media URL plus display
+	// metadata - so the host library never has to contain it.
+	Title      string `json:"title,omitempty"`
+	Artist     string `json:"artist,omitempty"`
+	MediaURL   string `json:"media_url,omitempty"`
+	ArtworkURL string `json:"artwork_url,omitempty"`
 }
 
 type PlaybackClockV2 struct {

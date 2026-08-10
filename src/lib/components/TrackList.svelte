@@ -19,7 +19,8 @@
     onPlayRow,
     onRemoveQueued,
     onEditPlaylists,
-    onToggleLike
+    onToggleLike,
+    guestMode = false
   }: {
     viewTitle: string;
     isQueueView: boolean;
@@ -37,6 +38,7 @@
     onRemoveQueued: (index: number) => void;
     onEditPlaylists: (track: Track) => void;
     onToggleLike: (track: Track) => void;
+    guestMode?: boolean;
   } = $props();
 
   function handleRowKeydown(event: KeyboardEvent, track: Track, index: number) {
@@ -119,6 +121,7 @@
 
           <button
             class="like-button"
+            class:hidden-for-guests={guestMode}
             class:liked={track.is_liked}
             title={track.is_liked ? `Remove ${track.title} from Liked Songs` : `Add ${track.title} to Liked Songs`}
             aria-label={track.is_liked ? `Remove ${track.title} from Liked Songs` : `Add ${track.title} to Liked Songs`}
@@ -152,6 +155,7 @@
           {:else}
             <button
               class="queue-button"
+              class:hidden-for-guests={guestMode}
               title={`Edit playlists for ${track.title}`}
               aria-label={`Edit playlists for ${track.title}`}
               type="button"

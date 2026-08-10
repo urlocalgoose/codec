@@ -108,12 +108,24 @@ func TestAuthTokenProtectsAppAndAPI(t *testing.T) {
 		}
 	})
 
+	// The static shell is public (it holds no data, and aux guests must be
+	// able to load the app before they hold a token)...
 	res, err := http.Get(httpServer.URL + "/")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("public app shell status = %s", res.Status)
+	}
+	_ = res.Body.Close()
+
+	// ...but every API route stays locked.
+	res, err = http.Get(httpServer.URL + "/api/v1/library")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("unauthorized app status = %s", res.Status)
+		t.Fatalf("unauthorized API status = %s", res.Status)
 	}
 	_ = res.Body.Close()
 
@@ -932,5 +944,144 @@ func TestReorderPlaylistTracks(t *testing.T) {
 	want := []string{"track_r3", "track_r1", "track_r2"}
 	if len(updated.TrackIDs) != 3 || updated.TrackIDs[0] != want[0] || updated.TrackIDs[1] != want[1] || updated.TrackIDs[2] != want[2] {
 		t.Fatalf("unexpected order %v", updated.TrackIDs)
+	}
+}
+
+func TestAuxGuestScope(t *testing.T) {
+	srv, _ := testServer(t)
+	handler := srv.HandlerWithOptions(HandlerOptions{AuthToken: "host-secret"})
+	httpServer := httptest.NewServer(handler)
+	t.Cleanup(httpServer.Close)
+	ctx := context.Background()
+	if err := srv.upsertTrack(ctx, Track{Fingerprint: "auxfp", Title: "Aux Track"}); err != nil {
+		t.Fatal(err)
+	}
+
+	do := func(method, path, token, body string) *http.Response {
+		t.Helper()
+		var reader io.Reader
+		if body != "" {
+			reader = strings.NewReader(body)
+		}
+		req, err := http.NewRequest(method, httpServer.URL+path, reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { res.Body.Close() })
+		return res
+	}
+
+	// Hosts create sessions; strangers cannot.
+	if res := do(http.MethodPost, "/api/v1/aux", "", `{}`); res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 creating aux without auth, got %d", res.StatusCode)
+	}
+	res := do(http.MethodPost, "/api/v1/aux", "host-secret", `{}`)
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 creating aux, got %d", res.StatusCode)
+	}
+	var created struct {
+		Code       string `json:"code"`
+		GuestToken string `json:"guest_token"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+
+	// Join is public and hands back the guest token.
+	res = do(http.MethodPost, "/api/v1/aux/join", "", `{"code":"`+created.Code+`"}`)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 joining, got %d", res.StatusCode)
+	}
+
+	// Guests can browse and drive shared playback...
+	if res := do(http.MethodGet, "/api/v1/library", created.GuestToken, ""); res.StatusCode != http.StatusOK {
+		t.Fatalf("guest library read: expected 200, got %d", res.StatusCode)
+	}
+	if res := do(http.MethodGet, "/api/v2/playback", created.GuestToken, ""); res.StatusCode != http.StatusOK {
+		t.Fatalf("guest playback read: expected 200, got %d", res.StatusCode)
+	}
+
+	// ...but nothing that mutates the library or the session.
+	if res := do(http.MethodPut, "/api/v1/tracks/auxfp/liked", created.GuestToken, `{"liked":true}`); res.StatusCode != http.StatusForbidden {
+		t.Fatalf("guest like: expected 403, got %d", res.StatusCode)
+	}
+	if res := do(http.MethodPost, "/api/v1/playlists", created.GuestToken, `{"name":"nope"}`); res.StatusCode != http.StatusForbidden {
+		t.Fatalf("guest playlist create: expected 403, got %d", res.StatusCode)
+	}
+	if res := do(http.MethodPost, "/api/v1/aux", created.GuestToken, `{}`); res.StatusCode != http.StatusForbidden {
+		t.Fatalf("guest aux create: expected 403, got %d", res.StatusCode)
+	}
+
+	// Ending the session kills the guest token immediately.
+	if res := do(http.MethodDelete, "/api/v1/aux/"+created.Code, "host-secret", ""); res.StatusCode != http.StatusNoContent {
+		t.Fatalf("end aux: expected 204, got %d", res.StatusCode)
+	}
+	if res := do(http.MethodGet, "/api/v1/library", created.GuestToken, ""); res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("dead guest token: expected 401, got %d", res.StatusCode)
+	}
+}
+
+func TestMediaGrantsAreScopedToGrantedTracks(t *testing.T) {
+	srv, _ := testServer(t)
+	handler := srv.HandlerWithOptions(HandlerOptions{AuthToken: "host-secret"})
+	httpServer := httptest.NewServer(handler)
+	t.Cleanup(httpServer.Close)
+	ctx := context.Background()
+
+	for _, fp := range []string{"granted", "notgranted"} {
+		if err := srv.upsertTrack(ctx, Track{Fingerprint: fp, Title: fp}); err != nil {
+			t.Fatal(err)
+		}
+		req, _ := http.NewRequest(http.MethodPut, httpServer.URL+"/api/v1/tracks/"+fp+"/audio", strings.NewReader("bytes"))
+		req.Header.Set("Authorization", "Bearer host-secret")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+	}
+
+	grantReq, _ := http.NewRequest(http.MethodPost, httpServer.URL+"/api/v1/media-grants", strings.NewReader(`{"fingerprints":["granted"]}`))
+	grantReq.Header.Set("Authorization", "Bearer host-secret")
+	res, err := http.DefaultClient.Do(grantReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var grant struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&grant); err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+
+	get := func(path, token string) int {
+		req, _ := http.NewRequest(http.MethodGet, httpServer.URL+path, nil)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+
+	if code := get("/api/v1/tracks/granted/audio", grant.Token); code != http.StatusOK {
+		t.Fatalf("granted audio: expected 200, got %d", code)
+	}
+	if code := get("/api/v1/tracks/notgranted/audio", grant.Token); code != http.StatusUnauthorized {
+		t.Fatalf("ungranted audio: expected 401, got %d", code)
+	}
+	if code := get("/api/v1/library", grant.Token); code != http.StatusUnauthorized {
+		t.Fatalf("grant on library: expected 401, got %d", code)
 	}
 }

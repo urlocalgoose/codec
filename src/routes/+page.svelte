@@ -4,6 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
   import { AlertCircle, LoaderCircle } from "lucide-svelte";
+  import AuxModal from "$lib/components/AuxModal.svelte";
   import BrowseGrid from "$lib/components/BrowseGrid.svelte";
   import PlayerBar from "$lib/components/PlayerBar.svelte";
   import PlaylistModal from "$lib/components/PlaylistModal.svelte";
@@ -44,6 +45,10 @@
     REMOTE_ROOT_PATH
   } from "$lib/platform";
   import {
+    listAuxSessions,
+    joinAuxSession,
+    endAuxSession,
+    createAuxSession,
     fetchLatestPlaybackSession,
     fetchPlaybackStateV2,
     fetchPlaybackDevices,
@@ -132,6 +137,10 @@
   let library: MusicLibrary | null = null;
   let rootPath = "";
   let selectedView = "home";
+  let guestMode = false;
+  let auxCode = "";
+  let auxBusy = false;
+  let auxModalOpen = false;
   let searchQuery = "";
   let sortKey: SortKey = "default";
   let loading = false;
@@ -268,6 +277,12 @@
   // ---------------------------------------------------------------------------
 
   onMount(() => {
+    const auxParam = new URLSearchParams(window.location.search).get("aux");
+    if (auxParam && !hasNativeBridge()) {
+      void joinAuxAsGuest(auxParam);
+      return;
+    }
+
     rootPath = localStorage.getItem(ROOT_STORAGE_KEY) ?? "";
     volume = Number(localStorage.getItem(VOLUME_STORAGE_KEY) ?? volume);
     shuffle = localStorage.getItem(SHUFFLE_STORAGE_KEY) === "true";
@@ -293,6 +308,10 @@
 
     if (syncServerUrl && rootPath !== REMOTE_ROOT_PATH) {
       void validatePlaybackSyncServer(true);
+    }
+
+    if (syncServerUrl) {
+      void refreshAuxState();
     }
 
     if (hasNativeBridge()) {
@@ -1554,6 +1573,9 @@
   }
 
   async function playbackUrlForTrack(track: Track): Promise<string> {
+    if (track.media_url) {
+      return track.media_url;
+    }
     if (isRemoteRoot(rootPath) || !hasNativeBridge()) {
       if (!syncServerUrl) {
         throw new Error("Remote playback needs a sync server URL.");
@@ -2030,6 +2052,81 @@
   // Views, themes, and playlist editing
   // ---------------------------------------------------------------------------
 
+  async function joinAuxAsGuest(code: string) {
+    const origin = window.location.origin;
+    try {
+      const session = await joinAuxSession(origin, code);
+      guestMode = true;
+      auxCode = session.code;
+      syncServerUrl = normalizeServerUrl(origin);
+      syncServerDraft = syncServerUrl;
+      syncTokenDraft = session.guest_token ?? "";
+      setSyncAuthToken(session.guest_token ?? "");
+      deviceId = createDeviceId();
+      deviceName = "Aux guest";
+      rootPath = REMOTE_ROOT_PATH;
+      await loadRemoteLibrary(false);
+      void validatePlaybackSyncServer(true);
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  async function startAux() {
+    if (auxBusy || !syncServerUrl) {
+      return;
+    }
+    auxBusy = true;
+    errorMessage = "";
+    try {
+      const session = await createAuxSession(syncServerUrl);
+      auxCode = session.code;
+      auxModalOpen = true;
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      auxBusy = false;
+    }
+  }
+
+  async function endAux() {
+    if (auxBusy || !auxCode) {
+      return;
+    }
+    auxBusy = true;
+    try {
+      await endAuxSession(syncServerUrl, auxCode);
+      auxCode = "";
+      auxModalOpen = false;
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    } finally {
+      auxBusy = false;
+    }
+  }
+
+  function auxLink(): string {
+    return `${normalizeServerUrl(syncServerUrl)}/?aux=${auxCode}`;
+  }
+
+  async function copyAuxLink() {
+    try {
+      await navigator.clipboard.writeText(auxLink());
+      syncMessage = "Aux link copied";
+    } catch {
+      syncMessage = auxLink();
+    }
+  }
+
+  async function refreshAuxState() {
+    try {
+      const sessions = await listAuxSessions(syncServerUrl);
+      auxCode = sessions[0]?.code ?? "";
+    } catch {
+      // not connected or not the host - fine
+    }
+  }
+
   function selectView(view: string) {
     cancelPlaylistRename();
     selectedView = view;
@@ -2268,6 +2365,16 @@
   }
 </script>
 
+{#if auxModalOpen && auxCode}
+  <AuxModal
+    {auxCode}
+    auxLink={auxLink()}
+    onCopyLink={() => void copyAuxLink()}
+    onEnd={() => void endAux()}
+    onClose={() => (auxModalOpen = false)}
+  />
+{/if}
+
 <svelte:head>
   <title>Codec</title>
 </svelte:head>
@@ -2292,11 +2399,18 @@
       {syncing}
       canUpload={Boolean(library)}
       {syncMessage}
+      {guestMode}
+      {auxCode}
+      {auxBusy}
       bind:syncServerDraft
       onSelectView={selectView}
       onOpenThemeModal={openThemeModal}
       onSyncToServer={() => void syncToServer()}
       onSyncFromServer={() => void syncFromServer()}
+      onStartAux={() => void startAux()}
+      onEndAux={() => void endAux()}
+      onCopyAuxLink={() => void copyAuxLink()}
+      onShowAux={() => (auxModalOpen = true)}
     />
 
     <section class="content">
@@ -2364,6 +2478,7 @@
             onClearQueue={clearQueuedTracks}
             onPlayRow={(track, index) => void playTrackRow(track, index)}
             onRemoveQueued={removeQueuedTrackAt}
+            {guestMode}
             onEditPlaylists={openPlaylistMembershipModal}
             onToggleLike={(track) => void toggleLike(track)}
           />

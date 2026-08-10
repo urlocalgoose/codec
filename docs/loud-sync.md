@@ -83,6 +83,12 @@ POST /api/v1/playlists
 DELETE /api/v1/playlists/{id}
 POST /api/v1/playlists/{id}/tracks
 DELETE /api/v1/playlists/{id}/tracks/{fingerprint}
+POST /api/v1/aux
+GET  /api/v1/aux
+DELETE /api/v1/aux/{code}
+POST /api/v1/aux/join
+PUT  /api/v1/playlists/{id}/tracks
+POST /api/v1/media-grants
 PUT  /api/v1/playback-session/{device_id}
 GET  /api/v1/playback-session/latest
 GET  /api/v2/playback
@@ -100,3 +106,23 @@ the same playlist never clobber each other.
 Audio uploads remember their `Content-Type` (`audio/mpeg`, `audio/mp4`,
 `audio/flac`, `audio/wav`) and serve it back on download; anything
 unrecognized is stored as MP3, the historical default.
+
+
+## Aux (`loud.aux.v1`) — shared listening
+
+The host mints a 4-character code (`POST /api/v1/aux`); guests trade it for
+a scoped token at the public `POST /api/v1/aux/join` (the web app does this
+automatically for `/?aux=CODE` links and the QR the host shows). Guest
+tokens can browse, stream, register as playback devices, and drive the
+shared `loud.playback.v2` queue — nothing else. Ending the session kills
+its guest tokens instantly.
+
+### Cross-server aux (media grants)
+
+Two Codec servers jam without ever dialing each other. A queued track from
+another server rides in the `loud.playback.v2` track reference with
+optional `title`, `artist`, `media_url`, and `artwork_url` fields; clients
+that cannot resolve the fingerprint locally play the granted URL directly.
+The guest's own server mints those URLs via `POST /api/v1/media-grants`
+`{"fingerprints": [...]}` → a `grant_…` token valid 24h for GET
+audio/artwork on exactly those tracks.
