@@ -228,20 +228,8 @@ struct PlayableTrackRow: View {
             Label("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward")
         }
 
-        Menu {
-            ForEach(app.userPlaylists) { playlist in
-                Button(playlist.name) {
-                    app.addTrack(track, to: playlist)
-                }
-            }
-            if !app.userPlaylists.isEmpty {
-                Divider()
-            }
-            Button {
-                app.pendingNewPlaylistTrack = track
-            } label: {
-                Label("New Playlist", systemImage: "plus")
-            }
+        Button {
+            app.playlistPickerTrack = track
         } label: {
             Label("Add to Playlist", systemImage: "music.note.list")
         }
@@ -263,13 +251,27 @@ struct PlayableTrackRow: View {
 }
 
 /// One list of playable tracks: sleek list bones, deck keys on top.
-/// Press feedback for the big collection actions: visible squish + spring.
-struct SquishyButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
-            .opacity(configuration.isPressed ? 0.8 : 1)
-            .animation(.spring(response: 0.28, dampingFraction: 0.55), value: configuration.isPressed)
+/// Visible tap reaction that works no matter how a List handles the press:
+/// every fire of the trigger bounces the view with a spring.
+struct TapBounce: ViewModifier {
+    let trigger: Int
+
+    @State private var pressed = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(pressed ? 0.90 : 1)
+            .onChange(of: trigger) {
+                withAnimation(.spring(response: 0.12, dampingFraction: 0.6)) {
+                    pressed = true
+                }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(120))
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.45)) {
+                        pressed = false
+                    }
+                }
+            }
     }
 }
 
@@ -300,11 +302,12 @@ struct CollectionActionHeader: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(theme.accentText)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .frame(height: 46)
                     .background(theme.accent)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            .buttonStyle(SquishyButtonStyle())
+            .buttonStyle(.plain)
+            .modifier(TapBounce(trigger: playTaps))
             .sensoryFeedback(.impact(flexibility: .rigid, intensity: 0.9), trigger: playTaps)
 
             Button {
@@ -315,11 +318,12 @@ struct CollectionActionHeader: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(theme.text)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .frame(height: 46)
                     .background(theme.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            .buttonStyle(SquishyButtonStyle())
+            .buttonStyle(.plain)
+            .modifier(TapBounce(trigger: shuffleTaps))
             .sensoryFeedback(.impact(flexibility: .rigid, intensity: 0.7), trigger: shuffleTaps)
 
             if showsDownloadAll, let client = app.client, !tracks.isEmpty {
@@ -347,16 +351,15 @@ struct CollectionActionHeader: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(theme.accent)
-                .frame(width: 50)
-                .padding(.vertical, 12)
+                .frame(width: 50, height: 46)
                 .background(theme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         } else if transferring {
             ProgressView(value: max(Double(downloaded) / Double(max(tracks.count, 1)), 0.03))
                 .progressViewStyle(.circular)
                 .tint(theme.accent)
-                .frame(width: 50)
-                .padding(.vertical, 8)
+                .scaleEffect(0.8)
+                .frame(width: 50, height: 46)
                 .background(theme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         } else {
@@ -367,12 +370,12 @@ struct CollectionActionHeader: View {
                 Image(systemName: "arrow.down.to.line")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(theme.text)
-                    .frame(width: 50)
-                    .padding(.vertical, 12)
+                    .frame(width: 50, height: 46)
                     .background(theme.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            .buttonStyle(SquishyButtonStyle())
+            .buttonStyle(.plain)
+            .modifier(TapBounce(trigger: downloadTaps))
             .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.8), trigger: downloadTaps)
         }
     }

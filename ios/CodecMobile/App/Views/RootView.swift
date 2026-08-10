@@ -8,6 +8,17 @@ struct RootView: View {
     @State private var newPlaylistName = ""
     @State private var toastDismissal: Task<Void, Never>?
 
+    private var playlistPickerShown: Binding<Bool> {
+        Binding(
+            get: { app.playlistPickerTrack != nil },
+            set: { shown in
+                if !shown {
+                    app.playlistPickerTrack = nil
+                }
+            }
+        )
+    }
+
     private var newPlaylistPromptShown: Binding<Bool> {
         Binding(
             get: { app.pendingNewPlaylistTrack != nil },
@@ -38,6 +49,11 @@ struct RootView: View {
                     if !Task.isCancelled {
                         app.errorMessage = ""
                     }
+                }
+            }
+            .sheet(isPresented: playlistPickerShown) {
+                if let track = app.playlistPickerTrack {
+                    AddToPlaylistSheet(track: track)
                 }
             }
             .alert("New Playlist", isPresented: newPlaylistPromptShown) {

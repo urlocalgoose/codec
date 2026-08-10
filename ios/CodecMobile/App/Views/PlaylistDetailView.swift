@@ -139,3 +139,89 @@ struct AddSongsSheet: View {
         }
     }
 }
+
+/// Song-first playlist picking (the Spotify move): while listening, pick
+/// which playlists this track belongs to. Checkmarks toggle membership.
+struct AddToPlaylistSheet: View {
+    @Environment(\.codecTheme) private var theme
+    @Environment(AppModel.self) private var app
+    @Environment(\.dismiss) private var dismiss
+
+    let track: CodecTrack
+
+    @State private var showNewPlaylist = false
+    @State private var newPlaylistName = ""
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Button {
+                    showNewPlaylist = true
+                } label: {
+                    Label("New Playlist", systemImage: "plus")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(theme.accent)
+                }
+                .listRowBackground(theme.panel)
+
+                ForEach(app.userPlaylists) { playlist in
+                    let isMember = playlist.trackIDs.contains(track.id)
+                    Button {
+                        if isMember {
+                            app.removeTrack(track, from: playlist)
+                        } else {
+                            app.addTrack(track, to: playlist)
+                        }
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(playlist.name)
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(theme.text)
+                                Text("\(playlist.trackIDs.count) songs")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(theme.subtle)
+                            }
+                            Spacer()
+                            Image(systemName: isMember ? "checkmark.circle.fill" : "circle")
+                                .font(.title3)
+                                .foregroundStyle(isMember ? theme.accent : theme.subtle)
+                                .contentTransition(.symbolEffect(.replace))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(theme.panel)
+                }
+
+                if app.userPlaylists.isEmpty {
+                    Text("No playlists yet — make one.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(theme.subtle)
+                        .listRowBackground(Color.clear)
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(theme.bg)
+            .navigationTitle("Add to Playlist")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .alert("New Playlist", isPresented: $showNewPlaylist) {
+                TextField("Name", text: $newPlaylistName)
+                Button("Create") {
+                    app.createPlaylist(named: newPlaylistName, adding: track)
+                    newPlaylistName = ""
+                }
+                Button("Cancel", role: .cancel) {
+                    newPlaylistName = ""
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}

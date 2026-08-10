@@ -9,6 +9,7 @@ struct NowPlayingView: View {
     @Environment(DownloadStore.self) private var downloads
 
     @State private var showQueue = false
+    @State private var showAddToPlaylist = false
     @State private var scrubTime: Double?
 
     var body: some View {
@@ -41,6 +42,17 @@ struct NowPlayingView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 if let track = player.currentTrack {
+                    Button {
+                        showAddToPlaylist = true
+                    } label: {
+                        Image(systemName: "plus.circle")
+                            .font(.title3)
+                            .foregroundStyle(theme.subtle)
+                            .frame(width: 40, height: 40)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
                     Button {
                         app.toggleLike(track)
                     } label: {
@@ -220,6 +232,11 @@ struct NowPlayingView: View {
         .presentationDragIndicator(.visible)
         .sheet(isPresented: $showQueue) {
             QueueView()
+        }
+        .sheet(isPresented: $showAddToPlaylist) {
+            if let track = player.currentTrack {
+                AddToPlaylistSheet(track: track)
+            }
         }
     }
 

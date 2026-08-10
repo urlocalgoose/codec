@@ -177,6 +177,10 @@ final class AppModel {
     /// watches it to present the name prompt.
     var pendingNewPlaylistTrack: CodecTrack?
 
+    /// Set from any track menu's "Add to Playlist"; RootView presents the
+    /// playlist picker sheet for it.
+    var playlistPickerTrack: CodecTrack?
+
     func addTrack(_ track: CodecTrack, to playlist: CodecPlaylist) {
         guard let client, let current = library else {
             errorMessage = "Connect to the server to edit playlists."
