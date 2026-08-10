@@ -1,4 +1,6 @@
 import AVKit
+import AVFAudio
+import Combine
 import MediaPlayer
 import SwiftUI
 
@@ -450,16 +452,57 @@ struct TrackListView: View {
     }
 }
 
-/// System volume slider (the only sanctioned way to set device volume).
-struct SystemVolumeSlider: UIViewRepresentable {
+/// System volume, minus MPVolumeView's jitter: a native slider that is the
+/// source of truth while touched (the system echoes volume back quantized to
+/// 1/16 steps, which snaps the raw MPVolumeView thumb around), and glides
+/// smoothly when the hardware buttons step the volume.
+struct SystemVolumeSlider: View {
     let tint: Color
 
-    func makeUIView(context: Context) -> MPVolumeView {
-        MPVolumeView(frame: .zero)
-    }
+    @State private var volume: Double = 0
+    @State private var isDragging = false
 
-    func updateUIView(_ view: MPVolumeView, context: Context) {
-        view.tintColor = UIColor(tint)
+    var body: some View {
+        Slider(
+            value: Binding(
+                get: { volume },
+                set: { newValue in
+                    volume = newValue
+                    SystemVolume.set(Float(newValue))
+                }
+            ),
+            in: 0...1
+        ) { editing in
+            isDragging = editing
+        }
+        .tint(tint)
+        .onAppear {
+            volume = Double(AVAudioSession.sharedInstance().outputVolume)
+        }
+        .onReceive(
+            AVAudioSession.sharedInstance()
+                .publisher(for: \.outputVolume)
+                .receive(on: DispatchQueue.main)
+        ) { systemVolume in
+            guard !isDragging else {
+                return
+            }
+            withAnimation(.easeOut(duration: 0.15)) {
+                volume = Double(systemVolume)
+            }
+        }
+    }
+}
+
+/// Writes device volume through a hidden MPVolumeView slider - the only
+/// sanctioned way to set it.
+@MainActor
+private enum SystemVolume {
+    private static let volumeView = MPVolumeView(frame: .zero)
+
+    static func set(_ value: Float) {
+        let slider = volumeView.subviews.compactMap { $0 as? UISlider }.first
+        slider?.value = value
     }
 }
 
