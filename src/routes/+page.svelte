@@ -12,6 +12,7 @@
   import SyncServerModal from "$lib/components/SyncServerModal.svelte";
   import ThemeModal from "$lib/components/ThemeModal.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
+  import HomeView from "$lib/components/HomeView.svelte";
   import TrackList from "$lib/components/TrackList.svelte";
   import ViewHeader from "$lib/components/ViewHeader.svelte";
   import { mediaErrorMessage } from "$lib/audio-errors";
@@ -24,7 +25,8 @@
     shuffleTracks,
     sortTracks,
     trackReference,
-    tracksFromReferences
+    tracksFromReferences,
+    homeRecentItems
   } from "$lib/library";
   import {
     clampIndex,
@@ -215,6 +217,13 @@
   $: selectedPlaylist =
     library?.playlists.find((playlist) => playlist.id === selectedView) ?? null;
   $: userPlaylists = library?.playlists.filter((playlist) => !playlist.is_liked) ?? [];
+  $: homeItems = homeRecentItems(library);
+  $: homePlaylistCovers = new Map(
+    userPlaylists.map((playlist) => {
+      const trackIds = new Set(playlist.track_ids);
+      return [playlist.id, library?.tracks.find((track) => trackIds.has(track.id)) ?? null];
+    })
+  );
   $: queue = playbackQueue(currentTrack, queuedTracks, playbackSource, playbackIndex);
   $: baseTracks = trackSourceForView(library, selectedView, selectedPlaylist, queue);
   $: visibleTracks = sortTracks(searchTracks(baseTracks, searchQuery), sortKey);
@@ -2307,23 +2316,35 @@
           <p>Reading music folder</p>
         </section>
       {:else if library}
-        <ViewHeader
-          {viewTitle}
-          {viewSubtitle}
-          {selectedPlaylist}
-          isEditing={isEditingSelectedPlaylist}
-          renaming={renamingPlaylist}
-          bind:playlistNameDraft
-          onStartRename={startPlaylistRename}
-          onCommitRename={() => void commitPlaylistRename()}
-          onCancelRename={cancelPlaylistRename}
-        />
+        {#if selectedView !== "home"}
+          <ViewHeader
+            {viewTitle}
+            {viewSubtitle}
+            {selectedPlaylist}
+            isEditing={isEditingSelectedPlaylist}
+            renaming={renamingPlaylist}
+            bind:playlistNameDraft
+            onStartRename={startPlaylistRename}
+            onCommitRename={() => void commitPlaylistRename()}
+            onCancelRename={cancelPlaylistRename}
+          />
+        {/if}
 
         {#if errorMessage}
           <section class="error-strip"><AlertCircle size={17} /> {errorMessage}</section>
         {/if}
 
-        {#if selectedView === "artists"}
+        {#if selectedView === "home"}
+          <HomeView
+            {userPlaylists}
+            recentItems={homeItems}
+            playlistCovers={homePlaylistCovers}
+            currentTrackId={currentTrack?.id ?? null}
+            onOpenPlaylist={selectView}
+            onOpenAlbum={openFromBrowseGrid}
+            onPlayTrack={(track) => void playTrackRow(track, 0)}
+          />
+        {:else if selectedView === "artists"}
           <BrowseGrid kind="artists" {artists} onOpen={openFromBrowseGrid} />
         {:else if selectedView === "albums"}
           <BrowseGrid kind="albums" {albums} onOpen={openFromBrowseGrid} />

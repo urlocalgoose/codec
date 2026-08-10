@@ -54,6 +54,13 @@
     <div class="list-meta">
       <span>{listMeta}</span>
     </div>
+    {#if !isQueueView}
+      <div class="sort-chips" role="group" aria-label="Sort">
+        <button class:active={sortKey === "title"} type="button" onclick={() => onSetSort("title")}>Title</button>
+        <button class:active={sortKey === "album"} type="button" onclick={() => onSetSort("album")}>Album</button>
+        <button class:active={sortKey === "duration"} type="button" onclick={() => onSetSort("duration")}>Time</button>
+      </div>
+    {/if}
     <div class="list-actions">
       {#if isQueueView}
         <button
@@ -88,32 +95,6 @@
   </div>
   {#if visibleTracks.length > 0}
     <div class="track-table">
-      <div class="track-head">
-        <button
-          class:active={sortKey === "title"}
-          type="button"
-          onclick={() => onSetSort("title")}
-        >
-          Song
-        </button>
-        <button
-          class:active={sortKey === "album"}
-          type="button"
-          onclick={() => onSetSort("album")}
-        >
-          Album
-        </button>
-        <span></span>
-        <button
-          class:active={sortKey === "duration"}
-          type="button"
-          onclick={() => onSetSort("duration")}
-        >
-          Time
-        </button>
-        <span></span>
-      </div>
-
       {#each visibleTracks as track, index (track.id)}
         <div
           class="track-row"
@@ -136,7 +117,6 @@
             </div>
           </div>
 
-          <span class="table-album">{track.album}</span>
           <button
             class="like-button"
             class:liked={track.is_liked}

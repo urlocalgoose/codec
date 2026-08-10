@@ -1770,7 +1770,7 @@ button svg {
 .track-head,
 .track-row {
   display: grid;
-  grid-template-columns: minmax(260px, 1.45fr) minmax(140px, 0.8fr) 36px 72px 48px;
+  grid-template-columns: minmax(0, 1fr) 36px 72px 48px;
   align-items: center;
   gap: 10px;
 }
@@ -2863,4 +2863,177 @@ audio {
   .device-control select {
     height: 34px;
   }
+}
+
+
+/* ---------- Sort chips (mobile-style sort control) ---------- */
+
+.sort-chips {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg) 70%, var(--color-panel) 30%);
+}
+
+.sort-chips button {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: transparent;
+  color: var(--color-subtle);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.sort-chips button.active {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* ---------- Home (clone of the mobile Home) ---------- */
+
+.home-view {
+  display: grid;
+  gap: 28px;
+  padding-bottom: 28px;
+}
+
+.home-wordmark {
+  margin: 4px 0 0;
+  font-size: clamp(2.4rem, 5vw, 3rem);
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  color: var(--color-text);
+}
+
+.home-section {
+  display: grid;
+  gap: 14px;
+}
+
+.home-section-label {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-subtle);
+}
+
+.home-playlist-row {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.home-playlist-card,
+.home-tile {
+  position: relative;
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.home-playlist-card {
+  flex: 0 0 150px;
+  width: 150px;
+}
+
+.home-playlist-card strong,
+.home-tile strong {
+  margin-top: 7px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.home-playlist-card span,
+.home-tile span:not(.home-tile-play):not(.home-card-art):not(.home-tile-art) {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: var(--color-subtle);
+}
+
+.home-card-art,
+.home-tile-art {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  border: 1px solid var(--color-line);
+  object-fit: cover;
+  background: var(--color-panel-2);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.home-card-art.placeholder,
+.home-tile-art.placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--color-subtle);
+}
+
+.home-playlist-card:hover .home-card-art,
+.home-tile:hover .home-tile-art {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.3);
+}
+
+.home-recent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 18px;
+}
+
+.home-tile-play {
+  position: absolute;
+  right: 10px;
+  top: auto;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: var(--color-accent-text, #14100b);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.home-tile {
+  --art-size: 100%;
+}
+
+.home-tile .home-tile-play {
+  bottom: 56px;
+}
+
+.home-tile:hover .home-tile-play,
+.home-tile.playing .home-tile-play {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.home-empty {
+  margin: 0;
+  color: var(--color-subtle);
 }

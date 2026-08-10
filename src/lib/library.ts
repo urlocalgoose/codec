@@ -258,3 +258,51 @@ function compareBy(project: (track: Track) => string) {
 function normalize(value: string): string {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
+
+export type HomeRecentItem =
+  | { kind: "album"; album: AlbumSummary; cover: Track }
+  | { kind: "single"; track: Track };
+
+/** What the Home grid shows: newest first, grouped into album tiles when we
+ * have the album, single-track tiles otherwise, capped so "recently added"
+ * never means "the whole library". Mirrors the iOS Home view. */
+export function homeRecentItems(library: Library | null, limit = 12): HomeRecentItem[] {
+  if (!library) {
+    return [];
+  }
+
+  const albumsByKey = new Map<string, AlbumSummary>();
+  for (const album of library.albums) {
+    if (album.trackCount >= 2) {
+      albumsByKey.set(albumItemKey(album.artist, album.name), album);
+    }
+  }
+
+  const recent = [...library.tracks].sort((a, b) => (b.added_at ?? 0) - (a.added_at ?? 0));
+  const items: HomeRecentItem[] = [];
+  const seenAlbums = new Set<string>();
+
+  for (const track of recent) {
+    if (items.length >= limit) {
+      break;
+    }
+
+    const key = albumItemKey(track.album_artist ?? track.artist, track.album);
+    const album = albumsByKey.get(key);
+    if (album) {
+      if (!seenAlbums.has(key)) {
+        seenAlbums.add(key);
+        items.push({ kind: "album", album, cover: track });
+      }
+      continue;
+    }
+
+    items.push({ kind: "single", track });
+  }
+
+  return items;
+}
+
+function albumItemKey(artist: string, album: string): string {
+  return `${artist.toLowerCase()}|${album.toLowerCase()}`;
+}
