@@ -297,9 +297,21 @@ func withAuth(next http.Handler, token string, s *Server) http.Handler {
 			return
 		}
 
-		w.Header().Set("WWW-Authenticate", `Basic realm="Codec"`)
+		// Offer the browser's Basic prompt only to real page navigations.
+		// On fetch/XHR 401s the header makes browsers pop their native
+		// login dialog over the app, which has its own token field.
+		if isNavigationRequest(r) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Codec"`)
+		}
 		writeError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
 	})
+}
+
+func isNavigationRequest(r *http.Request) bool {
+	if mode := r.Header.Get("Sec-Fetch-Mode"); mode != "" {
+		return mode == "navigate"
+	}
+	return strings.Contains(r.Header.Get("Accept"), "text/html")
 }
 
 // presentedToken extracts whatever credential the request carries, without

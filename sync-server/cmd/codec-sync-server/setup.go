@@ -66,6 +66,15 @@ func stdinIsTerminal() bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
+func hasExistingLibrary(dataDir string) bool {
+	for _, name := range []string{"codec-sync.sqlite", "loud-sync.sqlite"} {
+		if info, err := os.Stat(filepath.Join(dataDir, name)); err == nil && info.Size() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func generateToken() string {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -114,6 +123,12 @@ func runSetupWizard(defaults serverConfig) (serverConfig, error) {
 		return cfg, err
 	}
 	cfg.DataDir = dataDir
+	if hasExistingLibrary(dataDir) {
+		fmt.Println()
+		fmt.Println("  Found an existing Codec library in that folder — this server will")
+		fmt.Println("  serve it. If another server already runs against it, stop one of")
+		fmt.Println("  them: two servers sharing a library confuses shared playback.")
+	}
 
 	port, err := ask("What port should the server listen on?", strings.TrimPrefix(cfg.Addr, ":"))
 	if err != nil {

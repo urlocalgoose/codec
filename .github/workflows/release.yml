@@ -72,3 +72,74 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" dist/*.zip \
             --title "Codec ${GITHUB_REF_NAME}" \
             --generate-notes
+
+  desktop:
+    name: Desktop app (${{ matrix.label }})
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macos
+          - os: ubuntu-latest
+            label: linux
+          - os: windows-latest
+            label: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Linux webview dependencies
+        if: matrix.label == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: tauri-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build desktop app (macOS)
+        if: matrix.label == 'macos'
+        run: |
+          bun run tauri build --bundles app
+          ditto -c -k --keepParent \
+            src-tauri/target/release/bundle/macos/Codec.app \
+            "src-tauri/target/release/bundle/macos/Codec-desktop-macos-arm64.app.zip"
+
+      - name: Build desktop app (Linux)
+        if: matrix.label == 'linux'
+        run: bun run tauri build --bundles appimage,deb
+
+      - name: Build desktop app (Windows)
+        if: matrix.label == 'windows'
+        run: bun run tauri build --bundles nsis
+
+      - name: Upload desktop bundles to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundles=(
+            src-tauri/target/release/bundle/macos/*.app.zip
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/nsis/*.exe
+          )
+          for bundle in "${bundles[@]}"; do
+            renamed="$(dirname "$bundle")/$(basename "$bundle" | tr ' ' '-')"
+            [ "$bundle" = "$renamed" ] || mv "$bundle" "$renamed"
+            gh release upload "${GITHUB_REF_NAME}" "$renamed" --clobber
+          done

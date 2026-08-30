@@ -57,9 +57,10 @@ system instead of three apps:
 
 ## Get it running
 
-Grab the zip for your platform from
-[Releases](https://github.com/urlocalgoose/codec/releases), unzip it, and run
-the binary:
+Grab the server zip for your platform from
+[Releases](https://github.com/urlocalgoose/codec/releases) — the desktop app
+installers (macOS dmg, Linux AppImage/deb, Windows installer) live there
+too. Unzip the server and run it:
 
 ```bash
 ./codec-sync-server
