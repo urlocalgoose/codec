@@ -63,7 +63,7 @@
         <Server size={17} />
         <input
           bind:value={syncServerDraft}
-          placeholder="http://192.168.1.20:8787"
+          placeholder="https://your-server or 192.168.1.20:8787"
           type="url"
         />
       </label>
@@ -78,7 +78,7 @@
       </label>
       <p class="sync-server-help">
         On phone, use the network address printed by the sync server, not localhost.
-        The token matches the server's LOUD_AUTH_TOKEN.
+        The token matches the server's CODEC_AUTH_TOKEN.
       </p>
 
       <footer class="modal-actions">

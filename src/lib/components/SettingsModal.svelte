@@ -59,83 +59,94 @@
 </script>
 
 <div class="modal-backdrop" role="presentation" onclick={handleBackdropClick}>
-  <div class="modal settings-modal" role="dialog" aria-label="Settings">
-    <header>
-      <h2>Settings</h2>
-      <button class="ui-button compact" type="button" aria-label="Close" onclick={onClose}>
-        <X size={16} />
+  <div class="app-modal settings-modal" role="dialog" aria-label="Settings" aria-modal="true">
+    <header class="modal-header">
+      <div>
+        <span>Codec</span>
+        <h2>Settings</h2>
+      </div>
+      <button
+        class="title-icon-button"
+        title="Close"
+        aria-label="Close settings"
+        type="button"
+        onclick={onClose}
+      >
+        <X size={18} />
       </button>
     </header>
 
-    <div class="settings-group">
-      <span class="settings-label">Aux</span>
-      {#if auxCode}
-        <button class="settings-row" type="button" onclick={onShowAux}>
-          <Radio size={17} />
-          <span>Live — <strong class="settings-aux-code">{auxCode}</strong></span>
-          <small>Show QR</small>
-        </button>
-        <button class="settings-row" disabled={auxBusy} type="button" onclick={onEndAux}>
-          <X size={17} />
-          <span>End the aux</span>
-        </button>
-      {:else}
-        <button class="settings-row" disabled={auxBusy} type="button" onclick={onStartAux}>
-          <Radio size={17} />
-          <span>Start an aux</span>
-          <small>Shared listening</small>
-        </button>
-      {/if}
-    </div>
-
-    <div class="settings-group">
-      <span class="settings-label">Look</span>
-      <button class="settings-row" type="button" onclick={onOpenThemeModal}>
-        <Palette size={17} />
-        <span>Theme</span>
-        <small>{activeThemeName}</small>
-      </button>
-    </div>
-
-    <div class="settings-group">
-      <span class="settings-label">Server</span>
-      <button class="settings-row" type="button" onclick={onOpenSyncServerModal}>
-        <Server size={17} />
-        <span>Sync server</span>
-        <small>URL &amp; token</small>
-      </button>
-      <button class="settings-row" disabled={syncing || !canUpload} type="button" onclick={onSyncToServer}>
-        {#if syncing}
-          <LoaderCircle class="spin-icon" size={17} />
+    <div class="settings-groups">
+      <div class="settings-group">
+        <span class="settings-label">Aux</span>
+        {#if auxCode}
+          <button class="settings-row" type="button" onclick={onShowAux}>
+            <Radio size={17} />
+            <span>Live — <strong class="settings-aux-code">{auxCode}</strong></span>
+            <small>Show QR</small>
+          </button>
+          <button class="settings-row" disabled={auxBusy} type="button" onclick={onEndAux}>
+            <X size={17} />
+            <span>End the aux</span>
+          </button>
         {:else}
-          <CloudUpload size={17} />
+          <button class="settings-row" disabled={auxBusy} type="button" onclick={onStartAux}>
+            <Radio size={17} />
+            <span>Start an aux</span>
+            <small>Shared listening</small>
+          </button>
         {/if}
-        <span>Upload library to server</span>
-      </button>
-      <button class="settings-row" disabled={syncing} type="button" onclick={onSyncFromServer}>
-        <CloudDownload size={17} />
-        <span>Pull from server</span>
-      </button>
-      {#if syncMessage}
-        <p class="settings-note">{syncMessage}</p>
-      {/if}
-    </div>
+      </div>
 
-    <div class="settings-group">
-      <span class="settings-label">Library</span>
-      <button class="settings-row" disabled={importing || importDisabled} type="button" onclick={onImportManifest}>
-        {#if importing}
-          <LoaderCircle class="spin-icon" size={17} />
-        {:else}
-          <Upload size={17} />
+      <div class="settings-group">
+        <span class="settings-label">Look</span>
+        <button class="settings-row" type="button" onclick={onOpenThemeModal}>
+          <Palette size={17} />
+          <span>Theme</span>
+          <small>{activeThemeName}</small>
+        </button>
+      </div>
+
+      <div class="settings-group">
+        <span class="settings-label">Server</span>
+        <button class="settings-row" type="button" onclick={onOpenSyncServerModal}>
+          <Server size={17} />
+          <span>Sync server</span>
+          <small>URL &amp; token</small>
+        </button>
+        <button class="settings-row" disabled={syncing || !canUpload} type="button" onclick={onSyncToServer}>
+          {#if syncing}
+            <LoaderCircle class="spin-icon" size={17} />
+          {:else}
+            <CloudUpload size={17} />
+          {/if}
+          <span>Upload library to server</span>
+        </button>
+        <button class="settings-row" disabled={syncing} type="button" onclick={onSyncFromServer}>
+          <CloudDownload size={17} />
+          <span>Pull from server</span>
+        </button>
+        {#if syncMessage}
+          <p class="settings-note">{syncMessage}</p>
         {/if}
-        <span>Import a manifest</span>
-        <small>loud.import.v1</small>
-      </button>
-      <button class="settings-row" type="button" onclick={onRefresh}>
-        <RefreshCw size={17} />
-        <span>Refresh library</span>
-      </button>
+      </div>
+
+      <div class="settings-group">
+        <span class="settings-label">Library</span>
+        <button class="settings-row" disabled={importing || importDisabled} type="button" onclick={onImportManifest}>
+          {#if importing}
+            <LoaderCircle class="spin-icon" size={17} />
+          {:else}
+            <Upload size={17} />
+          {/if}
+          <span>Import a manifest</span>
+          <small>loud.import.v1</small>
+        </button>
+        <button class="settings-row" type="button" onclick={onRefresh}>
+          <RefreshCw size={17} />
+          <span>Refresh library</span>
+        </button>
+      </div>
     </div>
   </div>
 </div>

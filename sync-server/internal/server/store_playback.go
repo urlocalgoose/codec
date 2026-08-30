@@ -58,7 +58,7 @@ func (s *Server) upsertPlaybackDevice(ctx context.Context, device PlaybackDevice
 	}
 	device.Name = strings.TrimSpace(device.Name)
 	if device.Name == "" {
-		device.Name = "Loud Device"
+		device.Name = "Codec Device"
 	}
 	device.PositionSeconds = cleanPlaybackPosition(device.PositionSeconds)
 	device.Volume = cleanPlaybackVolume(device.Volume)

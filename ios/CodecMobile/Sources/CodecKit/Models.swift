@@ -15,6 +15,19 @@ public struct CodecHealth: Decodable, Equatable, Sendable {
     }
 }
 
+/// Host or guest session for pass-the-aux shared listening.
+public struct AuxSession: Codable, Equatable, Sendable {
+    public let code: String
+    public let guestToken: String?
+    public let createdAt: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case code
+        case guestToken = "guest_token"
+        case createdAt = "created_at"
+    }
+}
+
 /// The `Library` payload from `GET /api/v1/library`, matching the Go server
 /// and the web app's `src/lib/types.ts`.
 public struct CodecLibrary: Codable, Equatable, Sendable {

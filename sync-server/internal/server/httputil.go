@@ -87,11 +87,20 @@ func serveWebApp(webDir string, api http.Handler) http.Handler {
 		}
 
 		if stat, err := os.Stat(filePath); err == nil && !stat.IsDir() {
+			// Hashed build assets never change under the same name; everything
+			// else (index.html, service-worker.js, manifest) must revalidate on
+			// every request or CDNs pin devices to stale builds.
+			if strings.HasPrefix(cleanPath, "/_app/immutable/") {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else {
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			http.ServeFile(w, r, filePath)
 			return
 		}
 
 		if stat, err := os.Stat(indexPath); err == nil && !stat.IsDir() {
+			w.Header().Set("Cache-Control", "no-cache")
 			http.ServeFile(w, r, indexPath)
 			return
 		}
@@ -259,6 +268,13 @@ func withAuth(next http.Handler, token string, s *Server) http.Handler {
 		// /api route (library, media, playback) stays protected.
 		publicShell := r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/api/")
 		if publicShell || r.URL.Path == "/api/v1/aux/join" || authorizedRequest(r, token) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Stream tokens keep long-lived auth out of audio/SSE URLs. They are
+		// short-lived and only work on GET/HEAD media + playback streams.
+		if stream := presentedToken(r); stream != "" && s.streamTokenAllows(stream, r) {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -34,7 +34,8 @@ struct CodecTheme: Identifiable, Equatable {
 @MainActor
 @Observable
 final class ThemeStore {
-    private static let storageKey = "loud.theme"
+    private static let storageKey = "codec.theme"
+    private static let legacyStorageKey = "loud.theme"
 
     var themeID: String {
         didSet { UserDefaults.standard.set(themeID, forKey: Self.storageKey) }
@@ -45,7 +46,9 @@ final class ThemeStore {
     }
 
     init() {
-        themeID = UserDefaults.standard.string(forKey: Self.storageKey) ?? CodecTheme.fallback.id
+        themeID = UserDefaults.standard.string(forKey: Self.storageKey)
+            ?? UserDefaults.standard.string(forKey: Self.legacyStorageKey)
+            ?? CodecTheme.fallback.id
     }
 }
 

@@ -10,6 +10,7 @@ import {
   playbackEventsUrl,
   playbackEventsV2Url,
   pushLibrarySnapshot,
+  refreshSyncStreamToken,
   saveRemotePlaybackSession,
   sendPlaybackCommandV2,
   trackAudioUrl,
@@ -71,6 +72,16 @@ describe("sync client helpers", () => {
     );
   });
 
+  test("scheme-less urls inherit https from an https page", () => {
+    (globalThis as { location?: { protocol: string } }).location = { protocol: "https:" };
+    try {
+      expect(normalizeServerUrl("music.test:8787")).toBe("https://music.test:8787");
+      expect(normalizeServerUrl("http://music.test")).toBe("http://music.test");
+    } finally {
+      delete (globalThis as { location?: { protocol: string } }).location;
+    }
+  });
+
   test("explains when the pasted URL is the web app dev server", async () => {
     const fetcher = (async (_input: RequestInfo | URL, _init?: RequestInit) =>
       new Response(null, { status: 404 })) as typeof fetch;
@@ -100,7 +111,7 @@ describe("sync client helpers", () => {
     expect(normalized.stats.trackCount).toBe(0);
   });
 
-  test("pushes a library snapshot with the Loud sync schema", async () => {
+  test("pushes a library snapshot with the compatibility sync schema", async () => {
     const requests: Request[] = [];
     const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push(new Request(input, init));
@@ -323,7 +334,7 @@ describe("sync client helpers", () => {
 });
 
 describe("auth token", () => {
-  test("adds Bearer headers to API calls and access_token to media/SSE urls", async () => {
+  test("adds Bearer headers to API calls and token fallback to media/SSE urls", async () => {
     const { setSyncAuthToken } = await import("./sync");
     const requests: { url: string; auth: string | null }[] = [];
     const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -349,5 +360,35 @@ describe("auth token", () => {
     await validateSyncServer("localhost:8787", fetcher);
     expect(requests[1].auth).toBeNull();
     expect(trackAudioUrl("localhost:8787", "abc")).toBe("http://localhost:8787/api/v1/tracks/abc/audio");
+  });
+
+  test("uses short-lived stream tokens for media/SSE urls when available", async () => {
+    const { setSyncAuthToken } = await import("./sync");
+    const requests: { url: string; auth: string | null }[] = [];
+    const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      const url = String(input);
+      requests.push({ url, auth: headers.get("Authorization") });
+      if (url.endsWith("/api/v1/auth/stream-token")) {
+        return new Response(JSON.stringify({ token: "stream_safe", expires_at: 4_102_444_800 }), {
+          status: 201
+        });
+      }
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+
+    setSyncAuthToken("main-secret");
+    try {
+      await refreshSyncStreamToken("localhost:8787", fetcher);
+      expect(requests[0].auth).toBe("Bearer main-secret");
+      expect(trackAudioUrl("localhost:8787", "abc")).toBe(
+        "http://localhost:8787/api/v1/tracks/abc/audio?access_token=stream_safe"
+      );
+      expect(playbackEventsV2Url("localhost:8787")).toBe(
+        "http://localhost:8787/api/v2/playback/events?access_token=stream_safe"
+      );
+    } finally {
+      setSyncAuthToken("");
+    }
   });
 });

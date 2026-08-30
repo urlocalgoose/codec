@@ -52,12 +52,12 @@ LINK="$1"
 
 if [[ "$LINK" == "liked" ]]; then
   WORKING="liked-songs.json"
-  MANIFEST="loud-import-liked.json"
+  MANIFEST="codec-import-liked.json"
   SOURCE_ARGS=(--source liked)
 elif [[ "$LINK" =~ open\.spotify\.com/playlist/([A-Za-z0-9]+) ]]; then
   PLAYLIST_ID="${BASH_REMATCH[1]}"
   WORKING="playlist-${PLAYLIST_ID}.json"
-  MANIFEST="loud-import-${PLAYLIST_ID}.json"
+  MANIFEST="codec-import-${PLAYLIST_ID}.json"
   SOURCE_ARGS=(--source playlist --playlist "$LINK")
 else
   fail "that does not look like a Spotify playlist link (or 'liked'): $LINK"
@@ -87,6 +87,6 @@ echo "==> s2y: downloading via $WORKING"
 echo "==> codec: importing $MANIFEST and syncing to $CODEC_SERVER_URL"
 "$CODEC_IMPORT_BIN" "$CODEC_MUSIC_ROOT" "$S2Y_DIR/$MANIFEST" \
   --server "$CODEC_SERVER_URL" \
-  --token "$(cat "$CODEC_AUTH_TOKEN_FILE")"
+  --token-file "$CODEC_AUTH_TOKEN_FILE"
 
 echo "==> done. Pull to refresh on your devices."

@@ -57,6 +57,10 @@
     onVolumeInput: (event: Event) => void;
     onDeviceChange: (event: Event) => void;
   } = $props();
+
+  const seekMax = $derived(Math.max(audioDuration || currentTrack?.duration_seconds || 1, 1));
+  const seekFill = $derived(Math.min(Math.max((currentTime / seekMax) * 100, 0), 100));
+  const volumeFill = $derived(Math.min(Math.max(volume * 100, 0), 100));
 </script>
 
 <footer class="player" aria-label="Player">
@@ -112,10 +116,11 @@
       <input
         aria-label="Seek"
         disabled={!currentTrack}
-        max={Math.max(audioDuration || currentTrack?.duration_seconds || 1, 1)}
+        max={seekMax}
         min="0"
         step="0.1"
         type="range"
+        style={`--fill: ${seekFill}%`}
         value={currentTime}
         oninput={onSeekInput}
       />
@@ -126,7 +131,7 @@
   <div class="player-side">
     <label class="volume-control" aria-label="Volume">
       <Volume2 size={18} />
-      <input max="1" min="0" step="0.01" type="range" value={volume} oninput={onVolumeInput} />
+      <input max="1" min="0" step="0.01" type="range" style={`--fill: ${volumeFill}%`} value={volume} oninput={onVolumeInput} />
     </label>
 
     {#if showDeviceControl}

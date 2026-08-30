@@ -9,28 +9,35 @@ The Go server can run open for local LAN/Tailscale development, or protected
 with one shared token:
 
 ```bash
-LOUD_AUTH_TOKEN='long-random-secret' ./codec-sync-server \
+CODEC_AUTH_TOKEN='long-random-secret' ./codec-sync-server \
   --addr :8787 \
-  --data /srv/loud \
-  --web /srv/loud-web
+  --data /srv/codec \
+  --web /srv/codec-web
 ```
 
 When a token is set:
 
 - Browser access uses HTTP Basic auth.
 - API clients may use `Authorization: Bearer <token>`.
-- Clients that cannot set headers (`<audio>` elements, EventSource/SSE) may
-  send `?access_token=<token>` instead; the request log never prints query
-  strings, so tokens stay out of logs.
+- Clients that cannot set headers (`<audio>` elements, EventSource/SSE) use
+  `POST /api/v1/auth/stream-token` to mint a short-lived `stream_...` token,
+  then send that as `?access_token=<stream-token>`.
+- Older clients may still send the main shared token as `?access_token=...`,
+  but publishing setups should use current clients so long-lived tokens do not
+  ride in media URLs.
+- The request log prints only path, status, bytes, and duration. It never
+  prints query strings, so access tokens stay out of the app server logs.
 - `/health` stays public so uptime checks and tunnels can verify the server.
-- The app, API, artwork, and audio media are protected by the same server.
+- The static app shell is public so join links can load; API data, artwork,
+  and audio media are protected by the same server.
 
 The desktop app and iOS app both have an optional auth-token field next to
-the server URL; set it to the same value as `LOUD_AUTH_TOKEN`.
+the server URL; set it to the same value as `CODEC_AUTH_TOKEN`.
 
 For public use, this must sit behind HTTPS. Cloudflare can provide DNS, HTTPS,
 Tunnel, and Access in front of the Go server, but Cloudflare is not a second
-sync backend.
+sync backend. Configure any reverse proxy/CDN logs to omit query strings,
+because media and SSE URLs can contain short-lived stream tokens.
 
 ## Storage
 
@@ -38,6 +45,8 @@ sync backend.
   global playback state.
 - Disk stores media blobs under the server data directory.
 - The Svelte app is served from the built `build/` directory.
+- Old `loud-sync.sqlite` databases are renamed to `codec-sync.sqlite` on
+  startup when the new file does not already exist.
 
 ## History
 

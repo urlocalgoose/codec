@@ -60,7 +60,7 @@
           <Server size={17} />
           <input
             bind:value={syncServerDraft}
-            placeholder="http://192.168.1.20:8787"
+            placeholder="https://your-server or 192.168.1.20:8787"
             type="url"
           />
         </label>

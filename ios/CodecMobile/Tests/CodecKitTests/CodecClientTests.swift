@@ -111,6 +111,53 @@ private func httpResponse(url: URL, status: Int = 200) -> HTTPURLResponse {
         #expect(url?.absoluteString == "http://192.168.1.20:8787/api/v1/tracks/isrc%3AUS%2FTEST/audio")
     }
 
+    @Test func createAuxSessionUsesHostAuth() async throws {
+        let transport = RecordingTransport()
+        transport.responses = [(
+            Data(#"{"schema":"loud.aux.v1","code":"ABCD","guest_token":"guest","created_at":10}"#.utf8),
+            httpResponse(url: base, status: 201)
+        )]
+        let client = CodecClient(baseURL: base, token: "host-secret", transport: transport)
+
+        let session = try await client.createAuxSession()
+
+        #expect(session.code == "ABCD")
+        #expect(session.guestToken == "guest")
+        #expect(transport.requests[0].httpMethod == "POST")
+        #expect(transport.requests[0].url?.absoluteString == "http://192.168.1.20:8787/api/v1/aux")
+        #expect(transport.requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer host-secret")
+    }
+
+    @Test func joinAuxSessionDoesNotSendHostAuth() async throws {
+        let transport = RecordingTransport()
+        transport.responses = [(
+            Data(#"{"schema":"loud.aux.v1","code":"WXYZ","guest_token":"guest-token"}"#.utf8),
+            httpResponse(url: base)
+        )]
+        let client = CodecClient(baseURL: base, token: "host-secret", transport: transport)
+
+        let session = try await client.joinAuxSession(code: " wxyz ")
+
+        #expect(session.code == "WXYZ")
+        #expect(session.guestToken == "guest-token")
+        #expect(transport.requests[0].httpMethod == "POST")
+        #expect(transport.requests[0].url?.absoluteString == "http://192.168.1.20:8787/api/v1/aux/join")
+        #expect(transport.requests[0].value(forHTTPHeaderField: "Authorization") == nil)
+        #expect(String(decoding: transport.requests[0].httpBody ?? Data(), as: UTF8.self) == #"{"code":"WXYZ"}"#)
+    }
+
+    @Test func endAuxSessionDeletesByCode() async throws {
+        let transport = RecordingTransport()
+        transport.responses = [(Data(), httpResponse(url: base, status: 204))]
+        let client = CodecClient(baseURL: base, token: "host-secret", transport: transport)
+
+        try await client.endAuxSession(code: "abcd")
+
+        #expect(transport.requests[0].httpMethod == "DELETE")
+        #expect(transport.requests[0].url?.absoluteString == "http://192.168.1.20:8787/api/v1/aux/ABCD")
+        #expect(transport.requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer host-secret")
+    }
+
     @Test func httpErrorsSurfaceStatusCodes() async {
         let transport = RecordingTransport()
         transport.responses = [(Data(), httpResponse(url: base, status: 401))]
@@ -128,6 +175,11 @@ private func httpResponse(url: URL, status: Int = 200) -> HTTPURLResponse {
 
     @Test func normalizesPastedServerURLs() {
         #expect(normalizeServerURLString(" 192.168.1.20:8787/ ") == "http://192.168.1.20:8787")
+        #expect(normalizeServerURLString("localhost:8787") == "http://localhost:8787")
+        #expect(normalizeServerURLString("batcave.local:8787") == "http://batcave.local:8787")
+        #expect(normalizeServerURLString("music.example.sh") == "https://music.example.sh")
+        #expect(normalizeServerURLString("music.example.sh:8443/path") == "https://music.example.sh:8443/path")
+        #expect(normalizeServerURLString("http://music.example.sh") == "http://music.example.sh")
         #expect(normalizeServerURLString("https://loud.example.com///") == "https://loud.example.com")
         #expect(normalizeServerURLString("") == "")
     }

@@ -1,7 +1,7 @@
 # Codec sync server + web app in one container.
 #
 #   docker build -t codec .
-#   docker run -p 8787:8787 -v codec-data:/data -e LOUD_AUTH_TOKEN=change-me codec
+#   docker run -p 8787:8787 -v codec-data:/data -e CODEC_AUTH_TOKEN=change-me codec
 #
 # The web app, API, and media all serve from :8787; library data and
 # media blobs persist in the /data volume.

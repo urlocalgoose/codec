@@ -2,24 +2,33 @@
 // optionally push the result to a sync server, without opening the app.
 //
 //   cargo run --bin codec_import -- <music-root> <manifest.json> \
-//       [--server http://127.0.0.1:8787 --token <LOUD_AUTH_TOKEN>]
+//       [--server http://127.0.0.1:8787 --token-file <path>]
 
 use std::env;
+use std::fs;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
     if args.len() < 2 {
-        eprintln!("usage: codec_import <music-root> <manifest.json> [--server URL --token TOKEN]");
+        eprintln!(
+            "usage: codec_import <music-root> <manifest.json> [--server URL --token-file PATH]"
+        );
         return ExitCode::FAILURE;
     }
 
     let root = args[0].clone();
     let manifest = args[1].clone();
     let server = flag_value(&args, "--server");
-    let token = flag_value(&args, "--token").unwrap_or_default();
+    let token = match auth_token(&args) {
+        Ok(token) => token,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::FAILURE;
+        }
+    };
 
-    let report = match loud_lib::import_library_manifest_path(&root, &manifest) {
+    let report = match codec_lib::import_library_manifest_path(&root, &manifest) {
         Ok(report) => report,
         Err(err) => {
             eprintln!("import failed: {err}");
@@ -39,7 +48,12 @@ fn main() -> ExitCode {
 
     if let Some(server) = server {
         println!("uploading to {server}…");
-        match loud_lib::sync_library_to_server_headless(root, server, "codec-import-cli".to_string(), token) {
+        match codec_lib::sync_library_to_server_headless(
+            root,
+            server,
+            "codec-import-cli".to_string(),
+            token,
+        ) {
             Ok(sync) => {
                 println!("uploaded:");
                 println!("  tracks uploaded:  {}", sync.tracks_uploaded);
@@ -67,4 +81,22 @@ fn flag_value(args: &[String], name: &str) -> Option<String> {
         .position(|arg| arg == name)
         .and_then(|index| args.get(index + 1))
         .cloned()
+}
+
+fn auth_token(args: &[String]) -> Result<String, String> {
+    if let Some(token) = flag_value(args, "--token") {
+        return Ok(token.trim().to_string());
+    }
+    if let Some(path) = flag_value(args, "--token-file") {
+        return fs::read_to_string(&path)
+            .map(|value| value.trim().to_string())
+            .map_err(|err| format!("could not read token file {path}: {err}"));
+    }
+    if let Ok(token) = env::var("CODEC_AUTH_TOKEN") {
+        return Ok(token.trim().to_string());
+    }
+    if let Ok(token) = env::var("LOUD_AUTH_TOKEN") {
+        return Ok(token.trim().to_string());
+    }
+    Ok(String::new())
 }

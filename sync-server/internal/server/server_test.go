@@ -63,7 +63,7 @@ func TestWebAppFallbackServesIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	webDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<main>Loud app</main>"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<main>Codec app</main>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(srv.HandlerWithOptions(HandlerOptions{WebDir: webDir}))
@@ -83,7 +83,7 @@ func TestWebAppFallbackServesIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.StatusCode != http.StatusOK || !strings.Contains(string(body), "Loud app") {
+	if res.StatusCode != http.StatusOK || !strings.Contains(string(body), "Codec app") {
 		t.Fatalf("web app response = %s %q", res.Status, string(body))
 	}
 }
@@ -94,7 +94,7 @@ func TestAuthTokenProtectsAppAndAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	webDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<main>Loud app</main>"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<main>Codec app</main>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(srv.HandlerWithOptions(HandlerOptions{
@@ -130,7 +130,7 @@ func TestAuthTokenProtectsAppAndAPI(t *testing.T) {
 	_ = res.Body.Close()
 
 	req, _ := http.NewRequest(http.MethodGet, httpServer.URL+"/api/v1/library", nil)
-	req.SetBasicAuth("loud", "secret")
+	req.SetBasicAuth("codec", "secret")
 	res, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -138,6 +138,78 @@ func TestAuthTokenProtectsAppAndAPI(t *testing.T) {
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("authorized API status = %s", res.Status)
+	}
+}
+
+func TestStreamTokenScopesURLAuth(t *testing.T) {
+	srv, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(srv.HandlerWithOptions(HandlerOptions{AuthToken: "secret"}))
+	t.Cleanup(func() {
+		httpServer.Close()
+		if err := srv.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	req, _ := http.NewRequest(http.MethodPost, httpServer.URL+"/api/v1/auth/stream-token", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("stream token status = %s", res.Status)
+	}
+	var created struct {
+		Token     string `json:"token"`
+		ExpiresAt int64  `json:"expires_at"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(created.Token, "stream_") || created.ExpiresAt == 0 {
+		t.Fatalf("bad stream token response: %+v", created)
+	}
+
+	getStatus := func(path string) int {
+		res, err := http.Get(httpServer.URL + path + "?access_token=" + created.Token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		return res.StatusCode
+	}
+	if status := getStatus("/api/v1/library"); status != http.StatusUnauthorized {
+		t.Fatalf("stream token should not allow library, got %d", status)
+	}
+	if status := getStatus("/api/v1/tracks/missing/audio"); status != http.StatusNotFound {
+		t.Fatalf("stream token should reach audio handler, got %d", status)
+	}
+	if status := getStatus("/api/v1/tracks/missing/artwork"); status != http.StatusNotFound {
+		t.Fatalf("stream token should reach artwork handler, got %d", status)
+	}
+}
+
+func TestOpenMigratesOldDatabaseName(t *testing.T) {
+	dir := t.TempDir()
+	oldPath := filepath.Join(dir, "loud-sync.sqlite")
+	if err := os.WriteFile(oldPath, []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	if _, err := os.Stat(filepath.Join(dir, "codec-sync.sqlite")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(oldPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old database path still exists: %v", err)
 	}
 }
 

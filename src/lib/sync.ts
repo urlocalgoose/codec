@@ -10,14 +10,21 @@ import type {
 
 export const SYNC_SCHEMA = "loud.sync.v1";
 
-/// Shared auth token for token-protected servers (`LOUD_AUTH_TOKEN`).
+/// Shared auth token for token-protected servers (`CODEC_AUTH_TOKEN`).
 /// API calls send it as a Bearer header; media and SSE URLs — which cannot
-/// carry headers — embed it as an `access_token` query parameter that the
-/// server accepts and never logs.
+/// carry headers — prefer a short-lived stream token in the URL. Older
+/// servers fall back to the shared token, and the server request log never
+/// prints query strings.
 let syncAuthToken = "";
+let syncStreamToken = "";
+let syncStreamTokenExpiresAtMs = 0;
+
+const STREAM_TOKEN_REFRESH_MARGIN_MS = 60_000;
 
 export function setSyncAuthToken(token: string): void {
   syncAuthToken = token.trim();
+  syncStreamToken = "";
+  syncStreamTokenExpiresAtMs = 0;
 }
 
 function authorizedFetch(
@@ -35,12 +42,20 @@ function authorizedFetch(
 }
 
 function withAccessToken(url: string): string {
-  if (!syncAuthToken) {
+  const token = urlAccessToken();
+  if (!token) {
     return url;
   }
 
   const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}access_token=${encodeURIComponent(syncAuthToken)}`;
+  return `${url}${separator}access_token=${encodeURIComponent(token)}`;
+}
+
+function urlAccessToken(): string {
+  if (syncStreamToken && Date.now() + STREAM_TOKEN_REFRESH_MARGIN_MS < syncStreamTokenExpiresAtMs) {
+    return syncStreamToken;
+  }
+  return syncAuthToken;
 }
 
 export interface SyncSnapshot {
@@ -54,6 +69,11 @@ export interface SyncReport {
   tracks_upserted: number;
   playlists_upserted: number;
   sessions_upserted: number;
+}
+
+export interface StreamToken {
+  token: string;
+  expires_at: number;
 }
 
 export interface RemotePlaybackSession<TSession = unknown> {
@@ -175,7 +195,11 @@ export function normalizeServerUrl(value: string): string {
     return trimmed;
   }
 
-  return `http://${trimmed}`;
+  // Scheme-less input: an https page can never call an http server (mixed
+  // content is silently blocked), so inherit the page's scheme. Native and
+  // dev contexts keep http for LAN servers.
+  const secure = typeof location !== "undefined" && location.protocol === "https:";
+  return `${secure ? "https" : "http"}://${trimmed}`;
 }
 
 export function trackAudioUrl(serverUrl: string, fingerprint: string): string {
@@ -237,6 +261,27 @@ export async function validateSyncServer(serverUrl: string, fetcher: typeof fetc
   const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/health`);
   if (!response.ok) {
     throw syncApiError("Could not reach Codec sync server", serverUrl, response);
+  }
+}
+
+export async function refreshSyncStreamToken(serverUrl: string, fetcher: typeof fetch = fetch): Promise<void> {
+  syncStreamToken = "";
+  syncStreamTokenExpiresAtMs = 0;
+  if (!syncAuthToken) {
+    return;
+  }
+
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/auth/stream-token`, {
+    method: "POST"
+  });
+  if (!response.ok) {
+    return;
+  }
+
+  const streamToken = (await response.json()) as Partial<StreamToken>;
+  if (typeof streamToken.token === "string" && Number(streamToken.expires_at) > 0) {
+    syncStreamToken = streamToken.token;
+    syncStreamTokenExpiresAtMs = Number(streamToken.expires_at) * 1000;
   }
 }
 

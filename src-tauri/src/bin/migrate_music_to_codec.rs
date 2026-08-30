@@ -98,7 +98,7 @@ struct TrackMetadata {
 fn main() -> Result<(), String> {
     let root_arg = std::env::args()
         .nth(1)
-        .ok_or("usage: migrate_music_to_loud <music-folder>")?;
+        .ok_or("usage: migrate_music_to_codec <music-folder>")?;
     let root = canonical_dir(Path::new(&root_arg))?;
     let backup_root = root.with_file_name(format!(
         "{}-legacy-{}",
@@ -359,19 +359,19 @@ fn read_library_state(root: &Path) -> Result<LibraryState, String> {
     }
 
     let text =
-        fs::read_to_string(&path).map_err(|err| format!("Could not read Loud state: {err}"))?;
-    serde_json::from_str(&text).map_err(|err| format!("Could not parse Loud state: {err}"))
+        fs::read_to_string(&path).map_err(|err| format!("Could not read Codec state: {err}"))?;
+    serde_json::from_str(&text).map_err(|err| format!("Could not parse Codec state: {err}"))
 }
 
 fn write_library_state(root: &Path, state: &LibraryState) -> Result<(), String> {
     let path = root.join(STATE_DIR_NAME).join(STATE_FILE_NAME);
     let parent = path
         .parent()
-        .ok_or_else(|| "Could not resolve Loud state directory.".to_string())?;
-    fs::create_dir_all(parent).map_err(|err| format!("Could not create Loud state: {err}"))?;
+        .ok_or_else(|| "Could not resolve Codec state directory.".to_string())?;
+    fs::create_dir_all(parent).map_err(|err| format!("Could not create Codec state: {err}"))?;
     let text = serde_json::to_string_pretty(state)
-        .map_err(|err| format!("Could not serialize Loud state: {err}"))?;
-    fs::write(&path, text).map_err(|err| format!("Could not write Loud state: {err}"))
+        .map_err(|err| format!("Could not serialize Codec state: {err}"))?;
+    fs::write(&path, text).map_err(|err| format!("Could not write Codec state: {err}"))
 }
 
 fn state_playlist_mut<'a>(state: &'a mut LibraryState, name: &str) -> &'a mut StatePlaylist {

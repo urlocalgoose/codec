@@ -134,7 +134,11 @@
           >
             <Heart size={16} fill={track.is_liked ? "currentColor" : "none"} />
           </button>
-          <span class="table-duration">{formatDuration(track.duration_seconds)}</span>
+          {#if currentTrackId === track.id}
+            <span class="table-duration track-eq" class:paused={!isPlaying} aria-hidden="true"><i></i><i></i><i></i></span>
+          {:else}
+            <span class="table-duration">{formatDuration(track.duration_seconds)}</span>
+          {/if}
           {#if isQueueView}
             {#if index > 0 && index <= queuedTracksCount}
               <button

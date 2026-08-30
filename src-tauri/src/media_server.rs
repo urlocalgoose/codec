@@ -120,14 +120,14 @@ pub(crate) fn start_media_server(
         .map_err(|err| format!("Could not read local media server address: {err}"))?;
 
     thread::Builder::new()
-        .name("loud-media-server".to_string())
+        .name("codec-media-server".to_string())
         .spawn(move || {
             for stream in listener.incoming() {
                 match stream {
                     Ok(stream) => {
                         let files = Arc::clone(&files);
                         let _ = thread::Builder::new()
-                            .name("loud-media-request".to_string())
+                            .name("codec-media-request".to_string())
                             .spawn(move || {
                                 if let Err(err) = handle_media_request(stream, files) {
                                     eprintln!("media request failed: {err}");
@@ -292,7 +292,11 @@ pub(crate) fn serve_file(
     copy_limited(&mut file, stream, content_length)
 }
 
-pub(crate) fn copy_limited(file: &mut File, stream: &mut TcpStream, mut remaining: u64) -> io::Result<()> {
+pub(crate) fn copy_limited(
+    file: &mut File,
+    stream: &mut TcpStream,
+    mut remaining: u64,
+) -> io::Result<()> {
     let mut buffer = [0u8; 64 * 1024];
 
     while remaining > 0 {
@@ -366,7 +370,11 @@ pub(crate) fn write_empty_response(stream: &mut TcpStream, status: &str) -> io::
     stream.write_all(response.as_bytes())
 }
 
-pub(crate) fn write_text_response(stream: &mut TcpStream, status: &str, body: &str) -> io::Result<()> {
+pub(crate) fn write_text_response(
+    stream: &mut TcpStream,
+    status: &str,
+    body: &str,
+) -> io::Result<()> {
     let response = format!(
         "HTTP/1.1 {status}\r\n\
          Content-Type: text/plain; charset=utf-8\r\n\
@@ -378,4 +386,3 @@ pub(crate) fn write_text_response(stream: &mut TcpStream, status: &str, body: &s
     );
     stream.write_all(response.as_bytes())
 }
-

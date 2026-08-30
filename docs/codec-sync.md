@@ -32,10 +32,10 @@ unless you are only debugging UI.
 For a public server, put it behind HTTPS and start it with a token:
 
 ```bash
-LOUD_AUTH_TOKEN='long-random-secret' ./codec-sync-server \
+CODEC_AUTH_TOKEN='long-random-secret' ./codec-sync-server \
   --addr :8787 \
-  --data /srv/loud \
-  --web /srv/loud-web
+  --data /srv/codec \
+  --web /srv/codec-web
 ```
 
 With a token set, the server accepts HTTP Basic auth in the browser and Bearer
@@ -87,6 +87,7 @@ POST /api/v1/aux
 GET  /api/v1/aux
 DELETE /api/v1/aux/{code}
 POST /api/v1/aux/join
+POST /api/v1/auth/stream-token
 PUT  /api/v1/playlists/{id}/tracks
 POST /api/v1/media-grants
 PUT  /api/v1/playback-session/{device_id}
@@ -97,6 +98,10 @@ GET  /api/v2/playback/events
 ```
 
 The server returns `Library` JSON compatible with the existing Svelte app types.
+
+`POST /api/v1/auth/stream-token` requires normal host auth and returns a
+short-lived token for media and playback-event URLs. It is accepted only for
+GET/HEAD audio, artwork, and playback SSE endpoints.
 
 Playlist edits are partial updates: `POST /api/v1/playlists` creates a playlist
 from `{"name": "..."}`, and the `/tracks` endpoints add or remove one track by

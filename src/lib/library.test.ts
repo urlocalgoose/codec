@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  artistCovers,
   foreignTrackFromReference,
   createQueue,
   findTrackByReference,
@@ -133,6 +134,24 @@ describe("library helpers", () => {
         { id: "missing", path: "/nope.mp3", fingerprint: "missing" }
       ])
     ).toEqual([tracks[1], tracks[1]]);
+  });
+
+  test("maps each artist to their first available artwork", () => {
+    const withArt = {
+      ...library,
+      tracks: [
+        { ...tracks[0], artwork_url: null },
+        { ...tracks[0], id: "track-a2", path: "/music/Mix/A2.mp3", artwork_url: "/art/ada.jpg" },
+        { ...tracks[1], artist: "grace ", artwork_url: "/art/grace.jpg" }
+      ]
+    };
+
+    const covers = artistCovers(withArt);
+
+    expect(covers.get("Ada")).toBe("/art/ada.jpg");
+    // Keyed by the first-seen display name, whitespace-insensitively.
+    expect(covers.get("grace ")).toBe("/art/grace.jpg");
+    expect(artistCovers(null).size).toBe(0);
   });
 
   test("summarizes library counts", () => {

@@ -121,8 +121,14 @@ final class DownloadStore {
     private var session: URLSession!
 
     init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "Loud", directoryHint: .isDirectory)
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let legacyBase = support.appending(path: "Loud", directoryHint: .isDirectory)
+        let codecBase = support.appending(path: "Codec", directoryHint: .isDirectory)
+        if !FileManager.default.fileExists(atPath: codecBase.path()),
+           FileManager.default.fileExists(atPath: legacyBase.path()) {
+            try? FileManager.default.moveItem(at: legacyBase, to: codecBase)
+        }
+        let base = codecBase
             .appending(path: "audio", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         directory = base

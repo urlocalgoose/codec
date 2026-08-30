@@ -54,9 +54,14 @@ final class PlayerController {
 
     /// Stable identity for this phone in the device list.
     let deviceID: String = {
-        let key = "loud.playbackDeviceId"
+        let key = "codec.playbackDeviceId"
+        let legacyKey = "loud.playbackDeviceId"
         if let existing = UserDefaults.standard.string(forKey: key) {
             return existing
+        }
+        if let legacy = UserDefaults.standard.string(forKey: legacyKey) {
+            UserDefaults.standard.set(legacy, forKey: key)
+            return legacy
         }
         let fresh = "device-\(UUID().uuidString.lowercased())"
         UserDefaults.standard.set(fresh, forKey: key)
@@ -1124,3 +1129,98 @@ extension PlayerController {
         Int64(Date().timeIntervalSince1970 * 1000)
     }
 }
+
+#if DEBUG
+extension PlayerController {
+    func configureForScreenshot(current track: CodecTrack, source tracks: [CodecTrack], queued: [CodecTrack]) {
+        detachPlayerObservers()
+        eventsTask?.cancel()
+        eventsTask = nil
+        presenceTask?.cancel()
+        presenceTask = nil
+        remoteClockTask?.cancel()
+        remoteClockTask = nil
+
+        let sourceTracks = tracks.isEmpty ? [track] : tracks
+        let safeIndex = sourceTracks.firstIndex { $0.id == track.id } ?? 0
+        let duration = max(track.durationSeconds ?? 150, 1)
+        let position = min(max(duration * 0.42, 18), max(duration - 5, 0))
+        let now = Self.nowMS()
+        let desktopDeviceID = "desktop-blog"
+
+        syncEnabled = true
+        playbackDevices = [
+            CodecPlaybackDevice(
+                deviceID: deviceID,
+                name: "\(deviceName) (this iPhone)",
+                trackID: track.id,
+                trackFingerprint: track.fingerprint,
+                trackTitle: track.title,
+                isPlaying: false,
+                positionSeconds: position,
+                volume: 0.72,
+                updatedAt: now
+            ),
+            CodecPlaybackDevice(
+                deviceID: desktopDeviceID,
+                name: "Studio Mac",
+                trackID: track.id,
+                trackFingerprint: track.fingerprint,
+                trackTitle: track.title,
+                isPlaying: true,
+                positionSeconds: position,
+                volume: 0.86,
+                updatedAt: now
+            )
+        ]
+        currentTrack = track
+        source = sourceTracks
+        sourceIndex = safeIndex
+        manualQueue = queued
+        history = Array(sourceTracks.prefix(safeIndex))
+        shuffle = true
+        repeatMode = .all
+        currentTime = position
+        isPlaying = true
+        loadedFingerprint = track.fingerprint
+
+        func reference(_ track: CodecTrack) -> [String: String] {
+            [
+                "id": track.id,
+                "path": "loud://track/\(track.fingerprint)",
+                "fingerprint": track.fingerprint
+            ]
+        }
+
+        let payload: [String: Any] = [
+            "schema": "loud.playback.v2",
+            "revision": 1,
+            "active_device_id": desktopDeviceID,
+            "state": "playing",
+            "track": reference(track),
+            "context": [
+                "playback_source": sourceTracks.map(reference),
+                "playback_index": safeIndex,
+                "queued_tracks": queued.map(reference),
+                "play_history": history.map(reference),
+                "shuffle": true,
+                "repeat": RepeatMode.all.rawValue
+            ],
+            "clock": [
+                "position_seconds": position,
+                "started_at_ms": now,
+                "updated_at_ms": now
+            ],
+            "volume": 0.86,
+            "server_time_ms": now
+        ]
+
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let state = try? JSONDecoder().decode(PlaybackState.self, from: data)
+        else {
+            return
+        }
+        applySyncState(state, force: true)
+    }
+}
+#endif

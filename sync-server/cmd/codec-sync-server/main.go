@@ -14,9 +14,9 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8787", "HTTP listen address")
-	dataDir := flag.String("data", "./loud-sync-data", "folder for SQLite state and media blobs")
-	webDir := flag.String("web", defaultWebDir(), "folder containing the built Loud web app")
-	authToken := flag.String("auth-token", os.Getenv("LOUD_AUTH_TOKEN"), "optional shared token for Basic/Bearer auth")
+	dataDir := flag.String("data", "./codec-sync-data", "folder for SQLite state and media blobs")
+	webDir := flag.String("web", defaultWebDir(), "folder containing the built Codec web app")
+	authToken := flag.String("auth-token", defaultAuthToken(), "optional shared token for Basic/Bearer auth")
 	flag.Parse()
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
@@ -38,7 +38,7 @@ func main() {
 		log.Printf("  web: disabled, run bun run build or pass --web")
 	}
 	if strings.TrimSpace(*authToken) != "" {
-		log.Printf("  auth: enabled")
+		log.Printf("  auth: enabled (token hidden)")
 	} else {
 		log.Printf("  auth: disabled")
 	}
@@ -55,6 +55,13 @@ func main() {
 	if err := http.ListenAndServe(*addr, handler); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func defaultAuthToken() string {
+	if token := strings.TrimSpace(os.Getenv("CODEC_AUTH_TOKEN")); token != "" {
+		return token
+	}
+	return os.Getenv("LOUD_AUTH_TOKEN")
 }
 
 func defaultWebDir() string {
@@ -101,7 +108,6 @@ func advertisedURLs(addr string) []string {
 	}
 	return urls
 }
-
 
 func advertisedIPv4s() []string {
 	addrs, err := net.InterfaceAddrs()

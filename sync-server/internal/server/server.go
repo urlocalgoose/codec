@@ -51,7 +51,11 @@ func Open(dataDir string) (*Server, error) {
 		return nil, err
 	}
 
-	db, err := sql.Open("sqlite", filepath.Join(dataDir, "loud-sync.sqlite"))
+	dbPath, err := codecDatabasePath(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +101,7 @@ func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
 	mux.HandleFunc("GET /api/v1/aux", s.handleListAux)
 	mux.HandleFunc("DELETE /api/v1/aux/{code}", s.handleEndAux)
 	mux.HandleFunc("POST /api/v1/aux/join", s.handleJoinAux)
+	mux.HandleFunc("POST /api/v1/auth/stream-token", s.handleCreateStreamToken)
 	mux.HandleFunc("POST /api/v1/media-grants", s.handleCreateMediaGrant)
 	mux.HandleFunc("POST /api/v1/playlists", s.handleCreatePlaylist)
 	mux.HandleFunc("DELETE /api/v1/playlists/{id}", s.handleDeletePlaylist)
@@ -192,10 +197,16 @@ func (s *Server) migrate(ctx context.Context) error {
 			response_json TEXT NOT NULL,
 			created_at INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS stream_tokens (
+			token TEXT PRIMARY KEY,
+			created_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist)`,
 		`CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album)`,
 		`CREATE INDEX IF NOT EXISTS idx_tracks_updated ON tracks(updated_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_playback_devices_updated ON playback_devices(updated_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_stream_tokens_expires ON stream_tokens(expires_at)`,
 	}
 
 	for _, statement := range statements {
@@ -229,6 +240,35 @@ func (s *Server) migrate(ctx context.Context) error {
 
 	_, err := s.serverID(ctx)
 	return err
+}
+
+func codecDatabasePath(dataDir string) (string, error) {
+	codecPath := filepath.Join(dataDir, "codec-sync.sqlite")
+	if _, err := os.Stat(codecPath); err == nil {
+		return codecPath, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+
+	oldPath := filepath.Join(dataDir, "loud-sync.sqlite")
+	if _, err := os.Stat(oldPath); err == nil {
+		for _, suffix := range []string{"", "-wal", "-shm"} {
+			oldFile := oldPath + suffix
+			codecFile := codecPath + suffix
+			if _, statErr := os.Stat(oldFile); errors.Is(statErr, os.ErrNotExist) {
+				continue
+			} else if statErr != nil {
+				return "", statErr
+			}
+			if err := os.Rename(oldFile, codecFile); err != nil {
+				return "", err
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+
+	return codecPath, nil
 }
 
 func (s *Server) serverID(ctx context.Context) (string, error) {

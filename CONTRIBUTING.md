@@ -1,7 +1,7 @@
 # Contributing to Codec
 
 Thanks for looking under the hood. The short version: four small codebases,
-one contract, all tests green at all times.
+one contract, and focused test targets for each runtime.
 
 ## Setup
 
@@ -37,6 +37,7 @@ so you can exercise everything without personal music.
 
 ## Docs worth reading first
 
-`docs/loud-sync.md` (server + flows), `docs/secure-sync.md` (auth model),
-`docs/loud-import-v1.md` (import manifest + identity rules), `CLAUDE.md`
-(architecture map).
+`docs/codec-sync.md` (server + flows), `docs/secure-sync.md` (auth model),
+`docs/codec-import-v1.md` (import manifest + identity rules),
+`docs/modding.md` (where to change things), `DEPLOY.md` (publish path), and
+`CLAUDE.md` (architecture map).

@@ -1,8 +1,8 @@
 # Codec Import Manifest v1
 
-Use `loud.import.v1` when another program downloads or prepares audio files (MP3, M4A, FLAC, WAV) for Loud.
+Use `loud.import.v1` when another program downloads or prepares audio files (MP3, M4A, FLAC, WAV) for Codec.
 
-Loud keeps audio as normal media files, but it does not use duplicate files for app facts like liked songs or imported playlists. App truth lives in the selected music folder at `.loud/state.json`. New files are copied into `.loud/audio/Artist/Album/`, while songs that already exist are matched by identity and only get new playlist or liked references.
+Codec keeps audio as normal media files, but it does not use duplicate files for app facts like liked songs or imported playlists. App truth lives in the selected music folder at `.loud/state.json`. New files are copied into `.loud/audio/Artist/Album/`, while songs that already exist are matched by identity and only get new playlist or liked references.
 
 ## Recommended Manifest
 
@@ -119,7 +119,7 @@ Use `playlists[].mode: "replace"` only for sync-style imports where your program
 
 When Codec imports the manifest, each track lands in one of these buckets:
 
-`new_tracks`: Loud copied the audio file into `.loud/audio`.
+`new_tracks`: Codec copied the audio file into `.loud/audio`.
 
 `existing_tracks`: Codec already had the song identity, so it did not copy the file.
 

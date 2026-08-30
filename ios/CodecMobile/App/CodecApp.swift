@@ -44,6 +44,28 @@ struct CodecApp: App {
                         app.syncPlayer(player)
                     }
                 }
+                .onOpenURL { url in
+                    handleAuxLink(url)
+                }
+        }
+    }
+
+    /// The web shell hands off join links as codec://aux?server=...&code=...
+    /// so a scanned QR lands in the app instead of Safari.
+    private func handleAuxLink(_ url: URL) {
+        guard url.scheme == "codec",
+              url.host == "aux",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
+              !code.isEmpty
+        else {
+            return
+        }
+        let server = components.queryItems?.first(where: { $0.name == "server" })?.value
+
+        Task {
+            await app.joinAux(code: code, server: server)
+            app.syncPlayer(player)
         }
     }
 }

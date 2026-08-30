@@ -22,6 +22,36 @@ struct AudioRoutePicker: UIViewRepresentable {
     }
 }
 
+/// Deck-style input slot: icon + field on a recessed themed well.
+struct DeckField<Content: View>: View {
+    @Environment(\.codecTheme) private var theme
+
+    let icon: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(theme.subtle)
+                .frame(width: 22)
+
+            content
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(theme.text)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 48)
+        .background(theme.bg.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .overlay(
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(theme.line, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.22), radius: 0, x: 0, y: 2)
+    }
+}
+
 struct SectionLabel: View {
     @Environment(\.codecTheme) private var theme
 

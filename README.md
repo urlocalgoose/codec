@@ -90,7 +90,7 @@ Build to your device with Xcode, then paste your server URL into the app.
 Docker is the shortest path:
 
 ```bash
-LOUD_AUTH_TOKEN='long-random-secret' docker compose up --build -d
+CODEC_AUTH_TOKEN='long-random-secret' docker compose up --build -d
 ```
 
 Or bare metal — the server is one binary with three flags and one environment
@@ -100,22 +100,27 @@ variable:
 cd sync-server
 go build -o codec-sync-server ./cmd/codec-sync-server
 
-LOUD_AUTH_TOKEN='long-random-secret' ./codec-sync-server \
+CODEC_AUTH_TOKEN='long-random-secret' ./codec-sync-server \
   --addr :8787 \
-  --data /srv/loud \
-  --web /srv/loud-web
+  --data /srv/codec \
+  --web /srv/codec-web
 ```
 
 - `--addr` — listen address (default `:8787`)
-- `--data` — where SQLite state and media blobs live (default `./loud-sync-data`)
+- `--data` — where SQLite state and media blobs live (default `./codec-sync-data`)
 - `--web` — the built Svelte app to serve (default: the repo's `build/`; run `bun run build` first)
-- `LOUD_AUTH_TOKEN` (or `--auth-token`) — optional shared secret. When set,
+- `CODEC_AUTH_TOKEN` (or `--auth-token`) — optional shared secret. When set,
   browsers get HTTP Basic auth, API clients send `Authorization: Bearer <token>`,
-  and only `/health` stays public.
+  `/health` and the static app shell stay public, and every `/api` route plus
+  media stays protected.
 
 It runs anywhere Go runs: a Mac in your closet, a VPS, a Raspberry Pi. For
 public access, put HTTPS in front — a Cloudflare Tunnel, Caddy, nginx, or any
 reverse proxy. The server has no provider-specific code.
+
+Full publish notes: [DEPLOY.md](DEPLOY.md). Phone setup:
+[docs/iphone.md](docs/iphone.md). Security model:
+[docs/secure-sync.md](docs/secure-sync.md).
 
 ## How sync works
 
@@ -130,20 +135,20 @@ are references to canonical tracks, never file copies.
   play/pause, and cross-device transfer ("Playing on…") via
   `loud.playback.v2` over SSE
 
-See [docs/loud-sync.md](docs/loud-sync.md) for the API surface.
+See [docs/codec-sync.md](docs/codec-sync.md) for the API surface.
 
 ## Importing music from other tools
 
 Downloaders can hand Codec a `loud.import.v1` manifest (JSON + audio files) and Codec
 will import new tracks, match existing ones by identity, and apply likes and
-playlists. Spec: [docs/loud-import-v1.md](docs/loud-import-v1.md), JSON schema:
-[docs/loud-import.schema.json](docs/loud-import.schema.json).
+playlists. Spec: [docs/codec-import-v1.md](docs/codec-import-v1.md), JSON schema:
+[docs/codec-import.schema.json](docs/codec-import.schema.json).
 
 Two helpers ship with the repo:
 
 - `cargo run --bin codec_import -- <music-root> <manifest.json> [--server URL
-  --token TOKEN]` imports a manifest headlessly and optionally pushes the
-  result to a sync server.
+  --token-file PATH]` imports a manifest headlessly and optionally pushes the
+  result to a sync server without putting the token value in the process list.
 - [`scripts/codec-add.sh`](scripts/codec-add.sh) chains a downloader and the
   importer into one command (configured via env vars / an env file): give it
   a playlist link, get the songs on every device.
@@ -170,12 +175,23 @@ ios/CodecMobile/       SwiftUI iOS app
 docs/                 contracts and guides
 ```
 
+UI work should follow [docs/ui-system.md](docs/ui-system.md). That guide
+documents the current Codec visual language: theme tokens, raised deck buttons,
+latched playback controls, connected transport stacks, quiet track lists, Aux
+passes, and the SwiftUI equivalents.
+
+Practical modding notes live in [docs/modding.md](docs/modding.md). The plan
+for future device management, friends, and out-of-Aux sharing lives in
+[docs/device-friends-sharing-plan.md](docs/device-friends-sharing-plan.md).
+
 ## A note on names
 
 Codec used to be called Loud. The wire schemas (`loud.sync.v1`,
-`loud.playback.v2`, `loud.import.v1`), the `.loud/` state folder, and the
-`LOUD_AUTH_TOKEN` variable keep the original prefix so existing libraries and
+`loud.playback.v2`, `loud.import.v1`), the `.loud/` state folder, and
+`loud://` remote paths keep the original prefix so existing libraries and
 synced devices never break. Treat them as protocol identifiers, not branding.
+`LOUD_AUTH_TOKEN` still works as a legacy env alias; new installs should use
+`CODEC_AUTH_TOKEN`.
 
 ## License
 

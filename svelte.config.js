@@ -12,6 +12,10 @@ const config = {
     adapter: adapter({
       fallback: "index.html",
     }),
+    serviceWorker: {
+      // app.html registers it manually so Tauri (localhost streams) stays out.
+      register: false,
+    },
   },
 };
 

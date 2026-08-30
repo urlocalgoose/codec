@@ -45,7 +45,6 @@ struct PlaybackSource {
     url: String,
 }
 
-
 #[tauri::command(rename_all = "snake_case")]
 fn scan_library(
     app: tauri::AppHandle,
@@ -276,7 +275,7 @@ fn sync_library_from_server(
         let manifest = json!({
             "schema": "loud.import.v1",
             "source": {
-                "name": "loud-sync",
+                "name": "codec-sync",
                 "base_path": "files"
             },
             "tracks": manifest_tracks
@@ -362,7 +361,7 @@ fn prewarm_artwork_cache(library: &Library) {
     }
 
     let _ = thread::Builder::new()
-        .name("loud-artwork-cache".to_string())
+        .name("codec-artwork-cache".to_string())
         .spawn(move || {
             for artwork in artworks {
                 if let Err(err) = ensure_cached_artwork_thumbnail(&artwork) {
@@ -371,7 +370,6 @@ fn prewarm_artwork_cache(library: &Library) {
             }
         });
 }
-
 
 #[tauri::command(rename_all = "snake_case")]
 fn start_library_watch(
@@ -433,7 +431,6 @@ fn is_mp3_path(path: &Path) -> bool {
         .map(|extension| extension.eq_ignore_ascii_case("mp3"))
         .unwrap_or(false)
 }
-
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

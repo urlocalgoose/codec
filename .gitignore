@@ -13,12 +13,23 @@ vite.config.ts.timestamp-*
 /src-tauri/gen/schemas
 
 # Go sync server (local data: SQLite + media blobs)
+/sync-server/codec-sync-data
 /sync-server/loud-sync-data
 
 # iOS
 /ios/LoudMobile/.build
+/ios/CodecMobile/.build
+/ios/CodecMobile/build
 xcuserdata/
 DerivedData/
+
+# Promo/demo generation
+/promo/__pycache__
+/promo/blog-demo
+/promo/.DS_Store
+/promo/output/render-assets
+/promo/output/sample-*.png
+/promo/output/codec-promo-sample.png
 
 # Secrets / env
 .env

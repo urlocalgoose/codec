@@ -42,8 +42,8 @@ struct ConnectView: View {
 
                     VStack(alignment: .leading, spacing: 14) {
                         SectionLabel("Sync server")
-                        deckField(icon: "server.rack") {
-                            TextField("http://192.168.1.20:8787", text: $app.serverURLString)
+                        DeckField(icon: "server.rack") {
+                            TextField("https://your-server or 192.168.1.20:8787", text: $app.serverURLString)
                                 .textInputAutocapitalization(.never)
                                 .keyboardType(.URL)
                                 .autocorrectionDisabled()
@@ -52,8 +52,8 @@ struct ConnectView: View {
 
                     VStack(alignment: .leading, spacing: 14) {
                         SectionLabel("Auth token (optional)")
-                        deckField(icon: "key") {
-                            SecureField("LOUD_AUTH_TOKEN", text: $app.token)
+                        DeckField(icon: "key") {
+                            SecureField("CODEC_AUTH_TOKEN", text: $app.token)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
                         }
@@ -105,27 +105,5 @@ struct ConnectView: View {
         }
         .background(theme.bg.ignoresSafeArea())
         .scrollDismissesKeyboard(.interactively)
-    }
-
-    private func deckField(icon: String, @ViewBuilder content: () -> some View) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(theme.subtle)
-                .frame(width: 22)
-
-            content()
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(theme.text)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 48)
-        .background(theme.bg.opacity(0.72))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .overlay(
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(theme.line, lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.22), radius: 0, x: 0, y: 2)
     }
 }

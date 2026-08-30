@@ -35,9 +35,9 @@ pub(super) fn read_library_state(root: &Path) -> Result<LibraryState, String> {
     }
 
     let text =
-        fs::read_to_string(&path).map_err(|err| format!("Could not read Loud state: {err}"))?;
+        fs::read_to_string(&path).map_err(|err| format!("Could not read Codec state: {err}"))?;
     let mut state: LibraryState =
-        serde_json::from_str(&text).map_err(|err| format!("Could not parse Loud state: {err}"))?;
+        serde_json::from_str(&text).map_err(|err| format!("Could not parse Codec state: {err}"))?;
 
     if state.schema_version == 0 {
         state.schema_version = 1;
@@ -50,14 +50,13 @@ pub(super) fn write_library_state(root: &Path, state: &LibraryState) -> Result<(
     let path = state_file_path(root);
     let parent = path
         .parent()
-        .ok_or_else(|| "Could not resolve Loud state folder.".to_string())?;
+        .ok_or_else(|| "Could not resolve Codec state folder.".to_string())?;
     fs::create_dir_all(parent)
-        .map_err(|err| format!("Could not create Loud state folder: {err}"))?;
+        .map_err(|err| format!("Could not create Codec state folder: {err}"))?;
     let text = serde_json::to_string_pretty(state)
-        .map_err(|err| format!("Could not serialize Loud state: {err}"))?;
-    fs::write(&path, text).map_err(|err| format!("Could not write Loud state: {err}"))
+        .map_err(|err| format!("Could not serialize Codec state: {err}"))?;
+    fs::write(&path, text).map_err(|err| format!("Could not write Codec state: {err}"))
 }
-
 
 pub(super) fn apply_state_playlists(
     tracks_by_fingerprint: &mut BTreeMap<String, Track>,
@@ -150,7 +149,10 @@ pub(super) fn state_playlist_mut_by_id<'a>(
         .expect("state playlist was just pushed")
 }
 
-pub(super) fn state_playlist_mut<'a>(state: &'a mut LibraryState, name: &str) -> &'a mut StatePlaylist {
+pub(super) fn state_playlist_mut<'a>(
+    state: &'a mut LibraryState,
+    name: &str,
+) -> &'a mut StatePlaylist {
     let clean_name = clean_plain_text(Some(name)).unwrap_or_else(|| "Imported".to_string());
     let normalized_name = normalize(&clean_name);
     let id = state_playlist_id_for_name(&clean_name);
@@ -220,7 +222,11 @@ pub(super) fn add_state_playlist_track(
     true
 }
 
-pub(super) fn add_removed_playlist_membership(state: &mut LibraryState, playlist_id: &str, fingerprint: &str) {
+pub(super) fn add_removed_playlist_membership(
+    state: &mut LibraryState,
+    playlist_id: &str,
+    fingerprint: &str,
+) {
     if state.removed_playlist_memberships.iter().any(|membership| {
         membership.playlist_id == playlist_id && membership.track_fingerprint == fingerprint
     }) {
@@ -253,7 +259,6 @@ pub(super) fn push_unique<T: Eq>(items: &mut Vec<T>, item: T) {
     }
 }
 
-
 pub(super) fn apply_state_track_metadata(track: &mut Track, metadata: &StateTrackMetadata) {
     track.fingerprint = metadata.fingerprint.clone();
     track.id = track_id_for_fingerprint(&track.fingerprint);
@@ -266,4 +271,3 @@ pub(super) fn apply_state_track_metadata(track: &mut Track, metadata: &StateTrac
     track.track_number = metadata.track_number;
     track.duration_seconds = metadata.duration_seconds;
 }
-

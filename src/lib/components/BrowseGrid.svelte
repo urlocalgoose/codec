@@ -7,11 +7,13 @@
     kind,
     artists = [],
     albums = [],
+    artistArt = new Map(),
     onOpen
   }: {
     kind: "artists" | "albums";
     artists?: ArtistSummary[];
     albums?: AlbumSummary[];
+    artistArt?: Map<string, string>;
     onOpen: (searchQuery: string) => void;
   } = $props();
 </script>
@@ -20,7 +22,11 @@
   <section class="summary-grid artists-grid" aria-label="Artists">
     {#each artists as artist (artist.name)}
       <button class="summary-card" type="button" onclick={() => onOpen(artist.name)}>
-        <span class="summary-icon"><Users size={22} /></span>
+        {#if artistArt.get(artist.name)}
+          <img class="summary-art" src={artistArt.get(artist.name)} alt="" loading="lazy" decoding="async" />
+        {:else}
+          <span class="summary-icon"><Users size={48} /></span>
+        {/if}
         <strong>{artist.name}</strong>
         <span>{formatCount(artist.trackCount, "track")} · {formatCount(artist.albumCount, "album")}</span>
       </button>
@@ -33,7 +39,7 @@
         {#if album.artwork_url}
           <img class="summary-art" src={album.artwork_url} alt="" loading="lazy" decoding="async" />
         {:else}
-          <span class="summary-icon"><Disc3 size={24} /></span>
+          <span class="summary-icon"><Disc3 size={48} /></span>
         {/if}
         <strong>{album.name}</strong>
         <span>{album.artist} · {formatCount(album.trackCount, "track")}</span>

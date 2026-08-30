@@ -13,8 +13,18 @@ final class AppModel {
     }
 
     private enum StorageKey {
-        static let serverURL = "loud.serverURL"
-        static let token = "loud.serverToken"
+        static let serverURL = "codec.serverURL"
+        static let token = "codec.serverToken"
+        static let auxCode = "codec.auxCode"
+        static let auxIsGuest = "codec.auxIsGuest"
+        static let tokenBeforeAuxJoin = "codec.tokenBeforeAuxJoin"
+        static let serverBeforeAuxJoin = "codec.serverBeforeAuxJoin"
+        static let legacyServerURL = "loud.serverURL"
+        static let legacyToken = "loud.serverToken"
+        static let legacyAuxCode = "loud.auxCode"
+        static let legacyAuxIsGuest = "loud.auxIsGuest"
+        static let legacyTokenBeforeAuxJoin = "loud.tokenBeforeAuxJoin"
+        static let legacyServerBeforeAuxJoin = "loud.serverBeforeAuxJoin"
     }
 
     var serverURLString: String {
@@ -29,6 +39,19 @@ final class AppModel {
         didSet { rebuildTrackIndexes() }
     }
     var errorMessage = ""
+    var auxBusy = false
+    var activeAuxCode: String {
+        didSet { UserDefaults.standard.set(activeAuxCode, forKey: StorageKey.auxCode) }
+    }
+    var activeAuxIsGuest: Bool {
+        didSet { UserDefaults.standard.set(activeAuxIsGuest, forKey: StorageKey.auxIsGuest) }
+    }
+    private var tokenBeforeAuxJoin: String {
+        didSet { UserDefaults.standard.set(tokenBeforeAuxJoin, forKey: StorageKey.tokenBeforeAuxJoin) }
+    }
+    private var serverBeforeAuxJoin: String {
+        didSet { UserDefaults.standard.set(serverBeforeAuxJoin, forKey: StorageKey.serverBeforeAuxJoin) }
+    }
 
     /// O(1) lookups for resolving playback-context references; a 700-track
     /// context resolved by linear scans was enough to jank the main thread.
@@ -49,8 +72,18 @@ final class AppModel {
     private(set) var client: CodecClient?
 
     init() {
-        serverURLString = UserDefaults.standard.string(forKey: StorageKey.serverURL) ?? ""
-        token = UserDefaults.standard.string(forKey: StorageKey.token) ?? ""
+        serverURLString = Self.storedString(StorageKey.serverURL, legacy: StorageKey.legacyServerURL)
+        token = Self.storedString(StorageKey.token, legacy: StorageKey.legacyToken)
+        activeAuxCode = Self.storedString(StorageKey.auxCode, legacy: StorageKey.legacyAuxCode)
+        activeAuxIsGuest = Self.storedBool(StorageKey.auxIsGuest, legacy: StorageKey.legacyAuxIsGuest)
+        tokenBeforeAuxJoin = Self.storedString(
+            StorageKey.tokenBeforeAuxJoin,
+            legacy: StorageKey.legacyTokenBeforeAuxJoin
+        )
+        serverBeforeAuxJoin = Self.storedString(
+            StorageKey.serverBeforeAuxJoin,
+            legacy: StorageKey.legacyServerBeforeAuxJoin
+        )
         if let cached = Self.readCachedLibrary() {
             library = cached
             connection = .offline
@@ -58,6 +91,17 @@ final class AppModel {
         client = makeClient()
         // didSet does not fire during init; index the cached library.
         rebuildTrackIndexes()
+    }
+
+    private static func storedString(_ key: String, legacy: String) -> String {
+        UserDefaults.standard.string(forKey: key) ?? UserDefaults.standard.string(forKey: legacy) ?? ""
+    }
+
+    private static func storedBool(_ key: String, legacy: String) -> Bool {
+        if UserDefaults.standard.object(forKey: key) != nil {
+            return UserDefaults.standard.bool(forKey: key)
+        }
+        return UserDefaults.standard.bool(forKey: legacy)
     }
 
     var isConnected: Bool { connection == .connected }
@@ -79,6 +123,7 @@ final class AppModel {
             library = nextLibrary
             connection = .connected
             Self.writeCachedLibrary(nextLibrary)
+            await refreshAuxState()
         } catch {
             connection = library != nil ? .offline : .disconnected
             errorMessage = friendlyMessage(for: error)
@@ -106,6 +151,10 @@ final class AppModel {
         client = nil
         serverURLString = ""
         token = ""
+        activeAuxCode = ""
+        activeAuxIsGuest = false
+        tokenBeforeAuxJoin = ""
+        serverBeforeAuxJoin = ""
         Self.deleteCachedLibrary()
     }
 
@@ -126,6 +175,135 @@ final class AppModel {
             return "iOS blocked this HTTP server. Use an HTTPS URL or rebuild the app."
         }
         return error.localizedDescription
+    }
+
+    // MARK: - Aux
+
+    var auxLink: URL? {
+        guard !activeAuxCode.isEmpty,
+              let url = URL(string: normalizeServerURLString(serverURLString)),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        else {
+            return nil
+        }
+        components.queryItems = [URLQueryItem(name: "aux", value: activeAuxCode)]
+        return components.url
+    }
+
+    func refreshAuxState() async {
+        guard let client, !activeAuxIsGuest else {
+            return
+        }
+        do {
+            let sessions = try await client.listAuxSessions()
+            activeAuxCode = sessions.first?.code ?? ""
+            activeAuxIsGuest = false
+        } catch {
+            activeAuxCode = ""
+        }
+    }
+
+    func startAux() async {
+        guard let client else {
+            errorMessage = "Connect to the server before starting an aux."
+            return
+        }
+        auxBusy = true
+        defer { auxBusy = false }
+
+        do {
+            let session = try await client.createAuxSession()
+            activeAuxCode = session.code
+            activeAuxIsGuest = false
+            tokenBeforeAuxJoin = ""
+        } catch {
+            errorMessage = friendlyMessage(for: error)
+        }
+    }
+
+    func endAux() async {
+        if activeAuxIsGuest {
+            await leaveAux()
+            return
+        }
+        guard let client, !activeAuxCode.isEmpty else {
+            return
+        }
+        auxBusy = true
+        defer { auxBusy = false }
+
+        do {
+            try await client.endAuxSession(code: activeAuxCode)
+            activeAuxCode = ""
+        } catch {
+            errorMessage = friendlyMessage(for: error)
+        }
+    }
+
+    func joinAux(code rawCode: String, server rawServer: String? = nil) async {
+        let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !code.isEmpty else {
+            return
+        }
+        // A scanned link can point at a friend's server; remember home so
+        // leaving the aux goes back there.
+        let previousServer = serverURLString
+        if let rawServer, !rawServer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            serverURLString = rawServer
+        }
+        serverURLString = normalizeServerURLString(serverURLString)
+        guard let joiningClient = makeClient() else {
+            errorMessage = "Enter the server URL before joining an aux."
+            serverURLString = previousServer
+            return
+        }
+
+        auxBusy = true
+        defer { auxBusy = false }
+
+        do {
+            let session = try await joiningClient.joinAuxSession(code: code)
+            guard let guestToken = session.guestToken, !guestToken.isEmpty else {
+                errorMessage = "The server did not return an aux guest token."
+                serverURLString = previousServer
+                return
+            }
+            if !activeAuxIsGuest {
+                tokenBeforeAuxJoin = token
+                serverBeforeAuxJoin = previousServer
+            }
+            token = guestToken
+            guard let guestClient = makeClient() else {
+                throw CodecClientError.invalidBaseURL
+            }
+            let nextLibrary = try await guestClient.library()
+            client = guestClient
+            library = nextLibrary
+            connection = .connected
+            activeAuxCode = session.code
+            activeAuxIsGuest = true
+            Self.writeCachedLibrary(nextLibrary)
+        } catch {
+            errorMessage = friendlyMessage(for: error)
+            serverURLString = previousServer
+        }
+    }
+
+    func leaveAux() async {
+        guard activeAuxIsGuest else {
+            return
+        }
+        auxBusy = true
+        defer { auxBusy = false }
+
+        activeAuxCode = ""
+        activeAuxIsGuest = false
+        token = tokenBeforeAuxJoin
+        tokenBeforeAuxJoin = ""
+        serverURLString = serverBeforeAuxJoin
+        serverBeforeAuxJoin = ""
+        client = makeClient()
+        await connect()
     }
 
     /// Points the player at the current client and starts or stops shared

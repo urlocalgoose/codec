@@ -36,7 +36,7 @@
             {#if cover?.artwork_url}
               <img class="home-card-art" src={cover.artwork_url} alt="" loading="lazy" decoding="async" />
             {:else}
-              <span class="home-card-art placeholder"><ListMusic size={26} /></span>
+              <span class="home-card-art placeholder"><ListMusic size={44} /></span>
             {/if}
             <strong>{playlist.name}</strong>
             <span>{formatCount(playlist.track_ids.length, "song")}</span>
@@ -56,7 +56,7 @@
               {#if item.cover.artwork_url}
                 <img class="home-tile-art" src={item.cover.artwork_url} alt="" loading="lazy" decoding="async" />
               {:else}
-                <span class="home-tile-art placeholder"><Disc3 size={30} /></span>
+                <span class="home-tile-art placeholder"><Disc3 size={44} /></span>
               {/if}
               <strong>{item.album.name}</strong>
               <span>{item.album.artist}</span>
@@ -68,12 +68,14 @@
               type="button"
               onclick={() => onPlayTrack(item.track)}
             >
-              {#if item.track.artwork_url}
-                <img class="home-tile-art" src={item.track.artwork_url} alt="" loading="lazy" decoding="async" />
-              {:else}
-                <span class="home-tile-art placeholder"><Music2 size={30} /></span>
-              {/if}
-              <span class="home-tile-play"><Play size={16} /></span>
+              <span class="home-tile-cover">
+                {#if item.track.artwork_url}
+                  <img class="home-tile-art" src={item.track.artwork_url} alt="" loading="lazy" decoding="async" />
+                {:else}
+                  <span class="home-tile-art placeholder"><Music2 size={44} /></span>
+                {/if}
+                <span class="home-tile-play"><Play size={16} /></span>
+              </span>
               <strong>{item.track.title}</strong>
               <span>{item.track.artist}</span>
             </button>

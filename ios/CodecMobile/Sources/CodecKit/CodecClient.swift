@@ -9,10 +9,10 @@ public protocol CodecTransport: Sendable {
 
 extension URLSession: CodecTransport {}
 
-/// Client for the Codec sync server (`loud-sync-server`).
+/// Client for the Codec sync server.
 ///
 /// Speaks the plain v1 API with optional shared-token auth: when the server
-/// is started with `LOUD_AUTH_TOKEN`, every request carries
+/// is started with `CODEC_AUTH_TOKEN`, every request carries
 /// `Authorization: Bearer <token>`.
 public struct CodecClient: Sendable {
     public let baseURL: URL
@@ -42,6 +42,33 @@ public struct CodecClient: Sendable {
 
     public func library() async throws -> CodecLibrary {
         try await send(request(method: "GET", path: "/api/v1/library"), as: CodecLibrary.self)
+    }
+
+    // MARK: - Aux sessions
+
+    public func createAuxSession() async throws -> AuxSession {
+        var request = try request(method: "POST", path: "/api/v1/aux")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+        return try await send(request, as: AuxSession.self)
+    }
+
+    public func listAuxSessions() async throws -> [AuxSession] {
+        try await send(request(method: "GET", path: "/api/v1/aux"), as: [AuxSession].self)
+    }
+
+    public func endAuxSession(code: String) async throws {
+        let encoded = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        var request = try request(method: "DELETE", path: "/api/v1/aux/\(encoded)")
+        request.httpBody = nil
+        _ = try await sendExpectingSuccess(request)
+    }
+
+    public func joinAuxSession(code: String) async throws -> AuxSession {
+        var request = try unauthenticatedRequest(method: "POST", path: "/api/v1/aux/join")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["code": code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()])
+        return try await send(request, as: AuxSession.self)
     }
 
     /// Canonical audio URL for a track, used for both streaming and downloads.
@@ -189,6 +216,13 @@ public struct CodecClient: Sendable {
         return request
     }
 
+    private func unauthenticatedRequest(method: String, path: String) throws -> URLRequest {
+        let url = try endpointURL(path: path, encodedPath: false)
+        var request = URLRequest(url: url)
+        request.httpMethod = method.uppercased()
+        return request
+    }
+
     private func sendExpectingSuccess(_ request: URLRequest) async throws -> Data {
         let (data, response) = try await transport.data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -258,7 +292,8 @@ public enum CodecClientError: Error, Equatable, LocalizedError {
 }
 
 /// Normalizes what people actually paste: trims whitespace, strips trailing
-/// slashes, and assumes http:// when no scheme is given.
+/// slashes, and picks a scheme when none is given - https for real domains,
+/// http only for LAN addresses that never carry certificates.
 public func normalizeServerURLString(_ raw: String) -> String {
     var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     while trimmed.hasSuffix("/") {
@@ -268,7 +303,21 @@ public func normalizeServerURLString(_ raw: String) -> String {
         return ""
     }
     if trimmed.range(of: "^https?://", options: [.regularExpression, .caseInsensitive]) == nil {
-        return "http://\(trimmed)"
+        return "\(looksLikeLANHost(trimmed) ? "http" : "https")://\(trimmed)"
     }
     return trimmed
+}
+
+private func looksLikeLANHost(_ address: String) -> Bool {
+    guard let bare = address.split(separator: "/").first else {
+        return false
+    }
+    if bare.hasPrefix("[") {
+        return true
+    }
+    let name = (bare.split(separator: ":").first.map(String.init) ?? String(bare)).lowercased()
+    if name == "localhost" || name.hasSuffix(".local") {
+        return true
+    }
+    return name.range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil
 }

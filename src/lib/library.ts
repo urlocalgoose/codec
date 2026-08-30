@@ -219,6 +219,27 @@ export function artistSummaries(library: Library): ArtistSummary[] {
     .sort((a, b) => b.trackCount - a.trackCount || a.name.localeCompare(b.name));
 }
 
+/** First available album artwork per artist, keyed by the same display name
+ * artist summaries use, so the Artists grid can show real art instead of a
+ * generic glyph. */
+export function artistCovers(library: Library | null): Map<string, string> {
+  const covers = new Map<string, string>();
+  const namesByKey = new Map<string, string>();
+
+  for (const track of library?.tracks ?? []) {
+    const key = normalize(track.artist);
+    if (!namesByKey.has(key)) {
+      namesByKey.set(key, track.artist);
+    }
+    const name = namesByKey.get(key)!;
+    if (!covers.has(name) && track.artwork_url) {
+      covers.set(name, track.artwork_url);
+    }
+  }
+
+  return covers;
+}
+
 export function albumSummaries(library: Library): AlbumSummary[] {
   const albums = new Map<string, Track[]>();
 
