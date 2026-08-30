@@ -31,6 +31,7 @@ func (s *Server) snapshot(ctx context.Context, baseURL string) (SyncSnapshot, er
 	attachPlaylistIDs(tracks, playlists)
 	tracks = nonNilTracks(tracks)
 	playlists = nonNilPlaylists(playlists)
+	s.attachPlaylistArtwork(playlists, baseURL)
 	artists := nonNilArtists(summarizeArtists(tracks))
 	albums := nonNilAlbums(summarizeAlbums(tracks))
 
@@ -379,4 +380,28 @@ func (s *Server) audioPath(fingerprint string) string {
 
 func (s *Server) artworkPath(fingerprint string) string {
 	return filepath.Join(s.dataDir, "artwork", safeFileName(fingerprint)+".jpg")
+}
+
+// Custom playlist covers live beside track artwork, keyed by playlist id.
+// Presence on disk is the source of truth, so covers survive snapshot pushes
+// (which replace playlist rows wholesale).
+func (s *Server) playlistArtworkPath(playlistID string) string {
+	return filepath.Join(s.dataDir, "artwork", "playlist_"+safeFileName(playlistID)+".jpg")
+}
+
+func (s *Server) attachPlaylistArtwork(playlists []Playlist, baseURL string) {
+	for i := range playlists {
+		info, err := os.Stat(s.playlistArtworkPath(playlists[i].ID))
+		if err != nil {
+			continue
+		}
+		// The mtime busts client caches when the cover changes.
+		url := fmt.Sprintf(
+			"%s/api/v1/playlists/%s/artwork?v=%d",
+			baseURL,
+			pathEscape(playlists[i].ID),
+			info.ModTime().Unix(),
+		)
+		playlists[i].ArtworkURL = &url
+	}
 }

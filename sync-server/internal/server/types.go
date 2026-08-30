@@ -40,6 +40,8 @@ type Playlist struct {
 	Path     string   `json:"path"`
 	TrackIDs []string `json:"track_ids"`
 	IsLiked  bool     `json:"is_liked"`
+	// Server-derived: set when a custom cover exists; never pushed by clients.
+	ArtworkURL *string `json:"artwork_url,omitempty"`
 }
 
 type Track struct {

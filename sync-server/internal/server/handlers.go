@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -341,6 +342,48 @@ func (s *Server) handleGetArtwork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	serveMedia(w, r, path, "image/jpeg")
+}
+
+func (s *Server) handlePutPlaylistArtwork(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("missing playlist id"))
+		return
+	}
+	if _, err := s.playlistByID(r.Context(), id); err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	if _, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil && r.Header.Get("Content-Type") != "" {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if _, err := writeRequestBody(s.playlistArtworkPath(id), r.Body, maxImageBytes); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.libraryVersion.Add(1)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleGetPlaylistArtwork(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	path := s.playlistArtworkPath(id)
+	if _, err := os.Stat(path); err != nil {
+		writeError(w, http.StatusNotFound, errors.New("no playlist artwork"))
+		return
+	}
+	serveMedia(w, r, path, "image/jpeg")
+}
+
+func (s *Server) handleDeletePlaylistArtwork(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if err := os.Remove(s.playlistArtworkPath(id)); err != nil && !os.IsNotExist(err) {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.libraryVersion.Add(1)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handlePutPlaybackSession(w http.ResponseWriter, r *http.Request) {

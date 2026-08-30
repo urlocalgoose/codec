@@ -4,7 +4,7 @@
       
         @font-face {
           font-family: 'Codie Hand';
-          src: url('../../ios/CodecMobile/Resources/CodieHand-Regular.ttf') format('truetype');
+          src: url('file:///Users/josephcody/Desktop/loud/Loud/ios/CodecMobile/Resources/CodieHand-Regular.ttf') format('truetype');
         }
         
       text { dominant-baseline: alphabetic; }

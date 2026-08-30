@@ -58,6 +58,15 @@ func streamTokenPathAllowed(r *http.Request) bool {
 	if path == "/api/v1/playback/events" || path == "/api/v2/playback/events" {
 		return true
 	}
+	// The library export downloads via a plain link, so the URL token is the
+	// only auth a browser navigation can carry.
+	if path == "/api/v1/export" {
+		return true
+	}
+	// Playlist covers load like track artwork: <img> tags with a URL token.
+	if strings.HasPrefix(path, "/api/v1/playlists/") && strings.HasSuffix(path, "/artwork") {
+		return true
+	}
 	if !strings.HasPrefix(path, "/api/v1/tracks/") {
 		return false
 	}

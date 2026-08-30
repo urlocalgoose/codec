@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -1155,5 +1156,190 @@ func TestMediaGrantsAreScopedToGrantedTracks(t *testing.T) {
 	}
 	if code := get("/api/v1/library", grant.Token); code != http.StatusUnauthorized {
 		t.Fatalf("grant on library: expected 401, got %d", code)
+	}
+}
+
+func TestPlaylistArtworkUploadServeAndDelete(t *testing.T) {
+	srv, httpServer := testServer(t)
+	if err := srv.upsertPlaylist(context.Background(), Playlist{ID: "pl_art", Name: "Mix"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cover := []byte("fake-jpeg-bytes")
+	put, err := http.NewRequest(http.MethodPut, httpServer.URL+"/api/v1/playlists/pl_art/artwork", bytes.NewReader(cover))
+	if err != nil {
+		t.Fatal(err)
+	}
+	put.Header.Set("Content-Type", "image/jpeg")
+	res, err := http.DefaultClient.Do(put)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("put artwork status = %d", res.StatusCode)
+	}
+
+	res, err = http.Get(httpServer.URL + "/api/v1/playlists/pl_art/artwork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || !bytes.Equal(served, cover) {
+		t.Fatalf("get artwork status = %d body = %q", res.StatusCode, served)
+	}
+
+	res, err = http.Get(httpServer.URL + "/api/v1/library")
+	if err != nil {
+		t.Fatal(err)
+	}
+	library, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if !strings.Contains(string(library), "/api/v1/playlists/pl_art/artwork") {
+		t.Fatalf("library missing playlist artwork_url: %s", library)
+	}
+
+	del, err := http.NewRequest(http.MethodDelete, httpServer.URL+"/api/v1/playlists/pl_art/artwork", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err = http.DefaultClient.Do(del)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete artwork status = %d", res.StatusCode)
+	}
+
+	res, err = http.Get(httpServer.URL + "/api/v1/playlists/pl_art/artwork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("deleted artwork status = %d", res.StatusCode)
+	}
+}
+
+func TestPlaylistArtworkRejectsUnknownPlaylist(t *testing.T) {
+	_, httpServer := testServer(t)
+	put, err := http.NewRequest(http.MethodPut, httpServer.URL+"/api/v1/playlists/nope/artwork", bytes.NewReader([]byte("x")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(put)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("put to unknown playlist status = %d", res.StatusCode)
+	}
+}
+
+func TestExportLibraryZipRoundTrip(t *testing.T) {
+	srv, httpServer := testServer(t)
+	ctx := context.Background()
+
+	audio := []byte("mp3-bytes-here")
+	if err := srv.upsertTrack(ctx, Track{
+		Fingerprint: "isrc:EXPORT001",
+		Title:       "Export Song",
+		Artist:      "Export Artist",
+		Album:       "Export Album",
+		IsLiked:     true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	audioPath := srv.audioPath("isrc:EXPORT001")
+	if err := os.WriteFile(audioPath, audio, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.attachMediaPath(ctx, "isrc:EXPORT001", "audio_path", audioPath, int64(len(audio))); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.upsertPlaylist(ctx, Playlist{
+		ID:       "pl_export",
+		Name:     "Road Trip",
+		TrackIDs: []string{"track_isrc:EXPORT001"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := http.Get(httpServer.URL + "/api/v1/export")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("export status = %d", res.StatusCode)
+	}
+
+	reader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var manifestRaw []byte
+	var audioEntry *zip.File
+	for _, file := range reader.File {
+		if file.Name == "codec-import.json" {
+			rc, err := file.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifestRaw, _ = io.ReadAll(rc)
+			rc.Close()
+		}
+		if strings.HasSuffix(file.Name, ".mp3") {
+			audioEntry = file
+		}
+	}
+	if manifestRaw == nil || audioEntry == nil {
+		t.Fatalf("zip missing manifest or audio: %v", reader.File)
+	}
+
+	var manifest struct {
+		Schema string `json:"schema"`
+		Tracks []struct {
+			File        string `json:"file"`
+			Fingerprint string `json:"fingerprint"`
+			Liked       bool   `json:"liked"`
+		} `json:"tracks"`
+		Playlists []struct {
+			Name   string `json:"name"`
+			Tracks []struct {
+				Fingerprint string `json:"fingerprint"`
+			} `json:"tracks"`
+		} `json:"playlists"`
+	}
+	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Schema != "loud.import.v1" {
+		t.Fatalf("schema = %q", manifest.Schema)
+	}
+	if len(manifest.Tracks) != 1 || manifest.Tracks[0].Fingerprint != "isrc:EXPORT001" || !manifest.Tracks[0].Liked {
+		t.Fatalf("tracks = %+v", manifest.Tracks)
+	}
+	if manifest.Tracks[0].File != audioEntry.Name {
+		t.Fatalf("manifest file %q != zip entry %q", manifest.Tracks[0].File, audioEntry.Name)
+	}
+	if len(manifest.Playlists) != 1 || manifest.Playlists[0].Name != "Road Trip" ||
+		len(manifest.Playlists[0].Tracks) != 1 || manifest.Playlists[0].Tracks[0].Fingerprint != "isrc:EXPORT001" {
+		t.Fatalf("playlists = %+v", manifest.Playlists)
+	}
+
+	rc, err := audioEntry.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(rc)
+	rc.Close()
+	if !bytes.Equal(got, audio) {
+		t.Fatalf("audio bytes mismatch: %q", got)
 	}
 }
