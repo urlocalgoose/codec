@@ -86,11 +86,10 @@ details in [docs/iphone.md](docs/iphone.md), the security model in
 
 The token is Codec's entire auth story, on purpose. You invent one secret
 (or let setup generate it), start the server with it, and paste it into each
-app once. Browsers hitting the raw URL get a password prompt — the token is
-the password, username doesn't matter. Under the hood, clients trade it for
-short-lived stream tokens so your real secret never ends up in media URLs or
-proxy logs. No token means an open server, which is fine on a trusted LAN
-and a terrible idea on the internet.
+app once — the web app asks for it right on its connect screen. Under the
+hood, clients trade it for short-lived stream tokens so your real secret
+never ends up in media URLs or proxy logs. No token means an open server,
+which is fine on a trusted LAN and a terrible idea on the internet.
 
 ## The loud format
 

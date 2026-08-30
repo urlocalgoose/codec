@@ -17,7 +17,10 @@ CODEC_AUTH_TOKEN='long-random-secret' ./codec-sync-server \
 
 When a token is set:
 
-- Browser access uses HTTP Basic auth.
+- The web app collects the token on its connect screen and sends it as a
+  Bearer header. Direct navigation to an API URL still gets an HTTP Basic
+  prompt (token as the password); API fetches never trigger the browser's
+  native login dialog.
 - API clients may use `Authorization: Bearer <token>`.
 - Clients that cannot set headers (`<audio>` elements, EventSource/SSE) use
   `POST /api/v1/auth/stream-token` to mint a short-lived `stream_...` token,
