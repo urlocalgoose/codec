@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build release zips
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: sync-server/go.mod
+
+      - name: Cross-compile server and package
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          targets="darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64"
+          for target in $targets; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            name="codec-${goos}-${goarch}"
+            stage="dist/${name}"
+            mkdir -p "$stage"
+            bin="codec-sync-server"
+            [ "$goos" = "windows" ] && bin="codec-sync-server.exe"
+            (cd sync-server && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath -ldflags="-s -w" -o "../${stage}/${bin}" ./cmd/codec-sync-server)
+            cp -R build "${stage}/web"
+            cat > "${stage}/START-HERE.txt" <<'EOF'
+          Codec — quick start
+
+          1. Run the server:
+               macOS / Linux:  ./codec-sync-server
+               Windows:        codec-sync-server.exe
+
+             First run asks three questions (folder, port, auth token) and
+             prints the URLs to open. Your answers live in ~/.codec/server.json;
+             run with --setup to change them later.
+
+             macOS may block the first launch (unsigned binary): right-click
+             the file, Open, then confirm — or run
+               xattr -d com.apple.quarantine codec-sync-server
+
+          2. Open the printed URL in a browser. Paste the token when asked.
+             On your phone, use the LAN address and Add to Home Screen.
+
+          3. Add music: Settings -> Import music (MP3s or a loud.import.v1
+             manifest), or point the desktop app at your music folder.
+
+          Docs and source: https://github.com/urlocalgoose/codec
+          EOF
+            (cd dist && zip -qr "${name}.zip" "$name" && rm -rf "$name")
+          done
+          ls -la dist
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/*.zip \
+            --title "Codec ${GITHUB_REF_NAME}" \
+            --generate-notes
