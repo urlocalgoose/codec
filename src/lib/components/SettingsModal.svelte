@@ -160,12 +160,12 @@
               <Upload size={17} />
             {/if}
             <span>Import music</span>
-            <small>MP3s or loud.import.v1</small>
+            <small>MP3s, manifest, or .loud.zip</small>
           </button>
           <input
             bind:this={importInputEl}
             type="file"
-            accept=".mp3,audio/mpeg,.json,application/json"
+            accept=".mp3,audio/mpeg,.json,application/json,.zip,application/zip"
             multiple
             hidden
             onchange={handleImportPicked}

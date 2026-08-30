@@ -22,6 +22,7 @@
   import VisualizerView from "$lib/components/VisualizerView.svelte";
   import { SpectroSampler } from "$lib/visualizer";
   import { readCachedLibrary, writeCachedLibrary } from "$lib/library-cache";
+  import { readZipEntries, zipEntryBlob } from "$lib/zip";
   import {
     baseName,
     fingerprintFor,
@@ -2526,13 +2527,16 @@
       return;
     }
 
+    const zipFile = files.find((file) => file.name.toLowerCase().endsWith(".zip"));
     const manifestFile = files.find((file) => file.name.toLowerCase().endsWith(".json"));
-    const audioFiles = files.filter((file) => file !== manifestFile);
+    const audioFiles = files.filter((file) => file !== manifestFile && file !== zipFile);
 
     importing = true;
     errorMessage = "";
     try {
-      if (manifestFile) {
+      if (zipFile) {
+        await importLoudZip(zipFile);
+      } else if (manifestFile) {
         await importManifestBundle(manifestFile, audioFiles);
       } else {
         await importPlainAudio(audioFiles);
@@ -2540,6 +2544,44 @@
     } finally {
       importing = false;
     }
+  }
+
+  /** A .loud.zip bundle: the manifest plus all audio in one file. Entries
+   * are read as lazy blob slices, so even a huge bundle imports without
+   * ever loading whole into memory. */
+  async function importLoudZip(zipFile: File) {
+    let manifestFile: File | null = null;
+    const audioFiles: File[] = [];
+    try {
+      const entries = await readZipEntries(zipFile);
+      const manifestEntry =
+        entries.find((entry) => baseName(entry.name) === "codec-import.json") ??
+        entries.find((entry) => entry.name.toLowerCase().endsWith(".json"));
+      if (!manifestEntry) {
+        errorMessage = `${zipFile.name} has no loud.import.v1 manifest inside.`;
+        return;
+      }
+      manifestFile = new File(
+        [await zipEntryBlob(zipFile, manifestEntry)],
+        baseName(manifestEntry.name),
+        { type: "application/json" }
+      );
+      for (const entry of entries) {
+        if (entry === manifestEntry || entry.name.endsWith("/") || entry.uncompressedSize === 0) {
+          continue;
+        }
+        audioFiles.push(
+          new File([await zipEntryBlob(zipFile, entry)], baseName(entry.name), {
+            type: "audio/mpeg"
+          })
+        );
+      }
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+      return;
+    }
+
+    await importManifestBundle(manifestFile, audioFiles);
   }
 
   async function importPlainAudio(files: File[]) {

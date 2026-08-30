@@ -55,7 +55,7 @@ func (s *Server) handleExportLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", `attachment; filename="codec-library.zip"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="library.loud.zip"`)
 	w.WriteHeader(http.StatusOK)
 
 	archive := zip.NewWriter(w)
