@@ -91,25 +91,34 @@ short-lived stream tokens so your real secret never ends up in media URLs or
 proxy logs. No token means an open server, which is fine on a trusted LAN
 and a terrible idea on the internet.
 
+## The loud format
+
+Libraries move around as **bundles**: one `.loud.zip` holding a
+[`loud.import.v1`](docs/codec-import-v1.md) manifest plus all the audio.
+The manifest carries titles, likes, playlists, and stable identities (ISRC,
+MusicBrainz, Spotify/YouTube IDs, or normalized tags), so a bundle is a
+complete, self-contained library — no folder layout to preserve, nothing
+depending on where files happen to live.
+
+That makes sharing trivial. Settings → Share library gives you
+`library.loud.zip`; hand it to anyone running Codec and they import it with
+one pick — identity matching means they only gain the songs they don't
+already have, and your playlists and likes come along for the ones they
+take. If you write a downloader or migration tool, produce bundles. It's the
+format everything else in Codec speaks.
+
 ## Getting music in
 
-However you get music, Codec can take it:
-
-- **In the browser**: Settings → Import music. Hand it MP3s and it reads the
-  tags right there and uploads them. Songs you already have are recognized
-  and skipped — identity is derived from tags and IDs, not filenames.
-- **From the desktop app**: point it at your music folder. It scans, plays
+- **A bundle or manifest**: Settings → Import music, pick the `.loud.zip`
+  (or a manifest with its files). Likes and playlists apply, duplicates
+  skip.
+- **Plain MP3s**: same place. Tags are read right in the browser and
+  identity is derived the same way, so even bare files dedupe properly.
+- **The desktop app**: point it at a folder of music; it scans, plays
   locally, and syncs to the server when you tell it to.
-- **From other tools**: anything that can write a
-  [`loud.import.v1`](docs/codec-import-v1.md) manifest can feed Codec —
-  that's a JSON file describing tracks, likes, and playlists next to the
-  audio. The repo ships `codec_import` (headless importer) and
-  [`codec-add`](scripts/codec-add.sh), which turns a playlist link into
-  tagged files on every device.
-
-And back out again: Settings → Share library downloads a zip of everything
-in the same manifest format. Send it to a friend running Codec; their import
-keeps only what they don't already have.
+- **Scripted**: `codec_import` imports manifests headlessly, and
+  [`codec-add`](scripts/codec-add.sh) chains a downloader into it — playlist
+  link in, songs on every device out.
 
 ## Building from source
 

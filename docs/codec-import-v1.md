@@ -2,6 +2,27 @@
 
 Use `loud.import.v1` when another program downloads or prepares audio files (MP3, M4A, FLAC, WAV) for Codec.
 
+## Bundles (`.loud.zip`) — the preferred form
+
+A bundle is the whole format in one file: a zip with the manifest at the
+root as `codec-import.json` and every audio file under `files/`. No loose
+files, no filesystem paths to resolve — the paths inside the zip are just
+internal names the manifest points at. This is what "Share library" exports
+(`library.loud.zip`) and what tools should produce when they can:
+
+```
+library.loud.zip
+├── codec-import.json          loud.import.v1 manifest, base_path "files"
+└── files/
+    └── Artist/Album/Title.mp3 store-method (uncompressed) audio
+```
+
+Store the audio uncompressed — MP3s don't shrink and it keeps imports and
+exports pure streaming. Codec's web app imports a bundle directly (Settings →
+Import music, pick the zip); identity matching means importing someone
+else's bundle only adds what you don't already have. Everything below about
+manifests applies inside a bundle unchanged.
+
 Codec keeps audio as normal media files, but it does not use duplicate files for app facts like liked songs or imported playlists. App truth lives in the selected music folder at `.loud/state.json`. New files are copied into `.loud/audio/Artist/Album/`, while songs that already exist are matched by identity and only get new playlist or liked references.
 
 ## Recommended Manifest
