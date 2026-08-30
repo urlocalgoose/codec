@@ -57,6 +57,7 @@
   import {
     createDeviceId,
     defaultDeviceName,
+    LEGACY_DEFAULT_DEVICE_NAMES,
     defaultSyncServerUrl,
     hasNativeBridge,
     isRemoteRoot,
@@ -385,7 +386,15 @@
     syncTokenDraft = readStoredValue(SYNC_TOKEN_STORAGE_KEY) ?? "";
     setSyncAuthToken(syncTokenDraft);
     deviceId = readStoredValue(SYNC_DEVICE_ID_STORAGE_KEY) ?? createDeviceId();
-    deviceName = readStoredValue(SYNC_DEVICE_NAME_STORAGE_KEY) ?? defaultDeviceName();
+    {
+      const storedName = readStoredValue(SYNC_DEVICE_NAME_STORAGE_KEY);
+      // Old generic defaults ("Mac Web") collide across browsers; migrate
+      // them to the platform+browser default. Custom names stay.
+      deviceName =
+        storedName && !LEGACY_DEFAULT_DEVICE_NAMES.has(storedName)
+          ? storedName
+          : defaultDeviceName();
+    }
     selectedPlaybackDeviceId = readStoredValue(SYNC_SELECTED_DEVICE_STORAGE_KEY) ?? "";
     writeStoredValue(SYNC_DEVICE_ID_STORAGE_KEY, deviceId);
     writeStoredValue(SYNC_DEVICE_NAME_STORAGE_KEY, deviceName);

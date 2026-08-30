@@ -38,23 +38,49 @@ export function createDeviceId(): string {
   return `device-${random}`;
 }
 
+/** Platform + browser, so two browsers on the same machine don't register
+ * as identically-named devices in the "Playing on" picker. */
 export function defaultDeviceName(): string {
   if (hasNativeBridge()) {
     return "Codec Desktop";
   }
 
   const userAgent = navigator.userAgent;
-  if (/iPad/i.test(userAgent)) {
-    return "iPad";
-  }
-  if (/iPhone/i.test(userAgent)) {
-    return "iPhone";
-  }
-  if (/Android/i.test(userAgent)) {
-    return "Android";
-  }
-  if (/Mac/i.test(userAgent)) {
-    return "Mac Web";
-  }
-  return "Codec Web";
+  const platform = /iPad/i.test(userAgent)
+    ? "iPad"
+    : /iPhone/i.test(userAgent)
+      ? "iPhone"
+      : /Android/i.test(userAgent)
+        ? "Android"
+        : /Mac/i.test(userAgent)
+          ? "Mac"
+          : /Windows/i.test(userAgent)
+            ? "Windows"
+            : /Linux/i.test(userAgent)
+              ? "Linux"
+              : "Codec";
+
+  const browser = /Edg\//.test(userAgent)
+    ? "Edge"
+    : /OPR\/|Opera/.test(userAgent)
+      ? "Opera"
+      : /Firefox\//.test(userAgent)
+        ? "Firefox"
+        : /Chrome\//.test(userAgent)
+          ? "Chrome"
+          : /Safari\//.test(userAgent)
+            ? "Safari"
+            : "Web";
+
+  return `${platform} ${browser}`;
 }
+
+/** Default names from before browsers were distinguished; treat them as
+ * unset so old sessions migrate to distinct names automatically. */
+export const LEGACY_DEFAULT_DEVICE_NAMES = new Set([
+  "Mac Web",
+  "Codec Web",
+  "iPad",
+  "iPhone",
+  "Android"
+]);
