@@ -159,11 +159,17 @@ private struct PlaylistCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ArtworkView(track: cover, size: 128, cornerRadius: 10)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(theme.border, lineWidth: 1)
-                )
+            Group {
+                if let art = playlist.artworkURL {
+                    RemoteArtworkView(urlString: art, size: 128, cornerRadius: 10)
+                } else {
+                    ArtworkView(track: cover, size: 128, cornerRadius: 10)
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(theme.border, lineWidth: 1)
+            )
 
             Text(playlist.name)
                 .font(.system(size: 14, weight: .heavy))

@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// A user playlist you can actually edit: reorder with drag handles, swipe
@@ -11,6 +12,7 @@ struct PlaylistDetailView: View {
     let playlistID: String
 
     @State private var showAddSongs = false
+    @State private var coverItem: PhotosPickerItem?
 
     private var playlist: CodecPlaylist? {
         app.playlist(withID: playlistID)
@@ -62,11 +64,27 @@ struct PlaylistDetailView: View {
                 EditButton()
             }
             ToolbarItem(placement: .topBarTrailing) {
+                PhotosPicker(selection: $coverItem, matching: .images) {
+                    Image(systemName: "photo")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showAddSongs = true
                 } label: {
                     Image(systemName: "plus")
                 }
+            }
+        }
+        .onChange(of: coverItem) { _, item in
+            guard let item else {
+                return
+            }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    await app.setPlaylistCover(playlistID: playlistID, imageData: data)
+                }
+                coverItem = nil
             }
         }
         .sheet(isPresented: $showAddSongs) {

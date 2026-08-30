@@ -111,6 +111,49 @@ struct ArtworkView: View {
     }
 }
 
+/// Artwork straight from an absolute URL (playlist covers): same loader,
+/// cache, and auth headers as track artwork.
+struct RemoteArtworkView: View {
+    @Environment(\.codecTheme) private var theme
+    @Environment(AppModel.self) private var app
+
+    let urlString: String?
+    var size: CGFloat = 48
+    var cornerRadius: CGFloat = 6
+    var placeholderSymbol: String = "music.note.list"
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            theme.panel2
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: placeholderSymbol)
+                    .font(.system(size: size * 0.34, weight: .bold))
+                    .foregroundStyle(theme.subtle)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .task(id: urlString) {
+            guard let urlString, let url = URL(string: urlString), let client = app.client else {
+                image = nil
+                return
+            }
+            if let cached = ArtworkLoader.cachedImage(for: url) {
+                image = cached
+                return
+            }
+            image = nil
+            image = await ArtworkLoader.shared.image(for: url, headers: client.authHeaders)
+        }
+    }
+}
+
 struct TrackRow: View {
     @Environment(\.codecTheme) private var theme
     @Environment(PlayerController.self) private var player

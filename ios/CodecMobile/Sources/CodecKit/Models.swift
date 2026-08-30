@@ -88,7 +88,7 @@ public struct CodecLibrary: Codable, Equatable, Sendable {
             guard playlist.id == playlistID else {
                 return playlist
             }
-            return CodecPlaylist(id: playlist.id, name: playlist.name, trackIDs: trackIDs, isLiked: playlist.isLiked)
+            return CodecPlaylist(id: playlist.id, name: playlist.name, trackIDs: trackIDs, isLiked: playlist.isLiked, artworkURL: playlist.artworkURL)
         }
         return CodecLibrary(
             rootPath: rootPath,
@@ -119,7 +119,7 @@ public struct CodecLibrary: Codable, Equatable, Sendable {
             if liked {
                 ids.append(contentsOf: changedIDs.sorted())
             }
-            return CodecPlaylist(id: playlist.id, name: playlist.name, trackIDs: ids, isLiked: true)
+            return CodecPlaylist(id: playlist.id, name: playlist.name, trackIDs: ids, isLiked: true, artworkURL: playlist.artworkURL)
         }
 
         let nextStats = CodecLibraryStats(
@@ -201,12 +201,16 @@ public struct CodecPlaylist: Codable, Equatable, Sendable, Identifiable {
     public let name: String
     public let trackIDs: [String]
     public let isLiked: Bool
+    /// Server-derived custom cover URL; nil when the playlist falls back to
+    /// first-track artwork.
+    public let artworkURL: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case name
         case trackIDs = "track_ids"
         case isLiked = "is_liked"
+        case artworkURL = "artwork_url"
     }
 
     public init(from decoder: Decoder) throws {
@@ -215,13 +219,15 @@ public struct CodecPlaylist: Codable, Equatable, Sendable, Identifiable {
         name = try container.decode(String.self, forKey: .name)
         trackIDs = try container.decodeIfPresent([String].self, forKey: .trackIDs) ?? []
         isLiked = try container.decodeIfPresent(Bool.self, forKey: .isLiked) ?? false
+        artworkURL = try container.decodeIfPresent(String.self, forKey: .artworkURL)
     }
 
-    public init(id: String, name: String, trackIDs: [String], isLiked: Bool) {
+    public init(id: String, name: String, trackIDs: [String], isLiked: Bool, artworkURL: String? = nil) {
         self.id = id
         self.name = name
         self.trackIDs = trackIDs
         self.isLiked = isLiked
+        self.artworkURL = artworkURL
     }
 }
 

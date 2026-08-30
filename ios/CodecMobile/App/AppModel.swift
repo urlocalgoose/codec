@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 
 /// Connection + library state for the whole app.
 @MainActor
@@ -143,6 +144,34 @@ final class AppModel {
         } catch {
             connection = .offline
         }
+    }
+
+    func setPlaylistCover(playlistID: String, imageData: Data) async {
+        guard let client else {
+            errorMessage = "Connect to the server to change playlist covers."
+            return
+        }
+        guard let image = UIImage(data: imageData), let jpeg = Self.playlistCoverJPEG(from: image) else {
+            errorMessage = "That image could not be read."
+            return
+        }
+        do {
+            try await client.setPlaylistArtwork(id: playlistID, imageData: jpeg)
+            await refresh()
+        } catch {
+            errorMessage = friendlyMessage(for: error)
+        }
+    }
+
+    /// Covers upload as bounded JPEGs so HEIC photos stay browser-friendly
+    /// and the blob stays small.
+    private static func playlistCoverJPEG(from image: UIImage, maxDimension: CGFloat = 1024) -> Data? {
+        let largest = max(image.size.width, image.size.height)
+        let scale = min(1, maxDimension / max(largest, 1))
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let scaled = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+        return scaled.jpegData(compressionQuality: 0.85)
     }
 
     func disconnect() {

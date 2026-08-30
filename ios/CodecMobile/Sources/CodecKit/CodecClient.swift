@@ -151,6 +151,19 @@ public struct CodecClient: Sendable {
         _ = try await sendExpectingSuccess(request)
     }
 
+    /// Uploads a custom playlist cover; the server stores it keyed by
+    /// playlist id and exposes it as `artwork_url` in the library payload.
+    public func setPlaylistArtwork(id: String, imageData: Data, contentType: String = "image/jpeg") async throws {
+        var request = URLRequest(url: try playlistURL(id: id, suffix: "/artwork"))
+        request.httpMethod = "PUT"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = imageData
+        for (name, value) in authHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        _ = try await sendExpectingSuccess(request)
+    }
+
     private func playlistURL(id: String, suffix: String) throws -> URL {
         guard let encoded = id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else {
             throw CodecClientError.invalidBaseURL
