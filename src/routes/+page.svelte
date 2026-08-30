@@ -22,7 +22,6 @@
   import VisualizerView from "$lib/components/VisualizerView.svelte";
   import { SpectroSampler } from "$lib/visualizer";
   import { readCachedLibrary, writeCachedLibrary } from "$lib/library-cache";
-  import { readZipEntries, zipEntryBlob } from "$lib/zip";
   import {
     baseName,
     fingerprintFor,
@@ -88,6 +87,9 @@
     createRemotePlaylist,
     addTrackToRemotePlaylist,
     libraryExportUrl,
+    uploadBundle,
+    fetchImportJob,
+    type ImportJobStatus,
     sendPlaybackCommandV2,
     trackAudioUrl,
     updatePlaybackDevice,
@@ -2535,7 +2537,9 @@
     errorMessage = "";
     try {
       if (zipFile) {
+        importing = false;
         await importLoudZip(zipFile);
+        return;
       } else if (manifestFile) {
         await importManifestBundle(manifestFile, audioFiles);
       } else {
@@ -2546,42 +2550,109 @@
     }
   }
 
-  /** A .loud.zip bundle: the manifest plus all audio in one file. Entries
-   * are read as lazy blob slices, so even a huge bundle imports without
-   * ever loading whole into memory. */
+  // ---------------------------------------------------------------------------
+  // Bundle import jobs: the zip goes to the server once, the server unpacks
+  // and applies it in the background, and progress is polled by job id — so
+  // the banner survives closing the modal, switching views, or a refresh.
+  // ---------------------------------------------------------------------------
+
+  const IMPORT_JOB_STORAGE_KEY = "codec.importJob";
+
+  let importJob: ImportJobStatus | null = null;
+  let importUploadFraction = 0;
+  let importPhase: "idle" | "uploading" | "processing" | "done" | "failed" = "idle";
+  let importJobTimer: number | null = null;
+
   async function importLoudZip(zipFile: File) {
-    let manifestFile: File | null = null;
-    const audioFiles: File[] = [];
-    try {
-      const entries = await readZipEntries(zipFile);
-      const manifestEntry =
-        entries.find((entry) => baseName(entry.name) === "codec-import.json") ??
-        entries.find((entry) => entry.name.toLowerCase().endsWith(".json"));
-      if (!manifestEntry) {
-        errorMessage = `${zipFile.name} has no loud.import.v1 manifest inside.`;
-        return;
-      }
-      manifestFile = new File(
-        [await zipEntryBlob(zipFile, manifestEntry)],
-        baseName(manifestEntry.name),
-        { type: "application/json" }
-      );
-      for (const entry of entries) {
-        if (entry === manifestEntry || entry.name.endsWith("/") || entry.uncompressedSize === 0) {
-          continue;
-        }
-        audioFiles.push(
-          new File([await zipEntryBlob(zipFile, entry)], baseName(entry.name), {
-            type: "audio/mpeg"
-          })
-        );
-      }
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error);
+    if (!syncServerUrl) {
       return;
     }
+    importPhase = "uploading";
+    importUploadFraction = 0;
+    importJob = null;
+    try {
+      const jobId = await uploadBundle(syncServerUrl, zipFile, (fraction) => {
+        importUploadFraction = fraction;
+      });
+      writeStoredValue(IMPORT_JOB_STORAGE_KEY, jobId);
+      importPhase = "processing";
+      watchImportJob(jobId);
+    } catch (error) {
+      importPhase = "failed";
+      errorMessage = error instanceof Error ? error.message : String(error);
+    }
+  }
 
-    await importManifestBundle(manifestFile, audioFiles);
+  function watchImportJob(jobId: string) {
+    stopWatchingImportJob();
+    const poll = async () => {
+      if (!syncServerUrl) {
+        return;
+      }
+      try {
+        const status = await fetchImportJob(syncServerUrl, jobId);
+        if (!status) {
+          // Server restarted mid-job; nothing to resume.
+          importPhase = "failed";
+          errorMessage = "The import job was lost (server restarted). Import the bundle again.";
+          finishImportJob();
+          return;
+        }
+        importJob = status;
+        if (status.state === "running") {
+          importPhase = "processing";
+          return;
+        }
+        importPhase = status.state;
+        if (status.state === "failed") {
+          errorMessage = status.error ? `Import failed: ${status.error}` : "Import failed.";
+        } else {
+          const bits = [`${status.added} new`, `${status.existing} existing`];
+          if (status.playlist_adds > 0) {
+            bits.push(`${status.playlist_adds} playlist adds`);
+          }
+          if (status.liked > 0) {
+            bits.push(`${status.liked} liked`);
+          }
+          if (status.skipped > 0) {
+            bits.push(`${status.skipped} skipped`);
+          }
+          syncMessage = `Import · ${bits.join(" · ")}`;
+          await loadRemoteLibrary(true);
+        }
+        finishImportJob();
+      } catch {
+        // Transient; keep polling.
+      }
+    };
+    void poll();
+    importJobTimer = window.setInterval(() => void poll(), 1000);
+  }
+
+  function stopWatchingImportJob() {
+    if (importJobTimer) {
+      window.clearInterval(importJobTimer);
+      importJobTimer = null;
+    }
+  }
+
+  function finishImportJob() {
+    stopWatchingImportJob();
+    removeStoredValue(IMPORT_JOB_STORAGE_KEY);
+  }
+
+  function dismissImportBanner() {
+    importPhase = "idle";
+    importJob = null;
+  }
+
+  // A refresh mid-import picks the job back up.
+  $: if (syncServerUrl && syncServerReady && importPhase === "idle" && !importJobTimer) {
+    const pending = readStoredValue(IMPORT_JOB_STORAGE_KEY);
+    if (pending) {
+      importPhase = "processing";
+      watchImportJob(pending);
+    }
   }
 
   async function importPlainAudio(files: File[]) {
@@ -3020,6 +3091,34 @@
     <TopBar bind:this={topBar} bind:searchQuery />
 
     <section class="content">
+      {#if importPhase !== "idle"}
+        <section class="import-banner" class:done={importPhase === "done"} class:failed={importPhase === "failed"} aria-live="polite">
+          <div class="import-banner-copy">
+            {#if importPhase === "uploading"}
+              <strong>Uploading bundle</strong>
+              <span>{Math.round(importUploadFraction * 100)}%</span>
+            {:else if importPhase === "processing"}
+              <strong>Importing{importJob?.total ? ` ${importJob.done}/${importJob.total}` : ""}</strong>
+              <span>{importJob?.current ?? "Unpacking bundle…"}</span>
+            {:else if importPhase === "done"}
+              <strong>Import finished</strong>
+              <span>{syncMessage}</span>
+            {:else}
+              <strong>Import failed</strong>
+              <span>{errorMessage}</span>
+            {/if}
+          </div>
+          {#if importPhase === "uploading" || importPhase === "processing"}
+            <div class="import-banner-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+              aria-valuenow={importPhase === "uploading" ? Math.round(importUploadFraction * 100) : (importJob?.total ? Math.round((importJob.done / importJob.total) * 100) : 0)}>
+              <i style={`width: ${importPhase === "uploading" ? importUploadFraction * 100 : (importJob?.total ? (importJob.done / importJob.total) * 100 : 0)}%`}></i>
+            </div>
+          {:else}
+            <button class="ui-button compact" type="button" onclick={dismissImportBanner}>Dismiss</button>
+          {/if}
+        </section>
+      {/if}
+
       {#if loading || (bootstrapping && !library)}
         <section class="loading-state">
           <LoaderCircle class="spin-icon" size={34} />

@@ -775,3 +775,75 @@ export async function transferPlayback(
   }
   return response.json() as Promise<ActivePlayback>;
 }
+
+// ---------------------------------------------------------------------------
+// Bundle import jobs (server-side .loud.zip processing)
+// ---------------------------------------------------------------------------
+
+export interface ImportJobStatus {
+  id: string;
+  state: "running" | "done" | "failed";
+  error?: string;
+  total: number;
+  done: number;
+  current?: string;
+  added: number;
+  existing: number;
+  skipped: number;
+  playlist_adds: number;
+  liked: number;
+}
+
+/** Uploads a bundle with real upload progress (XHR — fetch can't report it)
+ * and returns the server-side job id. */
+export function uploadBundle(
+  serverUrl: string,
+  bundle: Blob,
+  onProgress: (fraction: number) => void
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `${normalizeServerUrl(serverUrl)}/api/v1/import/bundle`);
+    if (syncAuthToken) {
+      request.setRequestHeader("Authorization", `Bearer ${syncAuthToken}`);
+    }
+    request.setRequestHeader("Content-Type", "application/zip");
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress(event.loaded / event.total);
+      }
+    };
+    request.onload = () => {
+      if (request.status < 200 || request.status >= 300) {
+        reject(new Error(`Could not upload bundle (${request.status})`));
+        return;
+      }
+      try {
+        resolve((JSON.parse(request.responseText) as { id: string }).id);
+      } catch {
+        reject(new Error("Could not upload bundle (bad response)"));
+      }
+    };
+    request.onerror = () => reject(new Error("Could not upload bundle (network)"));
+    request.onabort = () => reject(new Error("Bundle upload cancelled"));
+    request.send(bundle);
+  });
+}
+
+export async function fetchImportJob(
+  serverUrl: string,
+  jobId: string,
+  fetcher: typeof fetch = fetch
+): Promise<ImportJobStatus | null> {
+  const response = await authorizedFetch(
+    fetcher,
+    `${normalizeServerUrl(serverUrl)}/api/v1/import/jobs/${encodeURIComponent(jobId)}`
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw syncApiError("Could not read import progress", serverUrl, response);
+  }
+  return (await response.json()) as ImportJobStatus;
+}

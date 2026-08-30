@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,6 +37,8 @@ type Server struct {
 	// Bumped on every library write; drives the library ETag so unchanged
 	// refreshes cost a 304 instead of the full payload.
 	libraryVersion atomic.Int64
+	importMu       sync.Mutex
+	importJobs     map[string]*ImportJob
 }
 
 type HandlerOptions struct {
@@ -88,6 +91,8 @@ func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
 	mux.HandleFunc("GET /api/v1/library", s.handleLibrary)
 	mux.HandleFunc("GET /api/v1/sync/snapshot", s.handleSnapshot)
 	mux.HandleFunc("GET /api/v1/export", s.handleExportLibrary)
+	mux.HandleFunc("POST /api/v1/import/bundle", s.handleImportBundle)
+	mux.HandleFunc("GET /api/v1/import/jobs/{id}", s.handleImportJob)
 	mux.HandleFunc("POST /api/v1/sync/push", s.handlePush)
 	mux.HandleFunc("PUT /api/v1/tracks/{fingerprint}", s.handleTrackMetadata)
 	mux.HandleFunc("PUT /api/v1/tracks/{fingerprint}/liked", s.handleSetTrackLiked)

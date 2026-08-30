@@ -1343,3 +1343,78 @@ func TestExportLibraryZipRoundTrip(t *testing.T) {
 		t.Fatalf("audio bytes mismatch: %q", got)
 	}
 }
+
+func TestBundleImportJobAppliesManifestLikesAndPlaylists(t *testing.T) {
+	srv, httpServer := testServer(t)
+
+	var buffer bytes.Buffer
+	archive := zip.NewWriter(&buffer)
+	manifest, _ := archive.Create("codec-import.json")
+	manifest.Write([]byte(`{
+	  "schema": "loud.import.v1",
+	  "tracks": [{
+	    "file": "files/Bundle Artist/Bundle Album/Song.mp3",
+	    "title": "Bundle Song", "artist": "Bundle Artist", "album": "Bundle Album",
+	    "duration_ms": 12000, "liked": true, "playlists": ["Road Trip"],
+	    "identifiers": {"isrc": "job00001"}
+	  }],
+	  "playlists": [{"name": "Road Trip", "mode": "append", "tracks": [{"identifiers": {"isrc": "JOB00001"}}]}]
+	}`))
+	audio, _ := archive.CreateHeader(&zip.FileHeader{Name: "files/Bundle Artist/Bundle Album/Song.mp3", Method: zip.Store})
+	audio.Write([]byte("mp3-bytes"))
+	archive.Close()
+
+	res, err := http.Post(httpServer.URL+"/api/v1/import/bundle", "application/zip", bytes.NewReader(buffer.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var accepted struct {
+		ID string `json:"id"`
+	}
+	json.NewDecoder(res.Body).Decode(&accepted)
+	res.Body.Close()
+	if res.StatusCode != http.StatusAccepted || accepted.ID == "" {
+		t.Fatalf("bundle upload status = %d id = %q", res.StatusCode, accepted.ID)
+	}
+
+	var job ImportJob
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		res, err := http.Get(httpServer.URL + "/api/v1/import/jobs/" + accepted.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		json.NewDecoder(res.Body).Decode(&job)
+		res.Body.Close()
+		if job.State == "done" || job.State == "failed" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if job.State != "done" {
+		t.Fatalf("job did not finish cleanly: %+v", job)
+	}
+	if job.Added != 1 || job.Liked != 1 || job.PlaylistAdds != 1 {
+		t.Fatalf("job counts = %+v", job)
+	}
+
+	snapshot, err := srv.snapshot(context.Background(), httpServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Library.Tracks) != 1 || snapshot.Library.Tracks[0].Fingerprint != "isrc:JOB00001" || !snapshot.Library.Tracks[0].IsLiked {
+		t.Fatalf("tracks = %+v", snapshot.Library.Tracks)
+	}
+	var roadTrip *Playlist
+	for i := range snapshot.Library.Playlists {
+		if snapshot.Library.Playlists[i].Name == "Road Trip" {
+			roadTrip = &snapshot.Library.Playlists[i]
+		}
+	}
+	if roadTrip == nil || len(roadTrip.TrackIDs) != 1 || roadTrip.TrackIDs[0] != "track_isrc:JOB00001" {
+		t.Fatalf("playlist = %+v", roadTrip)
+	}
+	if _, err := os.Stat(srv.audioPath("isrc:JOB00001")); err != nil {
+		t.Fatalf("audio not extracted: %v", err)
+	}
+}

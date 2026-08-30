@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { auxQrPalette } from "./aux";
+import { auxQrPalette } from "./aux-session";
 
 describe("auxQrPalette", () => {
   test("dark theme: light text becomes paper, dark bg becomes ink", () => {

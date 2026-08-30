@@ -1,7 +1,7 @@
 <script lang="ts">
   import QRCode from "qrcode";
   import { Link, Music, X } from "lucide-svelte";
-  import { auxQrPalette } from "$lib/aux";
+  import { auxQrPalette } from "$lib/aux-session";
 
   let {
     auxCode,

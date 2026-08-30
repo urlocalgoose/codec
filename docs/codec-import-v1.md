@@ -19,7 +19,8 @@ library.loud.zip
 
 Store the audio uncompressed — MP3s don't shrink and it keeps imports and
 exports pure streaming. Codec's web app imports a bundle directly (Settings →
-Import music, pick the zip); identity matching means importing someone
+Import music, pick the zip — it uploads once, the server does the rest with
+live progress that survives a refresh); identity matching means importing someone
 else's bundle only adds what you don't already have. Everything below about
 manifests applies inside a bundle unchanged.
 

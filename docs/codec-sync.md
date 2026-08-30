@@ -82,6 +82,8 @@ PUT  /api/v1/playlists/{id}/artwork
 GET  /api/v1/playlists/{id}/artwork
 DELETE /api/v1/playlists/{id}/artwork
 GET  /api/v1/export
+POST /api/v1/import/bundle
+GET  /api/v1/import/jobs/{id}
 PUT  /api/v1/playlists/{id}
 POST /api/v1/playlists
 DELETE /api/v1/playlists/{id}
@@ -115,6 +117,12 @@ snapshot pushes.
 `GET /api/v1/export` streams the whole library as a zip: a `loud.import.v1`
 manifest (`codec-import.json`) plus every audio file under `files/`. Import it
 on any other Codec — identity matching skips songs the receiver already has.
+
+`POST /api/v1/import/bundle` takes a `.loud.zip` as the raw body and answers
+`202 {"id"}`; the server unpacks and applies it in the background. Poll
+`GET /api/v1/import/jobs/{id}` for `{state, total, done, current, added,
+existing, skipped, playlist_adds, liked}` — progress lives server-side, so a
+client can refresh and resume watching by id.
 
 Playlist edits are partial updates: `POST /api/v1/playlists` creates a playlist
 from `{"name": "..."}`, and the `/tracks` endpoints add or remove one track by
