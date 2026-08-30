@@ -8,20 +8,18 @@
     queuedTracksCount,
     currentTrackId,
     isPlaying,
-    activePlaybackDeviceName,
-    showDeviceControl,
     onPlayQueueTrack,
     onRemoveQueued,
+    onMoveQueued,
     onClearQueue
   }: {
     queue: Track[];
     queuedTracksCount: number;
     currentTrackId: string | null;
     isPlaying: boolean;
-    activePlaybackDeviceName: string;
-    showDeviceControl: boolean;
     onPlayQueueTrack: (index: number) => void;
     onRemoveQueued: (index: number) => void;
+    onMoveQueued: (index: number, targetIndex: number) => void;
     onClearQueue: () => void;
   } = $props();
 
@@ -37,6 +35,44 @@
 
     event.preventDefault();
     onPlayQueueTrack(index);
+  }
+
+  // Drag-to-reorder for the manual queue. Indices are queue positions
+  // (offset by 1 for Now Playing), same convention as remove.
+  let dragQueueIndex: number | null = $state(null);
+  let dropQueueIndex: number | null = $state(null);
+
+  function handleDragStart(event: DragEvent, queueIndex: number) {
+    dragQueueIndex = queueIndex;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", String(queueIndex));
+    }
+  }
+
+  function handleDragOver(event: DragEvent, queueIndex: number) {
+    if (dragQueueIndex === null) {
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "move";
+    }
+    dropQueueIndex = queueIndex;
+  }
+
+  function handleDrop(event: DragEvent, queueIndex: number) {
+    event.preventDefault();
+    if (dragQueueIndex !== null && dragQueueIndex !== queueIndex) {
+      onMoveQueued(dragQueueIndex, queueIndex);
+    }
+    dragQueueIndex = null;
+    dropQueueIndex = null;
+  }
+
+  function handleDragEnd() {
+    dragQueueIndex = null;
+    dropQueueIndex = null;
   }
 </script>
 
@@ -74,18 +110,13 @@
           {/if}
           <div class="queue-rail-copy">
             <strong>{current.title}</strong>
-            <span>
-              {current.artist}
-              {#if showDeviceControl}
-                · {isPlaying ? "Playing" : "Paused"} on {activePlaybackDeviceName}
-              {/if}
-            </span>
+            <span>{current.artist}</span>
           </div>
           <span class="queue-rail-state" aria-hidden="true">
             {#if isPlaying}
-              <Play size={15} />
-            {:else}
               <Pause size={15} />
+            {:else}
+              <Play size={15} />
             {/if}
           </span>
         </button>
@@ -104,11 +135,18 @@
           {@const queueIndex = offset + 1}
           <div
             class="queue-rail-row queued"
+            class:dragging={dragQueueIndex === queueIndex}
+            class:drop-target={dropQueueIndex === queueIndex && dragQueueIndex !== queueIndex}
             role="button"
             tabindex="0"
-            aria-label={`Play ${track.title}`}
+            draggable="true"
+            aria-label={`Play ${track.title}. Drag to reorder.`}
             onclick={() => onPlayQueueTrack(queueIndex)}
             onkeydown={(event) => handleRowKeydown(event, queueIndex)}
+            ondragstart={(event) => handleDragStart(event, queueIndex)}
+            ondragover={(event) => handleDragOver(event, queueIndex)}
+            ondrop={(event) => handleDrop(event, queueIndex)}
+            ondragend={handleDragEnd}
           >
             {#if track.artwork_url}
               <img class="queue-rail-art" src={track.artwork_url} alt="" loading="lazy" decoding="async" />

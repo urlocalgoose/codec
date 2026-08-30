@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Heart, ListPlus, Music2, Play, Shuffle, X } from "lucide-svelte";
+  import { Heart, ListEnd, ListPlus, Music2, Play, Shuffle, X } from "lucide-svelte";
   import { formatDuration } from "$lib/library";
   import type { SortKey, Track } from "$lib/types";
 
@@ -17,6 +17,7 @@
     onShuffleAll,
     onClearQueue,
     onPlayRow,
+    onQueueTrack,
     onRemoveQueued,
     onEditPlaylists,
     onToggleLike,
@@ -35,6 +36,7 @@
     onShuffleAll: () => void;
     onClearQueue: () => void;
     onPlayRow: (track: Track, index: number) => void;
+    onQueueTrack: (track: Track) => void;
     onRemoveQueued: (index: number) => void;
     onEditPlaylists: (track: Track) => void;
     onToggleLike: (track: Track) => void;
@@ -138,6 +140,20 @@
             <span class="table-duration track-eq" class:paused={!isPlaying} aria-hidden="true"><i></i><i></i><i></i></span>
           {:else}
             <span class="table-duration">{formatDuration(track.duration_seconds)}</span>
+          {/if}
+          {#if !isQueueView}
+            <button
+              class="row-action"
+              title={`Add ${track.title} to queue`}
+              aria-label={`Add ${track.title} to queue`}
+              type="button"
+              onclick={(event) => {
+                event.stopPropagation();
+                onQueueTrack(track);
+              }}
+            >
+              <ListEnd size={16} />
+            </button>
           {/if}
           {#if isQueueView}
             {#if index > 0 && index <= queuedTracksCount}

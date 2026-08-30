@@ -19,6 +19,20 @@
   import HomeView from "$lib/components/HomeView.svelte";
   import TrackList from "$lib/components/TrackList.svelte";
   import ViewHeader from "$lib/components/ViewHeader.svelte";
+  import VisualizerView from "$lib/components/VisualizerView.svelte";
+  import { SpectroSampler } from "$lib/visualizer";
+  import { readCachedLibrary, writeCachedLibrary } from "$lib/library-cache";
+  import {
+    baseName,
+    fingerprintFor,
+    identityForImportTrack,
+    identityForPlaylistRef,
+    IMPORT_SCHEMA,
+    parseId3,
+    type ImportManifest,
+    type ImportManifestTrack
+  } from "$lib/import";
+  import PlaylistGrid from "$lib/components/PlaylistGrid.svelte";
   import { mediaErrorMessage } from "$lib/audio-errors";
   import {
     createQueue,
@@ -65,6 +79,13 @@
     refreshSyncStreamToken,
     setSyncAuthToken,
     setTrackLiked,
+    uploadPlaylistArtwork,
+    uploadTrackArtwork,
+    uploadTrackAudio,
+    uploadTrackMetadata,
+    createRemotePlaylist,
+    addTrackToRemotePlaylist,
+    libraryExportUrl,
     sendPlaybackCommandV2,
     trackAudioUrl,
     updatePlaybackDevice,
@@ -190,6 +211,7 @@
   let deviceName = "";
   let selectedPlaybackDeviceId = "";
   let playbackDevices: PlaybackDevice[] = [];
+  let playbackDevicesEvaluatedRevision = -1;
   let playbackStateV2: PlaybackStateV2 | null = null;
   let playbackClockOffsetMs = 0;
   // While in the future, the derived server clock may not overwrite
@@ -227,6 +249,9 @@
   let playbackEventSourceUrl = "";
   let unlistenLibrary: (() => void) | null = null;
   let loadedSource = "";
+  // Which track the audio element actually holds — the UI's currentTrack can
+  // move (session restore vs server state) without the element following.
+  let loadedTrackId = "";
   let editingPlaylistId = "";
   let playlistNameDraft = "";
   let playlistModalTrack: Track | null = null;
@@ -264,6 +289,15 @@
 
   $: selectedPlaylist =
     library?.playlists.find((playlist) => playlist.id === selectedView) ?? null;
+  // A non-empty search works from anywhere: on browse-style views it becomes
+  // a library-wide result list instead of silently doing nothing.
+  $: searchActive = searchQuery.trim().length > 0;
+  $: globalSearch =
+    searchActive &&
+    (selectedView === "home" ||
+      selectedView === "artists" ||
+      selectedView === "albums" ||
+      selectedView === "playlists");
   $: userPlaylists = library?.playlists.filter((playlist) => !playlist.is_liked) ?? [];
   $: homeItems = homeRecentItems(library);
   $: homePlaylistCovers = new Map(
@@ -273,7 +307,9 @@
     })
   );
   $: queue = playbackQueue(currentTrack, queuedTracks, playbackSource, playbackIndex);
-  $: baseTracks = trackSourceForView(library, selectedView, selectedPlaylist, queue);
+  $: baseTracks = globalSearch
+    ? (library?.tracks ?? [])
+    : trackSourceForView(library, selectedView, selectedPlaylist, queue);
   $: visibleTracks = sortTracks(searchTracks(baseTracks, searchQuery), sortKey);
   $: stats = library?.stats ?? DEFAULT_STATS;
   $: artists = library?.artists ?? [];
@@ -357,6 +393,10 @@
     if (rootPath && hasNativeBridge() && !isRemoteRoot(rootPath)) {
       void loadLibrary(rootPath, true);
     } else if (syncServerUrl && (!hasNativeBridge() || rootPath === REMOTE_ROOT_PATH)) {
+      // Hydrate from the local cache immediately while the network load
+      // runs; whichever lands first paints, the network result wins.
+      bootstrapping = true;
+      void hydrateLibraryFromCache(syncServerUrl);
       void loadRemoteLibrary(true);
     }
 
@@ -553,6 +593,35 @@
     }
   }
 
+  let bootstrapping = false;
+
+  async function hydrateLibraryFromCache(serverUrl: string) {
+    try {
+      const cached = await readCachedLibrary();
+      if (!cached || library) {
+        return;
+      }
+      // Fresh stream token first so cached artwork URLs authenticate;
+      // offline that fails and we hydrate anyway — a readable library
+      // beats a blank screen.
+      try {
+        await refreshSyncStreamToken(serverUrl);
+      } catch {
+        // Offline or unreachable — proceed with what we have.
+      }
+      if (library) {
+        return;
+      }
+      syncLibrary(cached);
+    } catch {
+      // The cache is best-effort; the network load is still running.
+    } finally {
+      if (library) {
+        bootstrapping = false;
+      }
+    }
+  }
+
   async function loadRemoteLibrary(quiet = false) {
     syncMessage = "";
     loading = !quiet;
@@ -573,6 +642,7 @@
       rootPath = nextLibrary.root_path || REMOTE_ROOT_PATH;
       writeStoredValue(ROOT_STORAGE_KEY, rootPath);
       syncLibrary(nextLibrary);
+      void writeCachedLibrary(nextLibrary);
       await restoreRemotePlaybackSession(nextLibrary);
       startPlaybackDevicePolling();
       syncMessage = `Connected · ${formatCount(nextLibrary.tracks.length, "track")}`;
@@ -582,6 +652,7 @@
       errorMessage = error instanceof Error ? error.message : String(error);
     } finally {
       loading = false;
+      bootstrapping = false;
     }
   }
 
@@ -589,6 +660,12 @@
     const previousCurrent = currentTrack;
     nextLibrary = normalizeLibrary(nextLibrary);
     library = nextLibrary;
+
+    // If shared playback state landed before the library did, its staleness
+    // check couldn't see track durations — re-apply now that it can.
+    if (playbackStateV2) {
+      void applyPlaybackStateV2(playbackStateV2, true);
+    }
 
     if (!playbackSessionRestored) {
       playbackSessionRestored = true;
@@ -694,6 +771,7 @@
     audioDuration = session.audio_duration || restoredCurrent?.duration_seconds || 0;
     isPlaying = false;
     loadedSource = "";
+    loadedTrackId = "";
     pendingSeekTime = currentTime;
 
     if (session.selected_view && isKnownView(activeLibrary, session.selected_view)) {
@@ -986,6 +1064,7 @@
       currentTime = 0;
       audioDuration = 0;
       loadedSource = "";
+      loadedTrackId = "";
       playbackSessionRestored = false;
       removeStoredValue(ROOT_STORAGE_KEY);
     }
@@ -1177,7 +1256,14 @@
 
       playbackDevices = devices;
       if (state) {
-        await applyPlaybackStateV2(state);
+        // Re-evaluate once per revision after the devices list lands: the
+        // ghost-device check inside apply can only judge with devices known.
+        const reevaluate =
+          playbackStateV2 !== null &&
+          state.revision === playbackStateV2.revision &&
+          playbackDevicesEvaluatedRevision !== state.revision;
+        await applyPlaybackStateV2(state, reevaluate);
+        playbackDevicesEvaluatedRevision = state.revision;
       } else {
         playbackStateV2 = null;
         stopPlaybackClock();
@@ -1284,7 +1370,47 @@
     playbackStateV2 = nextState;
     lastAppliedPlaybackRevision = nextState.revision;
 
-    if (nextState.active_device_id) {
+    const targetTrack = library && nextState.track ? findTrackByReference(library, nextState.track) : null;
+
+    // A "playing" state whose derived position has run far past the end of
+    // the track — or whose clock nobody has touched in ages — is a corpse:
+    // whatever device owned it went away without pausing. Don't mirror it as
+    // playing, and don't keep aiming commands at the dead device — otherwise
+    // a fresh page click sends play to a phone that left days ago and
+    // nothing audible happens here.
+    const trackDuration = targetTrack?.duration_seconds ?? 0;
+    const positionOverrun =
+      trackDuration > 0 &&
+      derivedPlaybackPosition(nextState, Date.now(), playbackClockOffsetMs) > trackDuration + 8;
+    const clockTouchedMs = Math.max(
+      nextState.clock.started_at_ms ?? 0,
+      nextState.clock.updated_at_ms || 0
+    );
+    const clockAbandoned =
+      clockTouchedMs > 0 && nextState.server_time_ms - clockTouchedMs > 30 * 60 * 1000;
+    // "Playing" on a device that isn't registered anymore is a ghost — the
+    // phone closed the app without pausing. (Only judged once the devices
+    // list has actually loaded.)
+    const remoteGhost =
+      nextState.state === "playing" &&
+      Boolean(nextState.active_device_id) &&
+      nextState.active_device_id !== deviceId &&
+      playbackDevices.length > 0 &&
+      !playbackDevices.some((device) => device.device_id === nextState.active_device_id);
+    // Never call it stale while OUR audio element is audibly playing — a
+    // long local listening session only refreshes the clock on track
+    // changes, and the element is the truth here.
+    const locallyAudible =
+      nextState.active_device_id === deviceId && Boolean(audioEl) && !audioEl!.paused;
+    const stalePlayback =
+      nextState.state === "playing" &&
+      (positionOverrun || clockAbandoned || remoteGhost) &&
+      !locallyAudible;
+
+    if (stalePlayback) {
+      selectedPlaybackDeviceId = deviceId;
+      writeStoredValue(SYNC_SELECTED_DEVICE_STORAGE_KEY, selectedPlaybackDeviceId);
+    } else if (nextState.active_device_id) {
       selectedPlaybackDeviceId = nextState.active_device_id;
       writeStoredValue(SYNC_SELECTED_DEVICE_STORAGE_KEY, selectedPlaybackDeviceId);
     } else if (!selectedPlaybackDeviceId) {
@@ -1293,13 +1419,16 @@
     }
 
     applyPlaybackContextV2(nextState);
-    currentTime = currentSyncedPlaybackPosition();
-    isPlaying = nextState.state === "playing";
+    currentTime = clampPlaybackTime(currentSyncedPlaybackPosition(), targetTrack ?? currentTrack);
+    isPlaying = nextState.state === "playing" && !stalePlayback;
     volume = Math.max(0, Math.min(nextState.volume, 1));
     writeStoredValue(VOLUME_STORAGE_KEY, String(volume));
-    updatePlaybackClock();
+    if (stalePlayback) {
+      stopPlaybackClock();
+    } else {
+      updatePlaybackClock();
+    }
 
-    const targetTrack = library && nextState.track ? findTrackByReference(library, nextState.track) : null;
     if (targetTrack) {
       currentTrack = targetTrack;
       audioDuration = targetTrack.duration_seconds || audioDuration;
@@ -1307,7 +1436,7 @@
 
     applyingRemotePlayback = true;
     try {
-      if (nextState.active_device_id === deviceId && targetTrack) {
+      if (nextState.active_device_id === deviceId && targetTrack && !stalePlayback) {
         await syncLocalAudioToPlaybackState(nextState, targetTrack);
       } else {
         audioEl?.pause();
@@ -1320,7 +1449,16 @@
   }
 
   function selectedPlaybackTargetDeviceId(): string {
-    return selectedPlaybackDeviceId || playbackStateV2?.active_device_id || deviceId;
+    const candidate = selectedPlaybackDeviceId || playbackStateV2?.active_device_id || deviceId;
+    if (candidate === deviceId) {
+      return deviceId;
+    }
+    // Never aim commands at a device that isn't actually registered right
+    // now — a phone that closed the app stays "active" in old state, and
+    // sending play there means silence here. Local playback is the safe
+    // fallback; the user can always re-pick a live target.
+    const live = playbackDevices.some((device) => device.device_id === candidate);
+    return live ? candidate : deviceId;
   }
 
   async function sendPlaybackCommand(
@@ -1390,7 +1528,7 @@
     const position = clampPlaybackTime(currentSyncedPlaybackPosition(), track);
     const source = await playbackUrlForTrack(track);
     if (loadedSource !== source) {
-      loadAudioSource(source, position);
+      loadAudioSource(source, position, track.id);
       await waitForAudioMetadata();
     } else if (Math.abs((audioEl.currentTime || 0) - position) > 0.75) {
       audioEl.currentTime = position;
@@ -1398,8 +1536,23 @@
     }
 
     if (state.state === "playing") {
-      await audioEl.play();
-      isPlaying = true;
+      try {
+        await audioEl.play();
+        isPlaying = true;
+      } catch (error) {
+        // Autoplay policy: without a user gesture (a fresh page load), the
+        // browser refuses play(). Reflect reality — pause the shared state
+        // at the current position so the play button resumes cleanly on the
+        // first press instead of fighting a "playing" server state.
+        isPlaying = false;
+        console.warn("resume blocked by autoplay policy; pausing shared state", error);
+        void sendPlaybackCommand("pause", {
+          target_device_id: deviceId,
+          position_seconds: position
+        })
+          .then((paused) => applyPlaybackStateV2(paused, true))
+          .catch(() => undefined);
+      }
     } else {
       audioEl.pause();
       isPlaying = false;
@@ -1513,6 +1666,52 @@
     await startPlayback();
   }
 
+  // Web Audio tap for the visualizer. Built lazily on first open (an
+  // AudioContext needs a user gesture) and kept for the session — a media
+  // element can only be wired into a graph once.
+  let audioGraphContext: AudioContext | null = null;
+  let visualizerAnalyser: AnalyserNode | null = null;
+  let visualizerSampler: SpectroSampler | null = null;
+
+  function ensureAnalyser(): AnalyserNode | null {
+    if (!audioEl) {
+      return null;
+    }
+
+    if (!audioGraphContext) {
+      try {
+        audioGraphContext = new AudioContext();
+        const source = audioGraphContext.createMediaElementSource(audioEl);
+        const analyser = audioGraphContext.createAnalyser();
+        analyser.fftSize = 2048;
+        analyser.smoothingTimeConstant = 0.72;
+        source.connect(analyser);
+        analyser.connect(audioGraphContext.destination);
+        visualizerAnalyser = analyser;
+        // Record from the moment the graph exists, whatever view is open,
+        // so the Visualizer never arrives blank mid-song.
+        visualizerSampler = new SpectroSampler(analyser);
+      } catch (error) {
+        console.warn("visualizer: audio graph unavailable", error);
+        return null;
+      }
+    }
+
+    void audioGraphContext.resume();
+    return visualizerAnalyser;
+  }
+
+  // Only build the graph once the user has interacted — created without a
+  // gesture, the context starts suspended and silences the audio element.
+  $: if (
+    selectedView === "visualizer" &&
+    audioEl &&
+    !visualizerAnalyser &&
+    (navigator.userActivation?.hasBeenActive ?? true)
+  ) {
+    visualizerAnalyser = ensureAnalyser();
+  }
+
   function clearQueuedTracks() {
     queuedTracks = [];
   }
@@ -1524,6 +1723,29 @@
     }
 
     queuedTracks = queuedTracks.filter((_, index) => index !== manualIndex);
+  }
+
+  function queueTrackLast(track: Track) {
+    queuedTracks = [...queuedTracks, track];
+  }
+
+  function moveQueuedTrack(queueIndex: number, targetQueueIndex: number) {
+    const from = queueIndex - 1;
+    const to = targetQueueIndex - 1;
+    if (
+      from < 0 ||
+      from >= queuedTracks.length ||
+      to < 0 ||
+      to >= queuedTracks.length ||
+      from === to
+    ) {
+      return;
+    }
+
+    const next = [...queuedTracks];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    queuedTracks = next;
   }
 
   async function togglePlayback() {
@@ -1562,7 +1784,10 @@
         return;
       }
 
-      if (actingLocally && currentTrack?.id === track.id) {
+      // Optimistic local play only when the element actually holds THIS
+      // track — otherwise a session-restored source would play a different
+      // song than the UI shows; the command round-trip loads the right one.
+      if (actingLocally && currentTrack?.id === track.id && loadedTrackId === track.id) {
         void audioEl?.play().catch(() => undefined);
         isPlaying = true;
       }
@@ -1616,7 +1841,7 @@
     try {
       const source = await playbackUrlForTrack(currentTrack);
       if (loadedSource !== source) {
-        loadAudioSource(source, currentTime);
+        loadAudioSource(source, currentTime, currentTrack.id);
         await waitForAudioMetadata();
       } else if (Math.abs((audioEl.currentTime || 0) - currentTime) > 1.5) {
         audioEl.currentTime = currentTime;
@@ -1650,11 +1875,12 @@
     return source.url;
   }
 
-  function loadAudioSource(source: string, seekTime = 0) {
+  function loadAudioSource(source: string, seekTime = 0, trackId = "") {
     audioEl.src = source;
     pendingSeekTime = seekTime > 0 ? seekTime : null;
     audioEl.load();
     loadedSource = source;
+    loadedTrackId = trackId;
   }
 
   function waitForAudioMetadata(): Promise<void> {
@@ -2094,6 +2320,21 @@
   }
 
   function handleAudioPlay() {
+    // If the element is wired into the visualizer's audio graph and that
+    // context is suspended (it was built without a user gesture), every
+    // sample routes into a dead graph and playback is silent. Any real play
+    // is a gesture, so wake the graph here.
+    if (audioGraphContext && audioGraphContext.state !== "running") {
+      void audioGraphContext.resume();
+    }
+    // Build the graph on the first user-initiated play from any view, so
+    // the visualizer records history in the background. Remote-initiated
+    // play without any interaction skips this — an AudioContext created
+    // without a gesture starts suspended and would silence the element.
+    if (!visualizerAnalyser && (navigator.userActivation?.hasBeenActive ?? false)) {
+      visualizerAnalyser = ensureAnalyser();
+    }
+
     if (applyingRemotePlayback) {
       return;
     }
@@ -2268,6 +2509,271 @@
     }
   }
 
+  // Browser MP3 import: tags parsed client-side, identity derived exactly
+  // like the desktop, then metadata + audio + artwork go straight to the
+  // sync server through the existing upsert endpoints.
+  async function importAudioFiles(files: File[]) {
+    if (!syncServerUrl || files.length === 0 || importing) {
+      return;
+    }
+
+    const manifestFile = files.find((file) => file.name.toLowerCase().endsWith(".json"));
+    const audioFiles = files.filter((file) => file !== manifestFile);
+
+    importing = true;
+    errorMessage = "";
+    try {
+      if (manifestFile) {
+        await importManifestBundle(manifestFile, audioFiles);
+      } else {
+        await importPlainAudio(audioFiles);
+      }
+    } finally {
+      importing = false;
+    }
+  }
+
+  async function importPlainAudio(files: File[]) {
+    let imported = 0;
+    const failures: string[] = [];
+    for (const [index, file] of files.entries()) {
+      syncMessage = `Importing ${index + 1}/${files.length}: ${file.name}`;
+      try {
+        await importSingleAudioFile(file);
+        imported += 1;
+      } catch (error) {
+        console.warn("import failed", file.name, error);
+        failures.push(file.name);
+      }
+    }
+    await loadRemoteLibrary(true);
+    syncMessage =
+      failures.length > 0
+        ? `Imported ${formatCount(imported, "track")} · failed: ${failures.join(", ")}`
+        : `Imported ${formatCount(imported, "track")}`;
+  }
+
+  /** loud.import.v1 in the browser: pick the manifest together with its
+   * audio files. Identity, dedupe, liked flags, and playlist refs follow
+   * docs/codec-import-v1.md — everything lands on the sync server. */
+  async function importManifestBundle(manifestFile: File, audioFiles: File[]) {
+    let manifest: ImportManifest;
+    try {
+      manifest = JSON.parse(await manifestFile.text()) as ImportManifest;
+    } catch {
+      errorMessage = `${manifestFile.name} is not valid JSON.`;
+      return;
+    }
+    if (manifest.schema && manifest.schema !== IMPORT_SCHEMA) {
+      errorMessage = `Unsupported import schema ${manifest.schema} (expected ${IMPORT_SCHEMA}).`;
+      return;
+    }
+
+    const manifestTracks = manifest.tracks ?? [];
+    const filesByBase = new Map(audioFiles.map((file) => [file.name.toLowerCase(), file]));
+    const known = new Set(library?.tracks.map((track) => track.fingerprint) ?? []);
+    const identityByFile = new Map<string, string>();
+    const likedTargets: string[] = [];
+    let added = 0;
+    let existing = 0;
+    let likedUpdates = 0;
+    let playlistAdds = 0;
+    const skipped: string[] = [];
+
+    for (const [index, entry] of manifestTracks.entries()) {
+      syncMessage = `Importing ${index + 1}/${manifestTracks.length}${entry.title ? `: ${entry.title}` : ""}`;
+      const identity = identityForImportTrack(entry);
+      if (entry.file) {
+        identityByFile.set(entry.file, identity);
+      }
+
+      if (known.has(identity)) {
+        existing += 1;
+      } else {
+        const file = entry.file ? filesByBase.get(baseName(entry.file).toLowerCase()) : undefined;
+        if (!file) {
+          skipped.push(entry.file ?? entry.title ?? "unnamed track");
+          continue;
+        }
+        try {
+          await importSingleAudioFile(file, entry, identity);
+          known.add(identity);
+          added += 1;
+        } catch (error) {
+          console.warn("manifest import failed", entry.file, error);
+          skipped.push(entry.file ?? entry.title ?? "unnamed track");
+          continue;
+        }
+      }
+
+      if (entry.liked) {
+        likedTargets.push(identity);
+      }
+    }
+
+    for (const identity of likedTargets) {
+      try {
+        await setTrackLiked(syncServerUrl, identity, true);
+        likedUpdates += 1;
+      } catch (error) {
+        console.warn("liked update failed", identity, error);
+      }
+    }
+
+    // Playlist membership: track-level names plus the playlists section.
+    const wanted = new Map<string, Set<string>>();
+    const want = (name: string | undefined, identity: string | null) => {
+      const key = name?.trim();
+      if (!key || !identity) {
+        return;
+      }
+      if (!wanted.has(key)) {
+        wanted.set(key, new Set());
+      }
+      wanted.get(key)!.add(identity);
+    };
+    for (const entry of manifestTracks) {
+      for (const name of entry.playlists ?? []) {
+        want(name, identityForImportTrack(entry));
+      }
+    }
+    for (const playlist of manifest.playlists ?? []) {
+      for (const ref of playlist.tracks ?? []) {
+        want(playlist.name, identityForPlaylistRef(ref, identityByFile));
+      }
+    }
+
+    for (const [name, identities] of wanted) {
+      try {
+        const target =
+          library?.playlists.find(
+            (playlist) => !playlist.is_liked && playlist.name.toLowerCase() === name.toLowerCase()
+          ) ?? null;
+        const have = new Set(target?.track_ids ?? []);
+        const targetId = target?.id ?? (await createRemotePlaylist(syncServerUrl, name)).id;
+        for (const identity of identities) {
+          if (have.has(`track_${identity}`)) {
+            continue;
+          }
+          await addTrackToRemotePlaylist(syncServerUrl, targetId, identity);
+          playlistAdds += 1;
+        }
+      } catch (error) {
+        console.warn("playlist import failed", name, error);
+      }
+    }
+
+    await loadRemoteLibrary(true);
+    const bits = [`${added} new`, `${existing} existing`];
+    if (playlistAdds > 0) {
+      bits.push(`${playlistAdds} playlist adds`);
+    }
+    if (likedUpdates > 0) {
+      bits.push(`${likedUpdates} liked`);
+    }
+    if (skipped.length > 0) {
+      bits.push(`skipped ${skipped.length}: ${skipped.slice(0, 3).join(", ")}${skipped.length > 3 ? "…" : ""}`);
+    }
+    syncMessage = `Import · ${bits.join(" · ")}`;
+  }
+
+  async function importSingleAudioFile(
+    file: File,
+    manifestEntry?: ImportManifestTrack,
+    identityOverride?: string
+  ) {
+    const tags = parseId3(await file.arrayBuffer());
+    const title = manifestEntry?.title || tags.title || file.name.replace(/\.[^.]+$/, "");
+    const artist = manifestEntry?.artist || tags.artist || "Unknown Artist";
+    const album = manifestEntry?.album || tags.album || "Unknown Album";
+    const fingerprint = identityOverride ?? fingerprintFor(title, artist, album);
+    const manifestDuration =
+      manifestEntry?.duration_ms && manifestEntry.duration_ms > 0
+        ? manifestEntry.duration_ms / 1000
+        : null;
+
+    const track: Track = {
+      id: `track_${fingerprint}`,
+      path: `loud://import/${fingerprint}/${file.name}`,
+      file_name: file.name,
+      title,
+      artist,
+      album,
+      album_artist: manifestEntry?.album_artist ?? tags.albumArtist ?? null,
+      genre: manifestEntry?.genre ?? tags.genre ?? null,
+      year: manifestEntry?.year ?? tags.year ?? null,
+      track_number: manifestEntry?.track_number ?? tags.trackNumber ?? null,
+      duration_seconds: manifestDuration ?? (await readAudioDuration(file)),
+      artwork_url: null,
+      playlist_ids: [],
+      added_at: Math.floor(Date.now() / 1000),
+      size_bytes: file.size,
+      is_liked: false,
+      fingerprint
+    };
+
+    const payload = {
+      ...track,
+      ...(manifestEntry?.identifiers ? { identifiers: manifestEntry.identifiers } : {}),
+      ...(manifestEntry?.source_urls ? { source_urls: manifestEntry.source_urls } : {})
+    } as Track;
+
+    await uploadTrackMetadata(syncServerUrl, payload);
+    await uploadTrackAudio(syncServerUrl, fingerprint, file);
+    if (tags.artwork) {
+      await uploadTrackArtwork(
+        syncServerUrl,
+        fingerprint,
+        new Blob([tags.artwork.data.slice()], { type: tags.artwork.mime })
+      );
+    }
+  }
+
+  /** The browser's own demuxer reads the duration — no decoding needed. */
+  function readAudioDuration(file: File): Promise<number | null> {
+    return new Promise((resolve) => {
+      const url = URL.createObjectURL(file);
+      const probe = new Audio();
+      probe.preload = "metadata";
+      const done = (value: number | null) => {
+        URL.revokeObjectURL(url);
+        resolve(value);
+      };
+      probe.onloadedmetadata = () =>
+        done(Number.isFinite(probe.duration) && probe.duration > 0 ? probe.duration : null);
+      probe.onerror = () => done(null);
+      probe.src = url;
+    });
+  }
+
+  /** Download the whole library as a loud.import.v1 zip — hand it to a
+   * friend, their import dedupes what they already have. */
+  async function shareLibrary() {
+    if (!syncServerUrl) {
+      return;
+    }
+    try {
+      await refreshSyncStreamToken(syncServerUrl);
+    } catch {
+      // A stale token still falls back to the main auth token in the URL.
+    }
+    window.location.assign(libraryExportUrl(syncServerUrl));
+  }
+
+  async function changePlaylistCover(file: File) {
+    if (!selectedPlaylist || !syncServerUrl) {
+      return;
+    }
+
+    errorMessage = "";
+    try {
+      await uploadPlaylistArtwork(syncServerUrl, selectedPlaylist.id, file);
+      await loadRemoteLibrary(true);
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    }
+  }
+
   function applyLocalLikeState(track: Track, liked: boolean) {
     if (!library) {
       return;
@@ -2438,7 +2944,7 @@
   <title>Codec</title>
 </svelte:head>
 
-{#if !library && !loading}
+{#if !library && !loading && !bootstrapping}
   <SetupScreen
     {theme}
     isNative={hasNativeBridge()}
@@ -2453,7 +2959,6 @@
   <main class="app-shell" data-theme={theme}>
     <Sidebar
       {selectedView}
-      {userPlaylists}
       {guestMode}
       {auxCode}
       onSelectView={selectView}
@@ -2461,26 +2966,30 @@
       onShowAux={() => (auxModalOpen = true)}
     />
 
-    <section class="content">
-      <TopBar bind:this={topBar} bind:searchQuery />
+    <TopBar bind:this={topBar} bind:searchQuery />
 
-      {#if loading}
+    <section class="content">
+      {#if loading || (bootstrapping && !library)}
         <section class="loading-state">
           <LoaderCircle class="spin-icon" size={34} />
           <p>Reading music folder</p>
         </section>
       {:else if library}
-        {#if selectedView !== "home"}
+        {#if selectedView !== "home" && selectedView !== "visualizer" && !globalSearch}
           <ViewHeader
             {viewTitle}
             {viewSubtitle}
             {selectedPlaylist}
             isEditing={isEditingSelectedPlaylist}
             renaming={renamingPlaylist}
+            canEditCover={Boolean(syncServerUrl) &&
+              !guestMode &&
+              (!hasNativeBridge() || isRemoteRoot(rootPath))}
             bind:playlistNameDraft
             onStartRename={startPlaylistRename}
             onCommitRename={() => void commitPlaylistRename()}
             onCancelRename={cancelPlaylistRename}
+            onChangeCover={(file) => void changePlaylistCover(file)}
           />
         {/if}
 
@@ -2488,7 +2997,7 @@
           <section class="error-strip"><AlertCircle size={17} /> {errorMessage}</section>
         {/if}
 
-        {#if selectedView === "home"}
+        {#if selectedView === "home" && !globalSearch}
           <HomeView
             {userPlaylists}
             recentItems={homeItems}
@@ -2498,15 +3007,27 @@
             onOpenAlbum={openFromBrowseGrid}
             onPlayTrack={(track) => void playTrackRow(track, 0)}
           />
-        {:else if selectedView === "artists"}
+        {:else if selectedView === "visualizer"}
+          <VisualizerView
+            sampler={visualizerSampler}
+            {currentTrack}
+            {theme}
+          />
+        {:else if selectedView === "artists" && !globalSearch}
           <BrowseGrid kind="artists" {artists} {artistArt} onOpen={openFromBrowseGrid} />
-        {:else if selectedView === "albums"}
+        {:else if selectedView === "albums" && !globalSearch}
           <BrowseGrid kind="albums" {albums} onOpen={openFromBrowseGrid} />
+        {:else if selectedView === "playlists" && !globalSearch}
+          <PlaylistGrid
+            playlists={userPlaylists}
+            playlistCovers={homePlaylistCovers}
+            onOpen={selectView}
+          />
         {:else}
           <TrackList
-            {viewTitle}
+            viewTitle={globalSearch ? "Search" : viewTitle}
             isQueueView={selectedView === "queue"}
-            {listMeta}
+            listMeta={globalSearch ? formatCount(visibleTracks.length, "result") : listMeta}
             {visibleTracks}
             queuedTracksCount={queuedTracks.length}
             currentTrackId={currentTrack?.id ?? null}
@@ -2517,6 +3038,7 @@
             onShuffleAll={() => void playTrackSet(visibleTracks, true)}
             onClearQueue={clearQueuedTracks}
             onPlayRow={(track, index) => void playTrackRow(track, index)}
+            onQueueTrack={queueTrackLast}
             onRemoveQueued={removeQueuedTrackAt}
             {guestMode}
             onEditPlaylists={openPlaylistMembershipModal}
@@ -2531,10 +3053,9 @@
       queuedTracksCount={queuedTracks.length}
       currentTrackId={currentTrack?.id ?? null}
       {isPlaying}
-      {activePlaybackDeviceName}
-      showDeviceControl={Boolean(syncServerUrl && syncServerReady && deviceId)}
       onPlayQueueTrack={(index) => void playQueueTrack(index)}
       onRemoveQueued={removeQueuedTrackAt}
+      onMoveQueued={moveQueuedTrack}
       onClearQueue={clearQueuedTracks}
     />
 
@@ -2613,6 +3134,9 @@
         onSyncToServer={() => void syncToServer()}
         onSyncFromServer={() => void syncFromServer()}
         onImportManifest={() => void chooseImportManifest()}
+        onImportFiles={(files) => void importAudioFiles(files)}
+        canShare={Boolean(syncServerUrl) && syncServerReady}
+        onShareLibrary={() => void shareLibrary()}
         onRefresh={refreshActiveLibrary}
         onStartAux={() => void startAux()}
         onShowAux={() => {
@@ -2636,6 +3160,7 @@
 
     <audio
       bind:this={audioEl}
+      crossorigin="anonymous"
       onended={handleEnded}
       onerror={handleAudioError}
       onloadedmetadata={syncDuration}

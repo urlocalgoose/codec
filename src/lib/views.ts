@@ -3,7 +3,7 @@ import type { Library, LibraryStats, Playlist, Track } from "./types";
 
 export function isKnownView(library: Library, view: string): boolean {
   return (
-    ["home", "all", "liked", "artists", "albums", "queue"].includes(view) ||
+    ["home", "all", "liked", "artists", "albums", "playlists", "queue", "visualizer"].includes(view) ||
     library.playlists.some((playlist) => playlist.id === view)
   );
 }
@@ -55,8 +55,12 @@ export function titleForView(view: string, playlist: Playlist | null): string {
       return "Artists";
     case "albums":
       return "Albums";
+    case "playlists":
+      return "Playlists";
     case "queue":
       return "Queue";
+    case "visualizer":
+      return "Visualizer";
     case "home":
     default:
       return "Home";

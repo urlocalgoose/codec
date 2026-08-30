@@ -302,7 +302,8 @@ export function normalizeLibrary(library: Partial<MusicLibrary>): MusicLibrary {
   }));
   const playlists = safeArray<Playlist>(library.playlists).map((playlist) => ({
     ...playlist,
-    track_ids: safeArray(playlist.track_ids)
+    track_ids: safeArray(playlist.track_ids),
+    artwork_url: playlist.artwork_url ? withAccessToken(playlist.artwork_url) : playlist.artwork_url
   }));
   const durationSeconds = tracks.reduce((sum, track) => sum + (track.duration_seconds ?? 0), 0);
 
@@ -412,6 +413,145 @@ export async function updatePlaybackDevice(
 
   if (!response.ok) {
     throw syncApiError("Could not update playback device", serverUrl, response);
+  }
+}
+
+/** URL for the server's full-library export zip (loud.import.v1 manifest +
+ * audio). Carries a URL token because downloads are plain navigations. */
+export function libraryExportUrl(serverUrl: string): string {
+  return withAccessToken(`${normalizeServerUrl(serverUrl)}/api/v1/export`);
+}
+
+export async function createRemotePlaylist(
+  serverUrl: string,
+  name: string,
+  fetcher: typeof fetch = fetch
+): Promise<Playlist> {
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/playlists`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ name })
+  });
+
+  if (!response.ok) {
+    throw syncApiError("Could not create playlist", serverUrl, response);
+  }
+  return (await response.json()) as Playlist;
+}
+
+export async function addTrackToRemotePlaylist(
+  serverUrl: string,
+  playlistId: string,
+  fingerprint: string,
+  fetcher: typeof fetch = fetch
+): Promise<void> {
+  const response = await authorizedFetch(
+    fetcher,
+    `${normalizeServerUrl(serverUrl)}/api/v1/playlists/${encodeURIComponent(playlistId)}/tracks`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ fingerprint })
+    }
+  );
+
+  if (!response.ok) {
+    throw syncApiError("Could not add to playlist", serverUrl, response);
+  }
+}
+
+export async function uploadTrackMetadata(
+  serverUrl: string,
+  track: Track,
+  fetcher: typeof fetch = fetch
+): Promise<void> {
+  const response = await authorizedFetch(
+    fetcher,
+    `${normalizeServerUrl(serverUrl)}/api/v1/tracks/${encodeURIComponent(track.fingerprint)}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(track)
+    }
+  );
+
+  if (!response.ok) {
+    throw syncApiError("Could not import track metadata", serverUrl, response);
+  }
+}
+
+export async function uploadTrackAudio(
+  serverUrl: string,
+  fingerprint: string,
+  audio: Blob,
+  fetcher: typeof fetch = fetch
+): Promise<void> {
+  const response = await authorizedFetch(
+    fetcher,
+    `${normalizeServerUrl(serverUrl)}/api/v1/tracks/${encodeURIComponent(fingerprint)}/audio`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": audio.type || "audio/mpeg"
+      },
+      body: audio
+    }
+  );
+
+  if (!response.ok) {
+    throw syncApiError("Could not upload audio", serverUrl, response);
+  }
+}
+
+export async function uploadTrackArtwork(
+  serverUrl: string,
+  fingerprint: string,
+  image: Blob,
+  fetcher: typeof fetch = fetch
+): Promise<void> {
+  const response = await authorizedFetch(
+    fetcher,
+    `${normalizeServerUrl(serverUrl)}/api/v1/tracks/${encodeURIComponent(fingerprint)}/artwork`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": image.type || "image/jpeg"
+      },
+      body: image
+    }
+  );
+
+  if (!response.ok) {
+    throw syncApiError("Could not upload artwork", serverUrl, response);
+  }
+}
+
+export async function uploadPlaylistArtwork(
+  serverUrl: string,
+  playlistId: string,
+  image: Blob,
+  fetcher: typeof fetch = fetch
+): Promise<void> {
+  const response = await authorizedFetch(
+    fetcher,
+    `${normalizeServerUrl(serverUrl)}/api/v1/playlists/${encodeURIComponent(playlistId)}/artwork`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": image.type || "image/jpeg"
+      },
+      body: image
+    }
+  );
+
+  if (!response.ok) {
+    throw syncApiError("Could not update playlist cover", serverUrl, response);
   }
 }
 

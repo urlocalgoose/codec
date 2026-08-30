@@ -33,7 +33,9 @@
         {#each userPlaylists as playlist (playlist.id)}
           {@const cover = playlistCovers.get(playlist.id)}
           <button class="home-playlist-card" type="button" onclick={() => onOpenPlaylist(playlist.id)}>
-            {#if cover?.artwork_url}
+            {#if playlist.artwork_url}
+              <img class="home-card-art" src={playlist.artwork_url} alt="" loading="lazy" decoding="async" />
+            {:else if cover?.artwork_url}
               <img class="home-card-art" src={cover.artwork_url} alt="" loading="lazy" decoding="async" />
             {:else}
               <span class="home-card-art placeholder"><ListMusic size={44} /></span>

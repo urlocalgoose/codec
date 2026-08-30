@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Check, LoaderCircle, Pencil, X } from "lucide-svelte";
+  import { Check, Image, LoaderCircle, Pencil, X } from "lucide-svelte";
   import type { Playlist } from "$lib/types";
 
   let {
@@ -8,23 +8,37 @@
     selectedPlaylist,
     isEditing,
     renaming,
+    canEditCover = false,
     playlistNameDraft = $bindable(),
     onStartRename,
     onCommitRename,
-    onCancelRename
+    onCancelRename,
+    onChangeCover
   }: {
     viewTitle: string;
     viewSubtitle: string;
     selectedPlaylist: Playlist | null;
     isEditing: boolean;
     renaming: boolean;
+    canEditCover?: boolean;
     playlistNameDraft: string;
     onStartRename: (playlist: Playlist) => void;
     onCommitRename: () => void;
     onCancelRename: () => void;
+    onChangeCover?: (file: File) => void;
   } = $props();
 
   let nameInputEl: HTMLInputElement | undefined = $state();
+  let coverInputEl: HTMLInputElement | undefined = $state();
+
+  function handleCoverPicked(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (file && onChangeCover) {
+      onChangeCover(file);
+    }
+  }
 
   $effect(() => {
     if (isEditing && nameInputEl) {
@@ -102,6 +116,24 @@
           >
             <Pencil size={17} />
           </button>
+        {/if}
+        {#if selectedPlaylist && canEditCover}
+          <button
+            class="title-icon-button"
+            title="Change playlist cover"
+            aria-label="Change playlist cover"
+            type="button"
+            onclick={() => coverInputEl?.click()}
+          >
+            <Image size={17} />
+          </button>
+          <input
+            bind:this={coverInputEl}
+            type="file"
+            accept="image/*"
+            hidden
+            onchange={handleCoverPicked}
+          />
         {/if}
       </div>
     {/if}

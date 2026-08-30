@@ -18,6 +18,9 @@ export interface Playlist {
   path: string;
   track_ids: string[];
   is_liked: boolean;
+  /** Server-derived custom cover; absent when the playlist uses the default
+   * first-track artwork. */
+  artwork_url?: string | null;
 }
 
 export interface Track {

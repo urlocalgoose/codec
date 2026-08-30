@@ -24,24 +24,20 @@
   --button-bg-hover: #302c22;
   --button-bg-active: #3b3023;
   --button-shadow: rgba(0, 0, 0, 0.32);
-  --button-shadow-rest:
-    inset 0 -5px 0 var(--button-shadow),
-    inset 0 1px 0 var(--color-glint);
-  --button-shadow-pressed: inset 0 -1px 0 var(--button-shadow);
-  --button-shadow-latched: inset 0 -1px 0 var(--button-shadow);
-  --icon-inset-shadow:
-    drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.34))
-    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.08));
-  --icon-inset-shadow-primary:
-    drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.3))
-    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.16));
-  --button-hover-y: 1px;
-  --button-press-y: 5px;
-  --button-latched-y: 4px;
+  /* Deck-era tokens, kept inert: the native skin has no raised chrome.
+     The full tape-deck treatment lives on the deck-ui branch. */
+  --button-shadow-rest: 0 0 0 0 transparent;
+  --button-shadow-pressed: 0 0 0 0 transparent;
+  --button-shadow-latched: 0 0 0 0 transparent;
+  --icon-inset-shadow: none;
+  --icon-inset-shadow-primary: none;
+  --button-hover-y: 0px;
+  --button-press-y: 0px;
+  --button-latched-y: 0px;
   --button-primary-text: #130f0a;
   --radius-sm: 6px;
   --radius-md: 10px;
-  --radius-button: 10px;
+  --radius-button: 12px;
   --control-h: 38px;
   --space-1: 4px;
   --space-2: 8px;
@@ -816,6 +812,9 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-app);
+  /* The shell owns the viewport — no rubber-band bounce revealing the raw
+     page background behind the chrome. */
+  overscroll-behavior: none;
 }
 
 button,
@@ -843,6 +842,8 @@ button svg {
   transform-origin: center;
 }
 
+/* Native controls, matching the iOS app: flat fills, tinted states, and a
+   soft press bounce. Depth comes from hairlines and soft shadows only. */
 .ui-button,
 .primary-action,
 .topbar-actions button,
@@ -852,24 +853,13 @@ button svg {
 .track-head button,
 .search-box button {
   transition:
-    transform 90ms ease,
-    box-shadow 90ms ease,
+    transform 120ms cubic-bezier(0.2, 0.8, 0.3, 1),
     background 120ms ease,
-    color 120ms ease;
+    color 120ms ease,
+    opacity 120ms ease;
 }
 
-.ui-button:hover:not(:disabled):not(:active),
-.primary-action:hover:not(:disabled):not(:active),
-.topbar-actions button:hover:not(:disabled):not(:active),
-.transport button:hover:not(:disabled):not(:active):not(.active),
-.queue-button:hover:not(:disabled):not(:active):not(.active),
-.title-icon-button:hover:not(:disabled):not(:active),
-.track-head button:hover:not(:disabled):not(:active):not(.active),
-.search-box button:hover:not(:disabled):not(:active) {
-  transform: translateY(var(--button-hover-y));
-}
-
-.ui-button:active,
+.ui-button:active:not(:disabled),
 .primary-action:active,
 .topbar-actions button:active,
 .transport button:active,
@@ -877,46 +867,11 @@ button svg {
 .title-icon-button:active,
 .track-head button:active,
 .search-box button:active {
-  transform: translateY(var(--button-press-y));
-}
-
-.transport button.active,
-.track-head button.active {
-  transform: translateY(var(--button-latched-y));
-}
-
-.transport button.active:active,
-.track-head button.active:active {
-  transform: translateY(var(--button-press-y));
-}
-
-.transport-buttons button.active::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: var(--button-latched-y);
-  left: 0;
-  height: 2px;
-  background: var(--button-shadow);
-  pointer-events: none;
-}
-
-.transport-buttons button:active::after,
-.topbar-actions button:active::after,
-.list-actions .ui-button:active::after,
-.title-edit .title-icon-button:active::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  bottom: var(--button-press-y);
-  left: 0;
-  height: 2px;
-  background: var(--button-shadow);
-  pointer-events: none;
+  transform: scale(0.94);
 }
 
 .ui-button {
-  min-height: 50px;
+  min-height: 46px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -924,34 +879,15 @@ button svg {
   border: 0;
   border-radius: var(--radius-button);
   padding: 0 var(--space-4);
-  background: var(--button-bg);
+  background: var(--color-surface);
   color: var(--color-text);
   cursor: pointer;
-  font-weight: 800;
-  box-shadow: var(--button-shadow-rest);
+  font-weight: 600;
+  font-size: 0.94rem;
 }
 
-.ui-button svg,
-.primary-action svg,
-.topbar-actions button svg,
-.transport button svg,
-.title-icon-button svg,
-.queue-button svg {
-  filter: var(--icon-inset-shadow);
-}
-
-.ui-button.primary svg,
-.primary-action svg,
-.title-icon-button.primary svg,
-.transport .play-button svg {
-  filter: var(--icon-inset-shadow-primary);
-}
-
-.topbar-actions button > svg,
-.transport button > svg,
-.title-icon-button > svg,
-.queue-button > svg {
-  --icon-nudge-y: -1px;
+.ui-button:hover:not(:disabled) {
+  background: var(--color-surface-hover);
 }
 
 .ui-button .lucide-play,
@@ -967,12 +903,8 @@ button svg {
   --icon-nudge-x: 1px;
 }
 
-.ui-button:active {
-  box-shadow: var(--button-shadow-pressed);
-}
-
 .ui-button.compact {
-  min-height: 40px;
+  min-height: 38px;
   border-radius: var(--radius-button);
   padding: 0 12px;
   font-size: 0.88rem;
@@ -987,16 +919,10 @@ button svg {
 .ui-button.primary {
   background: var(--color-accent);
   color: var(--button-primary-text);
-  box-shadow:
-    inset 0 -5px 0 rgba(0, 0, 0, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
-.ui-button.primary:active,
-.primary-action:active,
-.transport .play-button:active {
-  background: var(--color-accent);
-  box-shadow: var(--button-shadow-pressed);
+.ui-button.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
 }
 
 .setup-screen {
@@ -1026,6 +952,7 @@ button svg {
   display: flex;
   align-items: center;
   gap: 10px;
+  color: var(--color-text);
   font-weight: 800;
   letter-spacing: 0;
 }
@@ -1051,6 +978,9 @@ button svg {
 
 .setup-panel h1 {
   margin: 8px 0 12px;
+  /* Explicit: inherited color resolves outside the themed scope and turns
+     unreadable on light themes. */
+  color: var(--color-text);
   font-size: clamp(2.1rem, 6vw, 4rem);
   line-height: 0.95;
   letter-spacing: 0;
@@ -1079,12 +1009,10 @@ button svg {
   display: grid;
   gap: 14px;
   margin-top: 28px;
-  border-radius: var(--radius-button);
+  border-radius: 12px;
   padding: 14px;
   background: color-mix(in srgb, var(--color-panel) 64%, var(--color-bg) 36%);
-  box-shadow:
-    inset 0 0 0 1px var(--color-line),
-    inset 0 -2px 0 rgba(0, 0, 0, 0.16);
+  box-shadow: inset 0 0 0 1px var(--color-line);
 }
 
 .setup-sync-copy {
@@ -1116,14 +1044,15 @@ button svg {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  border-radius: var(--radius-md);
-  padding: 12px 16px;
+  border-radius: 12px;
+  padding: 13px 18px;
   background: var(--color-accent);
   color: var(--button-primary-text);
-  font-weight: 800;
-  box-shadow:
-    inset 0 -4px 0 rgba(0, 0, 0, 0.26),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  font-weight: 600;
+}
+
+.primary-action:hover:not(:disabled) {
+  background: var(--color-accent-hover);
 }
 
 .setup-error {
@@ -1134,12 +1063,17 @@ button svg {
   color: var(--color-danger) !important;
 }
 
+/* The shell background is the chrome color: sidebar, player, and queue rail
+   read as one continuous U of chrome, and the content view is a rounded
+   window inset into it — its bottom corners are the inverted curves that
+   connect the player to the rails. */
 .app-shell {
   height: 100vh;
   display: grid;
-  grid-template-columns: 224px minmax(620px, 1fr) minmax(260px, 340px);
-  grid-template-rows: minmax(0, 1fr) 136px;
-  background: var(--color-bg);
+  /* Equal rails: the content window sits dead-center in the shell. */
+  grid-template-columns: 250px minmax(640px, 1fr) 250px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--color-panel);
   overflow: hidden;
 }
 
@@ -1150,40 +1084,36 @@ button svg {
   gap: 18px;
   padding: 18px 12px;
   border-right: 0;
-  background:
-    linear-gradient(0deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.025)),
-    var(--color-panel);
-  box-shadow: inset -1px 0 0 var(--color-line);
+  background: transparent;
   min-width: 0;
 }
 
+/* Source list, the native way: flat rows, quiet tinted selection. */
 .nav-stack,
 .playlist-scroll {
   display: grid;
-  gap: 0;
-  overflow: hidden;
-  border-radius: var(--radius-button);
-  box-shadow: inset 0 0 0 1px var(--color-line);
+  gap: 2px;
 }
 
 .nav-stack button,
 .playlist-scroll button,
 .theme-open-button {
   width: 100%;
-  min-height: 38px;
+  min-height: 36px;
   border: 0;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  border-radius: 0;
-  padding: 8px 10px;
+  border-radius: 8px;
+  padding: 7px 10px;
   background: transparent;
   color: var(--color-muted);
   cursor: pointer;
-  font-weight: 750;
+  font-weight: 600;
   text-align: left;
   transition:
+    background 120ms ease,
     color 120ms ease;
 }
 
@@ -1193,29 +1123,11 @@ button svg {
 
 .theme-open-button {
   grid-template-columns: 22px minmax(0, 1fr);
-  border-radius: var(--radius-button);
-  box-shadow: inset 0 0 0 1px var(--color-line);
-}
-
-.nav-stack button + button,
-.playlist-scroll button + button {
-  box-shadow: inset 0 1px 0 var(--color-line);
-}
-
-.nav-stack button:first-child,
-.playlist-scroll button:first-child {
-  border-radius: var(--radius-button) var(--radius-button) 0 0;
-}
-
-.nav-stack button:last-child,
-.playlist-scroll button:last-child {
-  border-radius: 0 0 var(--radius-button) var(--radius-button);
 }
 
 .nav-stack button > svg,
 .theme-open-button > svg {
   justify-self: center;
-  filter: var(--icon-inset-shadow);
 }
 
 .nav-stack button > span,
@@ -1234,9 +1146,21 @@ button svg {
 
 .nav-stack button:hover,
 .playlist-scroll button:hover,
-.theme-open-button:hover,
+.theme-open-button:hover {
+  background: color-mix(in srgb, var(--color-surface) 55%, transparent);
+  color: var(--color-text);
+}
+
+/* Selection stays in the neutral palette: a quiet surface fill, accent only
+   on the glyph — no tinted wash. */
 .nav-stack button.active,
 .playlist-scroll button.active {
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.nav-stack button.active > svg {
   color: var(--color-accent);
 }
 
@@ -1259,19 +1183,29 @@ button svg {
   text-transform: uppercase;
 }
 
+/* Icon controls are flat glyphs in generous hit targets: subtle at rest,
+   text on hover, accent when latched or current. */
 .topbar-actions button,
 .transport button,
 .queue-button,
 .title-icon-button {
-  width: 54px;
-  height: 54px;
+  width: 40px;
+  height: 40px;
   display: inline-grid;
   place-items: center;
   border: 0;
-  border-radius: var(--radius-button);
-  background: var(--button-bg);
+  border-radius: 10px;
+  background: transparent;
   color: var(--color-muted);
-  box-shadow: var(--button-shadow-rest);
+  cursor: pointer;
+}
+
+.topbar-actions button:hover:not(:disabled),
+.transport button:hover:not(:disabled):not(.active),
+.queue-button:hover:not(:disabled),
+.title-icon-button:hover:not(:disabled) {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-surface) 55%, transparent);
 }
 
 .topbar-actions button:disabled,
@@ -1283,29 +1217,8 @@ button svg {
   transform: none;
 }
 
-.topbar-actions button:active,
-.transport button:active,
-.queue-button:active,
-.title-icon-button:active {
-  box-shadow: var(--button-shadow-pressed);
-}
-
 .transport button.active {
-  box-shadow: var(--button-shadow-latched);
-}
-
-.transport button.active:active {
-  box-shadow: var(--button-shadow-pressed);
-}
-
-.queue-button,
-.title-icon-button {
-  width: 42px;
-  height: 42px;
-}
-
-.queue-button {
-  border-radius: var(--radius-button);
+  color: var(--color-accent);
 }
 
 /* Quiet ghost heart: no deck-key chrome so rows stay calm; accent when lit. */
@@ -1337,6 +1250,33 @@ button svg {
 
 .like-button.liked {
   color: var(--color-accent);
+}
+
+/* Quiet per-row action (add to queue): appears on hover, like the heart. */
+.row-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  justify-self: center;
+  background: transparent;
+  color: var(--color-subtle);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.track-row:hover .row-action,
+.row-action:focus-visible {
+  opacity: 1;
+}
+
+.row-action:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-surface) 55%, transparent);
 }
 
 .playlist-scroll {
@@ -1426,13 +1366,11 @@ button.sidebar-aux-chip {
   grid-template-columns: 22px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
-  border-radius: var(--radius-button);
+  border-radius: 10px;
   padding: 0 10px;
-  background: color-mix(in srgb, var(--color-bg) 72%, var(--color-panel) 28%);
+  background: color-mix(in srgb, var(--color-surface) 62%, transparent);
   color: var(--color-subtle);
-  box-shadow:
-    inset 0 0 0 1px var(--color-line),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.16);
+  transition: box-shadow 120ms ease;
 }
 
 .sync-url-field.compact {
@@ -1459,37 +1397,18 @@ button.sidebar-aux-chip {
 }
 
 .sync-url-field:focus-within {
-  background: color-mix(in srgb, var(--color-bg) 64%, var(--color-panel) 36%);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 28%, var(--color-line-strong)),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 28%, transparent);
 }
 
 .sync-actions {
   display: flex;
-  overflow: hidden;
-  border-radius: var(--radius-button);
+  gap: 8px;
 }
 
 .sync-actions .ui-button {
   flex: 1;
   min-height: 38px;
-  border-radius: 0;
   padding: 0;
-}
-
-.sync-actions .ui-button + .ui-button {
-  box-shadow:
-    inset 1px 0 0 var(--color-line),
-    var(--button-shadow-rest);
-}
-
-.sync-actions .ui-button:first-child {
-  border-radius: var(--radius-button) 0 0 var(--radius-button);
-}
-
-.sync-actions .ui-button:last-child {
-  border-radius: 0 var(--radius-button) var(--radius-button) 0;
 }
 
 .sync-status {
@@ -1499,52 +1418,51 @@ button.sidebar-aux-chip {
   line-height: 1.35;
 }
 
+/* The content window is framed by chrome on all four sides now — topbar
+   above, player below, rails beside — so every corner curves. */
 .content {
   grid-column: 2;
-  grid-row: 1;
+  grid-row: 2;
   min-width: 0;
   overflow: auto;
-  padding: 0 22px 28px;
+  overscroll-behavior: contain;
+  padding: 18px 28px 28px;
+  background: var(--color-bg);
+  border-radius: 24px;
 }
 
+/* The topbar closes the ring: search lives on the chrome, always there,
+   spanning the middle column like the player does. */
 .topbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  margin: 0 -22px;
-  padding: 18px 22px 16px;
-  background: color-mix(in srgb, var(--color-bg) 82%, var(--color-panel) 18%);
-  backdrop-filter: blur(24px) saturate(160%);
-  box-shadow: inset 0 -1px 0 var(--color-line);
+  margin: 0;
+  padding: 12px 0 10px;
+  background: transparent;
 }
 
+/* The native search field: a quiet rounded gray fill, accent focus ring. */
 .search-box {
   flex: 1;
-  max-width: 680px;
   min-width: 180px;
-  height: 42px;
+  height: 38px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   border: 0;
-  border-radius: 21px;
-  padding: 0 14px;
-  background: color-mix(in srgb, var(--color-bg) 74%, var(--color-panel) 26%);
+  border-radius: 10px;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--color-surface) 62%, transparent);
   color: var(--color-subtle);
-  box-shadow:
-    inset 0 0 0 1px var(--color-line),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.16);
+  transition: box-shadow 120ms ease;
 }
 
 .search-box:focus-within {
-  background: color-mix(in srgb, var(--color-bg) 66%, var(--color-panel) 34%);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 28%, var(--color-line-strong)),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 28%, transparent);
 }
 
 .search-box input {
@@ -1554,12 +1472,20 @@ button.sidebar-aux-chip {
   outline: 0;
   background: transparent;
   color: var(--color-text);
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .search-box input::placeholder {
   color: var(--color-subtle);
   opacity: 1;
+}
+
+/* One X only: the clear button is ours, not WebKit's. */
+.search-box input::-webkit-search-cancel-button,
+.search-box input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
 }
 
 .search-box button {
@@ -1573,28 +1499,6 @@ button.sidebar-aux-chip {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.topbar-actions button {
-  border-radius: var(--radius-button);
-}
-
-.topbar-actions button + button {
-  box-shadow:
-    inset 1px 0 0 var(--color-line),
-    var(--button-shadow-rest);
-}
-
-.topbar-actions button:first-child {
-  border-radius: var(--radius-button) 0 0 var(--radius-button);
-}
-
-.topbar-actions button:last-child {
-  border-radius: 0 var(--radius-button) var(--radius-button) 0;
-}
-
-.topbar-actions button:only-child {
-  border-radius: var(--radius-button);
 }
 
 .spin-icon {
@@ -1647,10 +1551,8 @@ button.sidebar-aux-chip {
   width: min(760px, 100%);
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 8px;
   margin: 5px 0 7px;
-  border-radius: var(--radius-button);
-  overflow: hidden;
 }
 
 .playlist-title-input {
@@ -1658,42 +1560,34 @@ button.sidebar-aux-chip {
   flex: 1;
   height: clamp(48px, 7vw, 68px);
   border: 0;
-  border-radius: var(--radius-button) 0 0 var(--radius-button);
+  border-radius: 12px;
   outline: 0;
   padding: 0 14px;
-  background: var(--color-panel-2);
+  background: color-mix(in srgb, var(--color-surface) 62%, transparent);
   color: var(--color-text);
-  box-shadow:
-    inset 0 -3px 0 rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 var(--color-glint);
   font-size: clamp(2.2rem, 4.5vw, 3rem);
   font-weight: 900;
   letter-spacing: -0.03em;
   line-height: 1.05;
+  transition: box-shadow 120ms ease;
 }
 
 .playlist-title-input:focus {
-  background: var(--color-surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 28%, transparent);
 }
 
 .title-edit .title-icon-button {
-  width: 48px;
-  height: clamp(48px, 7vw, 68px);
-  border-radius: 0;
-}
-
-.title-edit .title-icon-button + .title-icon-button {
-  box-shadow:
-    inset 1px 0 0 var(--color-line),
-    var(--button-shadow-rest);
-}
-
-.title-edit .title-icon-button:last-child {
-  border-radius: 0 var(--radius-button) var(--radius-button) 0;
+  width: 44px;
+  height: 44px;
 }
 
 .title-icon-button.primary {
   background: var(--color-accent);
+  color: var(--button-primary-text);
+}
+
+.title-icon-button.primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
   color: var(--button-primary-text);
 }
 
@@ -1782,13 +1676,6 @@ button.sidebar-aux-chip {
   margin-inline: 0;
 }
 
-.track-table {
-  border: 1px solid var(--color-line);
-  border-radius: 16px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--color-panel) 55%, var(--color-bg));
-}
-
 .list-toolbar {
   display: flex;
   align-items: center;
@@ -1822,55 +1709,58 @@ button.sidebar-aux-chip {
   gap: 8px;
 }
 
-/* The phone's Play / Shuffle pills: fully rounded, standing apart. */
+/* The phone's Play / Shuffle buttons: accent primary, surface secondary. */
 .list-actions .ui-button {
-  border-radius: 13px;
+  border-radius: 12px;
   min-height: 44px;
-  padding-inline: 26px;
-  font-weight: 800;
+  padding-inline: 24px;
 }
 
+/* A native segmented control. */
 .sort-chips {
   display: flex;
-  gap: 4px;
-  padding: 3px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-bg) 70%, var(--color-panel) 30%);
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-surface) 55%, transparent);
 }
 
 .sort-chips button {
   border: 0;
-  border-radius: 999px;
+  border-radius: 7px;
   padding: 5px 12px;
   background: transparent;
-  color: var(--color-subtle);
+  color: var(--color-muted);
   cursor: pointer;
   font: inherit;
   font-size: 0.78rem;
-  font-weight: 800;
+  font-weight: 600;
+  transition: background 120ms ease, color 120ms ease;
 }
 
 .sort-chips button.active {
-  background: var(--color-surface);
+  background: var(--color-surface-hover);
   color: var(--color-text);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
+/* An inset-grouped list: one rounded panel, hairline separators inside.
+   panel-2, not panel — the shell chrome owns panel, so the list must sit a
+   step lighter or it melts into the chrome. */
 .track-table {
   min-width: 640px;
-  border-block: 0;
-  border-inline: 0;
-  border-radius: 0;
+  border: 0;
+  border-radius: 12px;
   overflow: hidden;
-  background: var(--color-panel);
-  box-shadow:
-    inset 0 1px 0 var(--color-line),
-    inset 0 -1px 0 var(--color-line);
+  background: var(--color-panel-2);
+  box-shadow: inset 0 0 0 1px var(--color-border);
 }
 
 .track-head,
 .track-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px 72px 48px;
+  grid-template-columns: minmax(0, 1fr) 36px 72px 40px 48px;
   align-items: center;
   gap: 10px;
 }
@@ -1910,15 +1800,17 @@ button.sidebar-aux-chip {
 
 .track-row:hover,
 .track-row.active {
-  background: color-mix(in srgb, var(--color-surface) 78%, var(--color-bg));
+  background: color-mix(in srgb, var(--color-surface) 55%, var(--color-panel-2));
 }
 
 .track-row.active {
   color: var(--color-text);
-  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface));
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 14%, transparent),
-    inset 0 -1px 0 var(--color-line);
+  background: color-mix(in srgb, var(--color-surface) 80%, var(--color-panel-2));
+  box-shadow: inset 0 -1px 0 var(--color-line);
+}
+
+.track-row:last-child {
+  box-shadow: none;
 }
 
 .track-row:focus-visible {
@@ -1955,7 +1847,7 @@ button.sidebar-aux-chip {
 .placeholder {
   display: inline-grid;
   place-items: center;
-  background: var(--color-panel-2);
+  background: var(--color-surface);
   color: var(--color-subtle);
 }
 
@@ -2095,11 +1987,16 @@ button.sidebar-aux-chip {
   text-transform: uppercase;
 }
 
+/* A scroll container clips its contents — pad the clip box out and pull the
+   layout back with negative margins so the hover lift and shadow survive. */
 .home-playlist-row {
   display: flex;
   gap: 14px;
   overflow-x: auto;
-  padding-bottom: 4px;
+  /* The 26px-blur hover shadow reaches ~18px past every edge; the clip box
+     needs at least that much slack all around. */
+  padding: 24px 24px 40px;
+  margin: -24px -24px -36px;
   scrollbar-width: thin;
 }
 
@@ -2197,7 +2094,7 @@ button.sidebar-aux-chip {
   border-radius: 50%;
   background: var(--color-accent);
   color: var(--button-primary-text);
-  box-shadow: 0 3px 0 var(--button-shadow);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   opacity: 0;
   transform: translateY(4px);
   transition: opacity 140ms ease, transform 140ms ease;
@@ -2214,18 +2111,80 @@ button.sidebar-aux-chip {
   color: var(--color-subtle);
 }
 
+/* Visualizer: a stylized scrolling spectrograph that IS the content window —
+   negative margins cancel the window padding so the canvas runs edge to edge
+   and the window's own rounded corners clip it. */
+
+.visualizer-view {
+  margin: -18px -28px -28px;
+  height: calc(100% + 46px);
+}
+
+.visualizer-stage {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-bg) 74%, black);
+}
+
+.visualizer-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Hover-revealed fullscreen toggle; double-click the stage does it too. */
+.visualizer-fullscreen {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+  color: var(--color-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms ease, color 120ms ease, background 120ms ease;
+}
+
+.visualizer-stage:hover .visualizer-fullscreen,
+.visualizer-fullscreen:focus-visible {
+  opacity: 1;
+}
+
+.visualizer-fullscreen:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+}
+
+.visualizer-stage:fullscreen {
+  background: color-mix(in srgb, var(--color-bg) 74%, black);
+}
+
+.visualizer-note {
+  position: absolute;
+  inset: auto 0 16px;
+  margin: 0;
+  color: var(--color-subtle);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+}
+
 .queue-rail {
   grid-column: 3;
-  grid-row: 1;
+  grid-row: 1 / 3;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
   overflow: hidden;
   padding: 18px 12px 16px;
-  background: color-mix(in srgb, var(--color-panel) 88%, var(--color-bg) 12%);
-  backdrop-filter: blur(24px) saturate(160%);
-  box-shadow: inset 1px 0 0 var(--color-line);
+  background: transparent;
 }
 
 .queue-rail-header {
@@ -2299,6 +2258,7 @@ button.sidebar-aux-chip {
   min-height: 0;
   display: block;
   overflow: auto;
+  overscroll-behavior: contain;
   padding-right: 2px;
 }
 
@@ -2404,12 +2364,25 @@ button.sidebar-aux-chip {
   height: 28px;
   border-radius: var(--radius-sm);
   justify-self: end;
-  opacity: 0;
+  opacity: 0.45;
 }
 
 .queue-rail-row:hover .queue-rail-remove,
 .queue-rail-remove:focus-visible {
   opacity: 1;
+}
+
+/* Manual queue rows drag to reorder. */
+.queue-rail-row.queued {
+  cursor: grab;
+}
+
+.queue-rail-row.dragging {
+  opacity: 0.4;
+}
+
+.queue-rail-row.drop-target {
+  box-shadow: inset 0 2px 0 var(--color-accent);
 }
 
 .queue-rail-note {
@@ -2418,22 +2391,22 @@ button.sidebar-aux-chip {
   font-size: 0.82rem;
 }
 
+/* The player owns the full bottom row of the shell; the rails stop above
+   it, and the content window's rounded bottom corners curve into it. */
 .player {
-  grid-column: 2 / 4;
-  grid-row: 2;
+  grid-column: 1 / 4;
+  grid-row: 3;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(360px, 1.25fr) minmax(190px, 0.75fr);
+  /* Equal outer columns keep the transport at the true center of the
+     screen, whatever the now-playing and side controls need. */
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 720px) minmax(0, 1fr);
   align-items: center;
   gap: 18px;
   margin: 0;
   border: 0;
   border-radius: 0;
-  padding: 11px 18px 15px;
-  background: color-mix(in srgb, var(--color-panel) 86%, var(--color-bg) 14%);
-  backdrop-filter: blur(24px) saturate(160%);
-  box-shadow:
-    inset 0 1px 0 var(--color-line),
-    0 -10px 28px color-mix(in srgb, var(--button-shadow) 44%, transparent);
+  padding: 10px 18px 12px;
+  background: transparent;
   min-width: 0;
 }
 
@@ -2449,6 +2422,8 @@ button.sidebar-aux-chip {
   gap: 10px;
 }
 
+/* Native transport: bare glyphs. Skip keys read in text, shuffle/repeat sit
+   subtle and tint accent when latched, play is simply the biggest glyph. */
 .transport-buttons {
   width: max-content;
   max-width: 100%;
@@ -2456,48 +2431,30 @@ button.sidebar-aux-chip {
   align-items: center;
   justify-content: center;
   justify-self: center;
-  gap: 0;
-  border-radius: var(--radius-button);
-  overflow: hidden;
+  gap: 6px;
 }
 
 .transport-buttons button {
-  width: 58px;
-  height: 58px;
+  width: 44px;
+  height: 44px;
   border: 0;
-  border-radius: 0;
-  box-shadow: var(--button-shadow-rest);
+  color: var(--color-subtle);
 }
 
-.transport-buttons button + button {
-  box-shadow:
-    inset 1px 0 0 var(--color-line),
-    var(--button-shadow-rest);
+.transport button:has(.lucide-skip-back),
+.transport button:has(.lucide-skip-forward) {
+  color: var(--color-text);
 }
 
-.transport-buttons button:first-child {
-  border-radius: var(--radius-button) 0 0 var(--radius-button);
-}
-
-.transport-buttons button:last-child {
-  border-radius: 0 var(--radius-button) var(--radius-button) 0;
-}
-
-.transport .play-button {
-  width: 78px;
-  height: 58px;
-  border-radius: 0;
-  background: var(--color-accent);
-  color: var(--button-primary-text);
-}
-
+.transport .play-button,
 .transport .play-button.active {
-  background: var(--color-accent);
-  box-shadow: var(--button-shadow-latched);
+  width: 52px;
+  height: 52px;
+  color: var(--color-text);
 }
 
-.transport .play-button.active:active {
-  box-shadow: var(--button-shadow-pressed);
+.transport .play-button:active {
+  transform: scale(0.88);
 }
 
 .progress-row,
@@ -2521,79 +2478,70 @@ button.sidebar-aux-chip {
   text-align: center;
 }
 
+/* Native sliders: a thin rounded track, solid accent fill, round thumb. */
 .progress-row input[type="range"],
 .volume-control input[type="range"] {
   width: 100%;
   min-width: 0;
-  height: 30px;
+  height: 24px;
   appearance: none;
   -webkit-appearance: none;
   background: transparent;
   cursor: pointer;
 }
 
-/* The slot shows how much tape has run: an accent band up to --fill. */
 .progress-row input[type="range"]::-webkit-slider-runnable-track,
 .volume-control input[type="range"]::-webkit-slider-runnable-track {
-  height: 20px;
-  border-radius: var(--radius-sm);
+  height: 6px;
+  border-radius: 3px;
   background:
     linear-gradient(
       90deg,
-      color-mix(in srgb, var(--color-accent) 62%, transparent) 0 var(--fill, 0%),
+      var(--color-accent) 0 var(--fill, 0%),
       transparent var(--fill, 0%)
     ),
-    linear-gradient(90deg, var(--color-line), transparent),
-    color-mix(in srgb, var(--color-bg) 82%, black);
-  box-shadow:
-    inset 0 2px 0 rgba(0, 0, 0, 0.45),
-    inset 0 -1px 0 var(--color-line);
+    color-mix(in srgb, var(--color-surface) 72%, transparent);
 }
 
 .progress-row input[type="range"]::-moz-range-track,
 .volume-control input[type="range"]::-moz-range-track {
-  height: 20px;
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-bg) 82%, black);
-  box-shadow:
-    inset 0 2px 0 rgba(0, 0, 0, 0.45),
-    inset 0 -1px 0 var(--color-line);
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-surface) 72%, transparent);
 }
 
 .progress-row input[type="range"]::-moz-range-progress,
 .volume-control input[type="range"]::-moz-range-progress {
-  height: 20px;
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-accent) 62%, transparent);
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-accent);
 }
 
 .progress-row input[type="range"]::-webkit-slider-thumb,
 .volume-control input[type="range"]::-webkit-slider-thumb {
-  width: 16px;
-  height: 30px;
-  margin-top: -5px;
+  width: 14px;
+  height: 14px;
+  margin-top: -4px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
   appearance: none;
   -webkit-appearance: none;
-  background: var(--button-bg);
+  background: #fff;
   box-shadow:
-    inset 0 -4px 0 var(--button-shadow),
-    inset 0 1px 0 var(--color-glint),
-    0 0 0 1px rgba(0, 0, 0, 0.12);
+    0 0 0 0.5px rgba(0, 0, 0, 0.14),
+    0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
 .progress-row input[type="range"]::-moz-range-thumb,
 .volume-control input[type="range"]::-moz-range-thumb {
-  width: 16px;
-  height: 30px;
+  width: 14px;
+  height: 14px;
   border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--button-bg);
+  border-radius: 50%;
+  background: #fff;
   box-shadow:
-    inset 0 -4px 0 var(--button-shadow),
-    inset 0 1px 0 var(--color-glint),
-    0 0 0 1px rgba(0, 0, 0, 0.12);
+    0 0 0 0.5px rgba(0, 0, 0, 0.14),
+    0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
 .progress-row input[type="range"]:disabled,
@@ -2603,17 +2551,19 @@ button.sidebar-aux-chip {
 }
 
 .volume-control {
-  justify-self: end;
-  width: min(210px, 100%);
+  flex: 1;
+  min-width: 90px;
   color: var(--color-muted);
 }
 
+/* Volume and the device pop-up share one quiet row. */
 .player-side {
   min-width: 0;
-  width: min(230px, 100%);
+  width: min(300px, 100%);
   justify-self: end;
-  display: grid;
-  gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .volume-control > svg {
@@ -2629,48 +2579,42 @@ button.sidebar-aux-chip {
 
 .device-control {
   min-width: 0;
+  flex: 0 1 150px;
   display: grid;
-  gap: 4px;
 }
 
-.device-control span {
-  color: var(--color-subtle);
-  font-size: 0.66rem;
-  font-weight: 900;
-  letter-spacing: 0;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-/* A recessed readout, not a raised key: the deck tells you where sound goes. */
+/* A native pop-up button. */
 .device-control select {
   width: 100%;
   min-width: 0;
-  height: 34px;
+  height: 32px;
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
   appearance: none;
   -webkit-appearance: none;
-  padding: 0 30px 0 10px;
+  padding: 0 28px 0 10px;
   background:
-    linear-gradient(45deg, transparent 50%, var(--color-subtle) 50%) right 14px center / 6px 6px no-repeat,
-    linear-gradient(135deg, var(--color-subtle) 50%, transparent 50%) right 10px center / 6px 6px no-repeat,
-    color-mix(in srgb, var(--color-bg) 74%, var(--color-panel) 26%);
-  color: var(--color-accent);
+    linear-gradient(45deg, transparent 50%, var(--color-subtle) 50%) right 14px center / 5px 5px no-repeat,
+    linear-gradient(135deg, var(--color-subtle) 50%, transparent 50%) right 10px center / 5px 5px no-repeat,
+    color-mix(in srgb, var(--color-surface) 62%, transparent);
+  color: var(--color-text);
   cursor: pointer;
   font: inherit;
   font-size: 0.8rem;
-  font-weight: 850;
-  box-shadow:
-    inset 0 0 0 1px var(--color-line),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.16);
+  font-weight: 600;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.device-control select:hover {
+  background:
+    linear-gradient(45deg, transparent 50%, var(--color-subtle) 50%) right 14px center / 5px 5px no-repeat,
+    linear-gradient(135deg, var(--color-subtle) 50%, transparent 50%) right 10px center / 5px 5px no-repeat,
+    var(--color-surface);
 }
 
 .device-control select:focus {
   outline: 0;
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 28%, var(--color-line-strong)),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 28%, transparent);
 }
 
 .modal-backdrop {
@@ -2683,16 +2627,19 @@ button.sidebar-aux-chip {
   background: rgba(0, 0, 0, 0.54);
 }
 
+/* Sheets: big continuous corners, hairline edge, deep soft shadow. */
 .app-modal {
   width: min(520px, 100%);
   max-height: min(680px, calc(100vh - 48px));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 16px;
-  border-radius: var(--radius-md);
-  padding: 18px;
+  border-radius: 16px;
+  padding: 20px;
   background: var(--color-panel);
-  box-shadow: 0 24px 80px var(--color-shadow-strong);
+  box-shadow:
+    inset 0 0 0 1px var(--color-border),
+    0 24px 80px var(--color-shadow-strong);
 }
 
 .theme-modal {
@@ -2807,20 +2754,26 @@ button.sidebar-aux-chip {
 }
 
 .choice-box {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-bg) 72%, var(--color-panel) 28%);
-  box-shadow:
-    inset 0 0 0 1px var(--color-line-strong),
-    inset 0 2px 4px rgba(0, 0, 0, 0.18);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-surface) 62%, transparent);
+  box-shadow: inset 0 0 0 1px var(--color-line-strong);
+}
+
+.playlist-choice.active .choice-box {
+  background: var(--color-accent);
+  box-shadow: none;
 }
 
 .choice-box svg {
   color: var(--color-accent);
-  filter: var(--icon-inset-shadow);
+}
+
+.playlist-choice.active .choice-box svg {
+  color: var(--button-primary-text);
 }
 
 .choice-copy {
@@ -2905,27 +2858,7 @@ button.sidebar-aux-chip {
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0;
-  overflow: hidden;
-  border-radius: var(--radius-button);
-}
-
-.modal-actions .ui-button {
-  border-radius: 0;
-}
-
-.modal-actions .ui-button + .ui-button {
-  box-shadow:
-    inset 1px 0 0 var(--color-line),
-    var(--button-shadow-rest);
-}
-
-.modal-actions .ui-button:first-child {
-  border-radius: var(--radius-button) 0 0 var(--radius-button);
-}
-
-.modal-actions .ui-button:last-child {
-  border-radius: 0 var(--radius-button) var(--radius-button) 0;
+  gap: 10px;
 }
 
 .settings-modal {
@@ -3007,32 +2940,16 @@ button.sidebar-aux-chip {
   width: min(440px, 100%);
 }
 
-/* The pass: a themed ticket with grain and glint, not a naked QR in a
-   white box. The scan plate keeps hard bg/text contrast. */
+/* The pass, the native way: a clean rounded plate — no grain, no glint,
+   theme carried by tint alone. The scan plate keeps hard bg/text contrast. */
 .aux-pass {
   position: relative;
   min-height: 0;
   overflow: hidden;
   align-self: center;
-  border-radius: var(--radius-md);
+  border-radius: 16px;
   background: var(--color-panel-2);
-  box-shadow:
-    inset 0 1px 0 var(--color-glint),
-    inset 0 -4px 0 var(--button-shadow),
-    0 10px 22px var(--button-shadow);
-}
-
-.aux-pass::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(135deg, var(--color-glint), transparent 55%),
-    radial-gradient(var(--color-glint) 1px, transparent 1.5px),
-    radial-gradient(var(--color-glint) 1px, transparent 1.5px);
-  background-size: 100% 100%, 9px 13px, 15px 9px;
-  background-position: 0 0, 0 0, 4px 6px;
+  box-shadow: inset 0 0 0 1px var(--color-border);
 }
 
 .aux-pass-head {
@@ -3047,10 +2964,9 @@ button.sidebar-aux-chip {
   place-items: center;
   width: 44px;
   height: 44px;
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
   background: var(--color-accent);
   color: var(--button-primary-text);
-  box-shadow: 0 3px 0 var(--button-shadow);
 }
 
 .aux-pass-title {
@@ -3073,10 +2989,10 @@ button.sidebar-aux-chip {
 
 .aux-pass-chip {
   margin-left: auto;
-  padding: 5px 9px;
-  border-radius: 4px;
-  background: var(--color-accent);
-  color: var(--button-primary-text);
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
   font-size: 0.66rem;
   font-weight: 900;
   letter-spacing: 0.09em;
@@ -3092,16 +3008,15 @@ button.sidebar-aux-chip {
 }
 
 .aux-qr-plate {
-  /* Above the pass grain: nothing textures the scan area. */
   position: relative;
-  padding: 10px;
-  border-radius: 7px;
-  box-shadow: 0 4px 0 var(--button-shadow);
+  padding: 12px;
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
 }
 
 .aux-qr-plate canvas {
   display: block;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 .aux-pass-meta {
@@ -3158,9 +3073,8 @@ button.sidebar-aux-chip {
 .aux-pass-tape i {
   width: 18px;
   height: 6px;
-  border-radius: 2px;
+  border-radius: 3px;
   background: var(--color-surface);
-  box-shadow: 0 1px 0 var(--button-shadow);
 }
 
 .aux-pass-tape i.on {
@@ -3180,7 +3094,7 @@ audio {
 
 @media (max-width: 1140px) {
   .app-shell {
-    grid-template-columns: 224px minmax(0, 1fr);
+    grid-template-columns: 250px minmax(0, 1fr);
   }
 
   .queue-rail {
@@ -3188,7 +3102,7 @@ audio {
   }
 
   .player {
-    grid-column: 2;
+    grid-column: 1 / 3;
   }
 }
 
@@ -3196,7 +3110,18 @@ audio {
   .app-shell {
     height: 100dvh;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+
+  .topbar {
+    grid-column: 1;
+    grid-row: 2;
+    padding: 8px 12px;
+  }
+
+  .content {
+    grid-column: 1;
+    grid-row: 3;
   }
 
   .sidebar {
@@ -3221,35 +3146,20 @@ audio {
 
   .nav-stack {
     display: grid;
-    grid-template-columns: repeat(6, minmax(44px, 1fr));
+    grid-template-columns: repeat(7, minmax(40px, 1fr));
     min-width: 0;
-    gap: 0;
-    overflow: hidden;
-    border-radius: var(--radius-button);
+    gap: 2px;
   }
 
   .nav-stack button {
     width: auto;
     min-width: 0;
     min-height: 44px;
-    border-radius: 0;
+    border-radius: 10px;
     grid-template-columns: 1fr;
     justify-items: center;
     padding: 0;
     background: transparent;
-    box-shadow: none;
-  }
-
-  .nav-stack button + button {
-    box-shadow: inset 1px 0 0 var(--color-line);
-  }
-
-  .nav-stack button:first-child {
-    border-radius: var(--radius-button) 0 0 var(--radius-button);
-  }
-
-  .nav-stack button:last-child {
-    border-radius: 0 var(--radius-button) var(--radius-button) 0;
   }
 
   .nav-stack button > span {
@@ -3281,6 +3191,7 @@ audio {
 
   .player {
     grid-column: 1;
+    grid-row: 4;
     grid-template-columns: 1fr;
     gap: 10px;
   }
@@ -3393,11 +3304,11 @@ audio {
 
   .app-shell {
     height: 100dvh;
-    grid-template-rows: minmax(0, 1fr) auto auto;
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
   }
 
   .sidebar {
-    grid-row: 3;
+    grid-row: 4;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 8px;
     padding:
@@ -3411,10 +3322,9 @@ audio {
   .nav-stack {
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     scrollbar-width: none;
     overflow: hidden;
-    box-shadow: inset 0 0 0 1px var(--color-line);
   }
 
   .nav-stack::-webkit-scrollbar {
@@ -3479,11 +3389,9 @@ audio {
   .playlist-scroll {
     width: 100%;
     display: flex;
-    gap: 0;
+    gap: 6px;
     overflow-x: auto;
     overflow-y: hidden;
-    border-radius: var(--radius-button);
-    box-shadow: 0 5px 0 var(--button-shadow);
     scrollbar-width: none;
   }
 
@@ -3494,26 +3402,12 @@ audio {
   .playlist-scroll button {
     width: auto;
     max-width: 176px;
-    min-height: 38px;
+    min-height: 34px;
     flex: 0 0 auto;
-    border-radius: 0;
+    border-radius: 999px;
     grid-template-columns: minmax(0, 1fr) auto;
-    background: var(--button-bg);
-    box-shadow: var(--button-shadow-rest);
-  }
-
-  .playlist-scroll button + button {
-    box-shadow:
-      inset 1px 0 0 var(--color-line),
-      var(--button-shadow-rest);
-  }
-
-  .playlist-scroll button:first-child {
-    border-radius: var(--radius-button) 0 0 var(--radius-button);
-  }
-
-  .playlist-scroll button:last-child {
-    border-radius: 0 var(--radius-button) var(--radius-button) 0;
+    padding: 6px 13px;
+    background: color-mix(in srgb, var(--color-surface) 62%, transparent);
   }
 
   .theme-nav {
@@ -3521,10 +3415,9 @@ audio {
   }
 
   .theme-open-button {
-    min-height: 38px;
-    border-radius: var(--radius-button);
-    background: var(--button-bg);
-    box-shadow: var(--button-shadow-rest);
+    min-height: 36px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--color-surface) 62%, transparent);
   }
 
   .sync-nav {
@@ -3536,16 +3429,23 @@ audio {
 
   .content {
     grid-column: 1;
-    grid-row: 1;
-    padding: 0 12px 14px;
+    grid-row: 2;
+    padding: 10px 12px 14px;
+  }
+
+  .visualizer-view {
+    margin: -10px -12px -14px;
+    height: calc(100% + 24px);
   }
 
   .topbar {
+    grid-column: 1;
+    grid-row: 1;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 8px;
-    margin: 0 -12px;
+    margin: 0;
     padding: 8px 12px;
   }
 
@@ -3567,12 +3467,7 @@ audio {
     max-width: none;
     width: 100%;
     min-width: 0;
-    height: 40px;
-    border-radius: var(--radius-button);
-    background: color-mix(in srgb, var(--button-bg) 74%, var(--color-bg) 26%);
-    box-shadow:
-      inset 0 0 0 1px var(--color-line),
-      inset 0 -2px 0 rgba(0, 0, 0, 0.18);
+    height: 38px;
   }
 
   .search-box input {
@@ -3615,7 +3510,7 @@ audio {
   }
 
   .track-row {
-    grid-template-columns: minmax(0, 1fr) 36px 44px;
+    grid-template-columns: minmax(0, 1fr) 36px 40px 44px;
     gap: 8px;
     min-height: 62px;
     padding: 8px 12px;
@@ -3632,7 +3527,8 @@ audio {
 
   .player {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 3;
+    margin: 0;
     padding: 10px 12px max(12px, env(safe-area-inset-bottom));
     gap: 8px;
   }
@@ -3647,13 +3543,13 @@ audio {
   }
 
   .transport-buttons button {
-    width: 48px;
-    height: 50px;
+    width: 42px;
+    height: 42px;
   }
 
   .transport .play-button {
-    width: 62px;
-    height: 50px;
+    width: 48px;
+    height: 48px;
   }
 
   .progress-row {

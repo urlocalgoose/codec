@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    Archive,
     CloudDownload,
     CloudUpload,
     LoaderCircle,
@@ -25,6 +26,9 @@
     onSyncToServer,
     onSyncFromServer,
     onImportManifest,
+    onImportFiles,
+    canShare = false,
+    onShareLibrary,
     onRefresh,
     onStartAux,
     onShowAux,
@@ -44,6 +48,9 @@
     onSyncToServer: () => void;
     onSyncFromServer: () => void;
     onImportManifest: () => void;
+    onImportFiles: (files: File[]) => void;
+    canShare?: boolean;
+    onShareLibrary?: () => void;
     onRefresh: () => void;
     onStartAux: () => void;
     onShowAux: () => void;
@@ -54,6 +61,17 @@
   function handleBackdropClick(event: MouseEvent) {
     if (event.target === event.currentTarget) {
       onClose();
+    }
+  }
+
+  let importInputEl: HTMLInputElement | undefined = $state();
+
+  function handleImportPicked(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const files = input.files ? [...input.files] : [];
+    input.value = "";
+    if (files.length > 0) {
+      onImportFiles(files);
     }
   }
 </script>
@@ -133,15 +151,43 @@
 
       <div class="settings-group">
         <span class="settings-label">Library</span>
-        <button class="settings-row" disabled={importing || importDisabled} type="button" onclick={onImportManifest}>
-          {#if importing}
-            <LoaderCircle class="spin-icon" size={17} />
-          {:else}
-            <Upload size={17} />
-          {/if}
-          <span>Import a manifest</span>
-          <small>loud.import.v1</small>
-        </button>
+        {#if importDisabled}
+          <!-- Remote library: MP3s upload straight to the sync server. -->
+          <button class="settings-row" disabled={importing} type="button" onclick={() => importInputEl?.click()}>
+            {#if importing}
+              <LoaderCircle class="spin-icon" size={17} />
+            {:else}
+              <Upload size={17} />
+            {/if}
+            <span>Import music</span>
+            <small>MP3s or loud.import.v1</small>
+          </button>
+          <input
+            bind:this={importInputEl}
+            type="file"
+            accept=".mp3,audio/mpeg,.json,application/json"
+            multiple
+            hidden
+            onchange={handleImportPicked}
+          />
+        {:else}
+          <button class="settings-row" disabled={importing} type="button" onclick={onImportManifest}>
+            {#if importing}
+              <LoaderCircle class="spin-icon" size={17} />
+            {:else}
+              <Upload size={17} />
+            {/if}
+            <span>Import a manifest</span>
+            <small>loud.import.v1</small>
+          </button>
+        {/if}
+        {#if canShare}
+          <button class="settings-row" type="button" onclick={onShareLibrary}>
+            <Archive size={17} />
+            <span>Share library</span>
+            <small>zip · loud.import.v1</small>
+          </button>
+        {/if}
         <button class="settings-row" type="button" onclick={onRefresh}>
           <RefreshCw size={17} />
           <span>Refresh library</span>

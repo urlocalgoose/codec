@@ -90,17 +90,17 @@
         <Shuffle size={17} />
       </button>
       <button title="Previous" aria-label="Previous" type="button" onclick={onPrevious}>
-        <SkipBack size={20} />
+        <SkipBack size={22} fill="currentColor" />
       </button>
       <button class="play-button" class:active={isPlaying} title={isPlaying ? "Pause" : "Play"} aria-label={isPlaying ? "Pause" : "Play"} aria-pressed={isPlaying} type="button" onclick={onTogglePlayback}>
         {#if isPlaying}
-          <Pause size={24} />
+          <Pause size={28} fill="currentColor" />
         {:else}
-          <Play size={24} />
+          <Play size={28} fill="currentColor" />
         {/if}
       </button>
       <button title="Next" aria-label="Next" type="button" onclick={onNext}>
-        <SkipForward size={20} />
+        <SkipForward size={22} fill="currentColor" />
       </button>
       <button class:active={repeatMode !== "off"} title="Repeat" aria-label="Repeat" aria-pressed={repeatMode !== "off"} type="button" onclick={onToggleRepeat}>
         {#if repeatMode === "one"}
@@ -136,7 +136,6 @@
 
     {#if showDeviceControl}
       <label class="device-control" aria-label={`Playback device. Playing on ${activePlaybackDeviceName}`}>
-        <span>Playing on</span>
         <select value={activePlaybackDeviceId} onchange={onDeviceChange}>
           {#each playbackDeviceOptions as device (device.device_id)}
             <option value={device.device_id}>

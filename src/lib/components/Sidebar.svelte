@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    AudioWaveform,
     Check,
     Disc3,
     Home,
@@ -9,11 +10,9 @@
     Settings,
     Users
   } from "lucide-svelte";
-  import type { Playlist } from "$lib/types";
 
   let {
     selectedView,
-    userPlaylists,
     guestMode = false,
     auxCode = "",
     onSelectView,
@@ -21,7 +20,6 @@
     onShowAux
   }: {
     selectedView: string;
-    userPlaylists: Playlist[];
     guestMode?: boolean;
     auxCode?: string;
     onSelectView: (view: string) => void;
@@ -35,7 +33,8 @@
     { id: "liked", label: "Liked Songs", icon: Check },
     { id: "artists", label: "Artists", icon: Users },
     { id: "albums", label: "Albums", icon: Disc3 },
-    { id: "queue", label: "Queue", icon: ListMusic }
+    { id: "playlists", label: "Playlists", icon: ListMusic },
+    { id: "visualizer", label: "Visualizer", icon: AudioWaveform }
   ];
 </script>
 
@@ -56,26 +55,6 @@
       </button>
     {/each}
   </nav>
-
-  {#if userPlaylists.length > 0}
-    <section class="playlist-nav" aria-label="Playlists">
-      <div class="section-label">
-        <span>Playlists</span>
-      </div>
-      <div class="playlist-scroll">
-        {#each userPlaylists as playlist (playlist.id)}
-          <button
-            class:active={selectedView === playlist.id}
-            type="button"
-            onclick={() => onSelectView(playlist.id)}
-          >
-            <span>{playlist.name}</span>
-            <small>{playlist.track_ids.length}</small>
-          </button>
-        {/each}
-      </div>
-    </section>
-  {/if}
 
   <div class="sidebar-footer">
     {#if guestMode}
