@@ -13,11 +13,44 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8787", "HTTP listen address")
-	dataDir := flag.String("data", "./codec-sync-data", "folder for SQLite state and media blobs")
-	webDir := flag.String("web", defaultWebDir(), "folder containing the built Codec web app")
-	authToken := flag.String("auth-token", defaultAuthToken(), "optional shared token for Basic/Bearer auth")
+	cfg := loadConfig()
+
+	addr := flag.String("addr", firstNonEmpty(os.Getenv("CODEC_SERVER_ADDR"), configAddr(cfg), ":8787"), "HTTP listen address")
+	dataDir := flag.String("data", firstNonEmpty(os.Getenv("CODEC_DATA_DIR"), configDataDir(cfg), "./codec-sync-data"), "folder for SQLite state and media blobs")
+	webDir := flag.String("web", firstNonEmpty(os.Getenv("CODEC_WEB_DIR"), configWebDir(cfg), defaultWebDir()), "folder containing the built Codec web app")
+	authToken := flag.String("auth-token", firstNonEmpty(defaultAuthToken(), configAuthToken(cfg)), "optional shared token for Basic/Bearer auth")
+	setup := flag.Bool("setup", false, "run the interactive setup wizard and save answers to ~/.codec/server.json")
 	flag.Parse()
+
+	flagsSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name != "setup" {
+			flagsSet = true
+		}
+	})
+
+	// First launch with nothing configured and a human on the other end:
+	// walk them through it instead of silently starting an open server.
+	firstRun := cfg == nil && !flagsSet && defaultAuthToken() == "" &&
+		os.Getenv("CODEC_SERVER_ADDR") == "" && os.Getenv("CODEC_DATA_DIR") == "" &&
+		stdinIsTerminal()
+	if *setup || firstRun {
+		seed := serverConfig{Addr: *addr, AuthToken: *authToken}
+		if cfg != nil {
+			seed.DataDir = *dataDir
+			seed.WebDir = cfg.WebDir
+		}
+		answers, err := runSetupWizard(seed)
+		if err != nil {
+			log.Fatalf("setup: %v", err)
+		}
+		*addr = answers.Addr
+		*dataDir = answers.DataDir
+		*authToken = answers.AuthToken
+		if answers.WebDir != "" {
+			*webDir = answers.WebDir
+		}
+	}
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
 		log.Fatalf("create data dir: %v", err)
@@ -64,11 +97,54 @@ func defaultAuthToken() string {
 	return os.Getenv("LOUD_AUTH_TOKEN")
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func configAddr(cfg *serverConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.Addr
+}
+
+func configDataDir(cfg *serverConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.DataDir
+}
+
+func configWebDir(cfg *serverConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.WebDir
+}
+
+func configAuthToken(cfg *serverConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.AuthToken
+}
+
 func defaultWebDir() string {
-	candidates := []string{"../build", "./build"}
+	// "web" first: that's the release-zip layout (binary + web/ together).
+	candidates := []string{"./web", "../build", "./build"}
 	if executable, err := os.Executable(); err == nil {
 		dir := filepath.Dir(executable)
-		candidates = append(candidates, filepath.Join(dir, "build"), filepath.Join(dir, "../build"))
+		candidates = append(
+			candidates,
+			filepath.Join(dir, "web"),
+			filepath.Join(dir, "build"),
+			filepath.Join(dir, "../build"),
+		)
 	}
 
 	for _, candidate := range candidates {
