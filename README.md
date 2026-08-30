@@ -57,30 +57,34 @@ system instead of three apps:
 
 ## Get it running
 
-Grab the server zip for your platform from
-[Releases](https://github.com/urlocalgoose/codec/releases) — the desktop app
-installers (macOS dmg, Linux AppImage/deb, Windows installer) live there
-too. Unzip the server and run it:
+One download per platform from
+[Releases](https://github.com/urlocalgoose/codec/releases) — macOS, Linux,
+or Windows — and it holds the whole ecosystem: the server, the web app it
+serves, and the desktop app. Unzip it and run the server binary:
 
 ```bash
-./codec-sync-server
+./codec-sync-server        # codec-sync-server.exe on Windows
 ```
 
-First run asks three questions — where to keep data, what port, and whether
-to protect the server with an auth token (say yes; it generates one for
-you). Answers are saved to `~/.codec/server.json`, so from then on it just
-starts. Re-run with `--setup` to change your mind about any of it.
+That's the installer. It asks whether to put the desktop app in your
+Applications, whether to run the server on this machine (and where to keep
+data, what port, whether to lock it with a token — it generates one for
+you), and whether to start the server at login. Say yes to everything and a
+minute later the desktop app is installed, the server is running in the
+background and will come back after a reboot, and you're looking at the
+URL and token to use from your phone. Say no to the server if this is just
+a laptop and the server lives somewhere else. Answers are saved to
+`~/.codec/server.json`; re-run with `--setup` to change any of it.
 
-Open the URL it prints. That URL is the web app, the API, and the sync
-target, all one thing. On your phone, use the LAN address and Add to Home
-Screen to get a real app out of it. macOS will complain the binary is
-unsigned the first time — right-click → Open, or
+For headless boxes — a Pi, a VPS, an old Intel Mac mini — there are
+server-only zips too; same questions, minus the desktop app. macOS will
+complain the binary is unsigned the first time: right-click → Open, or
 `xattr -d com.apple.quarantine codec-sync-server`.
 
-To reach it from outside your network, put HTTPS in front (Cloudflare
-Tunnel, Caddy, nginx — anything). Notes in [DEPLOY.md](DEPLOY.md), phone
-details in [docs/iphone.md](docs/iphone.md), the security model in
-[docs/secure-sync.md](docs/secure-sync.md).
+To reach the server from outside your network, put HTTPS in front
+(Cloudflare Tunnel, Caddy, nginx — anything). Notes in
+[DEPLOY.md](DEPLOY.md), phone details in [docs/iphone.md](docs/iphone.md),
+the security model in [docs/secure-sync.md](docs/secure-sync.md).
 
 ### About the token
 

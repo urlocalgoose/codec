@@ -40,15 +40,22 @@ func main() {
 			seed.DataDir = *dataDir
 			seed.WebDir = cfg.WebDir
 		}
-		answers, err := runSetupWizard(seed)
+		outcome, err := runSetupWizard(seed)
 		if err != nil {
 			log.Fatalf("setup: %v", err)
 		}
-		*addr = answers.Addr
-		*dataDir = answers.DataDir
-		*authToken = answers.AuthToken
-		if answers.WebDir != "" {
-			*webDir = answers.WebDir
+		if !outcome.runServer {
+			return
+		}
+		if outcome.serviceActive {
+			// The login service owns the server from here on.
+			return
+		}
+		*addr = outcome.config.Addr
+		*dataDir = outcome.config.DataDir
+		*authToken = outcome.config.AuthToken
+		if outcome.config.WebDir != "" {
+			*webDir = outcome.config.WebDir
 		}
 	}
 
