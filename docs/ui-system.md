@@ -3,9 +3,11 @@
 This is the source-of-truth guide for making Codec UI match the app that exists
 now. It covers the Svelte desktop/web app and the SwiftUI iOS app.
 
-Codec should feel like a quiet music app with tape-deck hardware instincts:
-simple surfaces, real album art, raised physical controls, low visual noise,
-and theme colors carried through every screen.
+Codec should feel like a quiet, native Apple music app on every platform:
+simple flat surfaces, real album art, hairline strokes, low visual noise,
+and theme colors carried through every screen. The web app mirrors the iOS
+app's native language — not the other way around. (The older tape-deck
+"raised key" skin is archived on the `deck-ui` git branch; do not revive it.)
 
 ## Core Shape
 
@@ -16,8 +18,9 @@ and theme colors carried through every screen.
 - Rows play when tapped. Do not add a play button to every track row.
 - Artwork is content, not decoration. Show it where it helps identify music.
 - Use icons for compact actions. Desktop uses Lucide; iOS uses SF Symbols.
-- Avoid outlines on buttons. Buttons are raised by fill, shadow, and press
-  depth, not borders.
+- Avoid outlines on buttons. Buttons are flat fills (accent for primary,
+  surface for secondary) or bare tinted glyphs; press feedback is a small
+  scale bounce, never 3D depth.
 
 ## Desktop / Web
 
@@ -50,33 +53,43 @@ Use the existing classes:
 - `.title-icon-button` for square icon buttons in headers.
 - `.queue-button` for row-level queue actions.
 
-Raised button behavior is part of the identity:
+Button behavior, the native way:
 
-- Resting buttons use `--button-shadow-rest`.
-- Hover moves down slightly, usually `--button-hover-y`.
-- Active press moves to `--button-press-y`.
-- Latched buttons, like play while playing, shuffle, repeat, or selected
-  controls, stay down at `--button-latched-y`.
-- Icons use `--icon-inset-shadow` or `--icon-inset-shadow-primary`.
-
-Buttons next to each other should usually connect into one stack, especially
-transport controls. The outside corners round; internal edges are square with
-only a quiet separator.
+- Two filled archetypes: `.ui-button.primary` is an accent fill with
+  `--button-primary-text`; plain `.ui-button` is a surface fill. Both are
+  12px radius, weight 600, hover lightens the fill.
+- Everything else is a bare glyph in a 40px+ hit target: `--color-muted` at
+  rest, text on hover, accent when latched/active.
+- Press feedback is `transform: scale(0.94)` (bigger controls bounce more),
+  never translate-down or inset shadows.
+- The deck-era tokens (`--button-shadow-*`, `--icon-inset-shadow*`,
+  `--button-*-y`) are defined inert in `:root`; do not build new UI on them.
+- Buttons stand apart with gaps; do not fuse them into connected stacks.
 
 ### Player
 
-The bottom player is the strongest visual pattern:
+The bottom player is part of the shell's chrome:
 
-- `PlayerBar.svelte` renders a three-part footer: now playing, transport,
-  and side controls.
-- `.transport-buttons` is a connected button stack.
-- The play button is wider and accent-filled.
-- Shuffle/repeat latch visually when active.
-- The progress and volume controls should feel like hardware slots, not
-  generic form controls. The slot shows an accent band up to the current
-  position (`--fill`), with a raised key for the thumb.
-- The device picker is a recessed accent readout (like the aux chip), not a
-  raised key: it tells you where sound goes; it is not a transport control.
+- The shell background IS the chrome (`--color-panel`); the sidebar, topbar
+  (search), player, and queue rail are transparent panels on it, so they read
+  as one continuous ring of chrome wrapping the content. The topbar sits in
+  its own shell grid row (a direct child of `.app-shell`, not inside
+  `.content`), spanning the middle column like the player.
+- The content view is a rounded window inset into that chrome: all four
+  corners (24px) are the inverted curves that connect the bars to the rails,
+  and a hairline ring (`inset 0 0 0 1px --color-line`) traces the window
+  including the curves. The track table sits on `--color-panel-2` so it
+  stays a step lighter than the chrome.
+- The player sits only in the middle column, between the full-height sidebar
+  and full-height queue rail — it never runs under the rails.
+- `PlayerBar.svelte` renders three parts on that chrome: now playing,
+  transport, and side controls.
+- Transport controls are bare glyphs: skip keys in text color, play/pause
+  the biggest glyph, shuffle/repeat subtle and tinted accent when latched.
+- Progress and volume are native-style sliders: a thin (6px) rounded track,
+  solid accent fill up to `--fill`, and a round white thumb.
+- The device picker is a native pop-up button: surface fill, small chevrons,
+  text color.
 
 ### Sidebar
 
@@ -117,6 +130,17 @@ Home tiles and the browse grids share one language, taken from the iOS Home:
 - Artwork placeholders sit on `--color-panel-2` with a subtle glyph scaled to
   roughly a third of the tile.
 
+### Visualizer
+
+The Visualizer view (`VisualizerView.svelte`, nav id `visualizer`) is a
+stylized scrolling spectrograph on a canvas filling the content window:
+exponential frequency bands, scanline gaps, accent color with text-color
+peaks, all read from the live theme tokens. It taps the `<audio>` element
+through a lazily-built Web Audio graph (`ensureAnalyser` in `+page.svelte`);
+the element carries `crossorigin="anonymous"` and both servers send CORS
+headers on media so the analyser never silences playback. It only shows
+signal when audio plays on this device.
+
 ### Modals
 
 Copy the current app modal structure:
@@ -148,8 +172,9 @@ Aux is the Codec equivalent of Jam.
 - Guests can browse, stream, register as a playback device, and control the
   shared queue.
 - Guests cannot sync, upload, like, or edit playlists.
-- The QR should feel like a Codec pass: logo, code, QR, theme colors, and
-  restrained grain/glint. Avoid a naked QR in a generic white box.
+- The pass is a clean rounded plate carrying the theme through tint alone:
+  logo tile, code in large monospace, QR on its own plate. No grain, no
+  glint, no ticket chrome — same rule as iOS.
 - Keep the QR scan area high contrast even when the surrounding pass is themed.
 
 ## iOS
@@ -205,10 +230,9 @@ the edge.
 
 ### Aux
 
-`AuxSessionSheet` in `HomeView.swift` is the native Aux reference. iOS does
-NOT get the desktop pass treatment - no grain, no glint, no deck-raised
-buttons, no ticket chrome. The deck/pass aesthetic is desktop/web identity;
-iOS carries the theme through tint and background only.
+`AuxSessionSheet` in `HomeView.swift` is the native Aux reference — and the
+reference for the web too: no grain, no glint, no raised buttons, no ticket
+chrome. Both platforms carry the theme through tint and background only.
 
 - Settings and Aux live in a stock `Form` (`.scrollContentBackground(.hidden)`
   + `theme.bg`, rows on `theme.panel`).

@@ -115,6 +115,23 @@ Use `liked: true` to mark the canonical song liked. Do not copy the song into a 
 
 Use `playlists[].mode: "replace"` only for sync-style imports where your program owns that playlist. Use `append` when you are handing Codec a bundle of songs to add.
 
+## Importing From The Web App
+
+The same manifest works in the browser (Settings → Import music) against a
+sync server — no desktop app needed. Two differences from the desktop flow:
+
+- A browser cannot follow `tracks[].file` paths on disk, so select the
+  manifest **together with its audio files** in one file pick. Files are
+  matched to manifest entries by file name (the last path segment of
+  `tracks[].file`); `source.base_path` is ignored.
+- Everything lands directly on the sync server via the track/playlist upsert
+  endpoints instead of `.loud/` on disk. Identity rules, dedupe, `liked`,
+  and playlist refs behave the same; `playlists[].mode` is treated as
+  `append`.
+
+Plain MP3s can also be picked without a manifest; identity then comes from
+the normalized tag fallback, exactly like rule 6 above.
+
 ## Mixed New And Existing Imports
 
 When Codec imports the manifest, each track lands in one of these buckets:

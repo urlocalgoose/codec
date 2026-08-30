@@ -18,6 +18,9 @@ run anywhere.
   <img src="docs/screenshots/web-desktop.png" alt="Codec desktop/web app in the Oxide theme" width="720" />
 </p>
 <p align="center">
+  <img src="docs/screenshots/web-visualizer.png" alt="Codec's live spectrograph visualizer" width="720" />
+</p>
+<p align="center">
   <img src="docs/screenshots/ios-home.png" alt="Codec iOS app, Oxide theme" width="260" />
   <img src="docs/screenshots/ios-home-light.png" alt="Codec iOS app, Paper theme" width="260" />
 </p>
@@ -26,6 +29,28 @@ run anywhere.
 files, their devices, one shared token. **What it deliberately isn't:**
 multi-user, accounts, recommendations, or a streaming service — if you want to
 serve a household, run a household's worth of servers.
+
+## Features
+
+- **Play everywhere** — desktop app, any browser (installable PWA), native
+  iOS; one library, one queue, synced playback position.
+- **"Playing on…"** — hand playback between devices Spotify-Connect style;
+  the queue rail, likes, and position follow.
+- **Aux (shared listening)** — start an aux, friends scan a QR, and they can
+  browse, stream, and push songs onto the shared queue from their phones —
+  without being able to touch your library.
+- **Visualizer** — a live scrolling spectrograph of whatever's playing,
+  themed to your palette, one click to full screen. It records in the
+  background so it's never blank when you open it.
+- **33 themes**, carried through every screen on web and iOS alike.
+- **Playlist covers** — set custom artwork per playlist from web or iOS.
+- **Import from anywhere** — drop MP3s (or a `loud.import.v1` manifest) into
+  the web app, run the headless importer, or chain a downloader with
+  `codec-add`. Identity matching means the same song never duplicates.
+- **Share your library** — one click exports a zip (manifest + audio) any
+  other Codec can import; receivers only gain what they don't already have.
+- **Instant loads, offline reads** — clients cache the library locally and
+  refresh in the background.
 
 ## Try it in five minutes (no music required)
 
@@ -144,6 +169,12 @@ will import new tracks, match existing ones by identity, and apply likes and
 playlists. Spec: [docs/codec-import-v1.md](docs/codec-import-v1.md), JSON schema:
 [docs/codec-import.schema.json](docs/codec-import.schema.json).
 
+The web app imports directly — **Settings → Import music** — either plain
+MP3s (tags parsed in the browser, identity derived like the desktop) or a
+manifest selected together with its audio files. Everything lands on the sync
+server. And **Settings → Share library** goes the other way: a zip of your
+whole library in the same manifest format, ready for another Codec to import.
+
 Two helpers ship with the repo:
 
 - `cargo run --bin codec_import -- <music-root> <manifest.json> [--server URL
@@ -176,9 +207,10 @@ docs/                 contracts and guides
 ```
 
 UI work should follow [docs/ui-system.md](docs/ui-system.md). That guide
-documents the current Codec visual language: theme tokens, raised deck buttons,
-latched playback controls, connected transport stacks, quiet track lists, Aux
-passes, and the SwiftUI equivalents.
+documents the current Codec visual language: native Apple styling on every
+platform — theme tokens, flat tinted controls, hairline cards, the chrome
+ring around the content window, quiet track lists — and the SwiftUI
+equivalents.
 
 Practical modding notes live in [docs/modding.md](docs/modding.md). The plan
 for future device management, friends, and out-of-Aux sharing lives in

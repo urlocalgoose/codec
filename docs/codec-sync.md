@@ -78,6 +78,10 @@ PUT  /api/v1/tracks/{fingerprint}/audio
 GET  /api/v1/tracks/{fingerprint}/audio
 PUT  /api/v1/tracks/{fingerprint}/artwork
 GET  /api/v1/tracks/{fingerprint}/artwork
+PUT  /api/v1/playlists/{id}/artwork
+GET  /api/v1/playlists/{id}/artwork
+DELETE /api/v1/playlists/{id}/artwork
+GET  /api/v1/export
 PUT  /api/v1/playlists/{id}
 POST /api/v1/playlists
 DELETE /api/v1/playlists/{id}
@@ -102,6 +106,15 @@ The server returns `Library` JSON compatible with the existing Svelte app types.
 `POST /api/v1/auth/stream-token` requires normal host auth and returns a
 short-lived token for media and playback-event URLs. It is accepted only for
 GET/HEAD audio, artwork, and playback SSE endpoints.
+
+`PUT /api/v1/playlists/{id}/artwork` stores a custom playlist cover (raw image
+body); the library payload then carries `artwork_url` on that playlist. Covers
+live beside track artwork on disk, keyed by playlist id, so they survive
+snapshot pushes.
+
+`GET /api/v1/export` streams the whole library as a zip: a `loud.import.v1`
+manifest (`codec-import.json`) plus every audio file under `files/`. Import it
+on any other Codec — identity matching skips songs the receiver already has.
 
 Playlist edits are partial updates: `POST /api/v1/playlists` creates a playlist
 from `{"name": "..."}`, and the `/tracks` endpoints add or remove one track by
