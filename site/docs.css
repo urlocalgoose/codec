@@ -34,6 +34,7 @@
 .doc-content a { overflow-wrap:anywhere; }
 .doc-content strong { color:var(--text);font-weight:650; }
 .doc-content code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.87em;overflow-wrap:anywhere;color:var(--text); }
+.doc-content :not(pre)>code { background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:.12em .4em;-webkit-box-decoration-break:clone;box-decoration-break:clone; }
 .doc-content pre { max-inline-size:100%;overflow-x:auto;padding:22px;background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-block:24px;line-height:1.65;tab-size:2; }
 .doc-content pre code { overflow-wrap:normal;white-space:pre; }
 .doc-content table { display:block;max-inline-size:100%;overflow:auto;border-collapse:collapse;font-size:.92rem;margin-block:24px; }
