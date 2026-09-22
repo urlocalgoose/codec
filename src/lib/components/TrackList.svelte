@@ -3,6 +3,9 @@
   import { onMount, tick } from "svelte";
   import { ArrowDownToLine, AudioLines, Check, CircleArrowDown, CircleMinus, Ellipsis, GripHorizontal, Heart, ListEnd, ListPlus, ListStart, LoaderCircle, Music2, Pause, Play, Shuffle, Trash2, X } from "lucide-svelte";
   import MobileSheet from "./MobileSheet.svelte";
+  import MobileSwipeRow from "./MobileSwipeRow.svelte";
+  import type { SwipeAction, SwipeSide } from "$lib/row-swipe";
+  import { queueEdgeScroll } from "$lib/queue-gestures";
   import { formatDuration } from "$lib/library";
   import type { SortKey, Track } from "$lib/types";
 
@@ -35,6 +38,7 @@
     onRemoveDownload,
     onDownloadAll,
     playlistEditing = false,
+    listIdentity = "",
     onMovePlaylistTrack,
     onRemovePlaylistTrack,
     emptyTitle = "No Tracks",
@@ -65,6 +69,7 @@
     onRemoveDownload?: (track: Track) => void;
     onDownloadAll?: () => void;
     playlistEditing?: boolean;
+    listIdentity?: string;
     onMovePlaylistTrack?: (from: number, to: number) => void;
     onRemovePlaylistTrack?: (index: number) => void;
     emptyTitle?: string;
@@ -73,62 +78,119 @@
 
   const collectionDownloaded = $derived(visibleTracks.length > 0 && visibleTracks.every((track) => downloadedIDs.has(track.id)));
   const collectionDownloading = $derived(visibleTracks.some((track) => downloadingIDs.has(track.id)));
-  let pressTimer: ReturnType<typeof setTimeout> | undefined;
-  let pressOrigin = { x: 0, y: 0 };
   let suppressClickUntil = 0;
+  let openSwipeIdentity = $state("");
+  let openSwipeSide = $state<SwipeSide | null>(null);
+  const swipeOrder = $derived(JSON.stringify([listIdentity, visibleTracks.map(track => [track.id, track.fingerprint])]));
   let draggingIndex = $state<number | null>(null);
   let dragTarget = $state<number | null>(null);
   let reorderPointerID: number | null = null;
+  let reorderOrder = "";
+  let reorderFrame = 0;
+  let reorderFrameTime = 0;
+  let reorderStartY = 0;
+  let reorderY = $state(0);
+  let reorderPreview = $state<{ track: Track; left: number; width: number; offsetY: number } | null>(null);
+  let reorderActive = $state(false);
 
-  function cancelLongPress() { clearTimeout(pressTimer); pressTimer = undefined; }
-  function beginLongPress(event: PointerEvent, track: Track) {
-    if (event.pointerType !== "touch" || !window.matchMedia("(max-width: 980px)").matches || (event.target as Element)?.closest("button") || playlistEditing) return;
-    pressOrigin = { x: event.clientX, y: event.clientY };
-    cancelLongPress();
-    pressTimer = setTimeout(() => { actionTrack = track; suppressClickUntil = performance.now() + 700; }, 450);
+  function setSwipe(identity: string, side: SwipeSide | null) {
+    if (side) { openSwipeIdentity = identity; openSwipeSide = side; }
+    else if (openSwipeIdentity === identity) { openSwipeIdentity = ""; openSwipeSide = null; }
   }
-  function moveLongPress(event: PointerEvent) {
-    if (Math.hypot(event.clientX - pressOrigin.x, event.clientY - pressOrigin.y) > 10) cancelLongPress();
+  function closeSwipes() { openSwipeIdentity = ""; openSwipeSide = null; }
+  function leadingActions(track: Track): SwipeAction[] {
+    if (isQueueView) return [];
+    return [
+      ...(onQueueNext ? [{ id: "next", label: "Play Next", ariaLabel: `Play Next ${track.title}`, icon: "next" as const, tone: "accent" as const, run: () => onQueueNext?.(track) }] : []),
+      { id: "last", label: "Play Last", ariaLabel: `Play Last ${track.title}`, icon: "last", tone: "muted", run: () => onQueueTrack(track) }
+    ];
+  }
+  function trailingActions(track: Track, index: number): SwipeAction[] {
+    if (guestMode || isQueueView) return [];
+    if (onRemovePlaylistTrack) return [{ id: "remove", label: "Remove", ariaLabel: `Remove ${track.title} from playlist`, icon: "remove", tone: "danger", run: () => onRemovePlaylistTrack?.(index) }];
+    return [
+      { id: "like", label: track.is_liked ? "Unlike" : "Like", ariaLabel: `${track.is_liked ? "Unlike" : "Like"} ${track.title}`, icon: track.is_liked ? "unlike" : "like", tone: "accent", run: () => onToggleLike(track) },
+      ...(downloadedIDs.has(track.id) && onRemoveDownload
+        ? [{ id: "download", label: "Remove Download", ariaLabel: `Remove download of ${track.title}`, icon: "remove-download" as const, tone: "danger" as const, run: () => onRemoveDownload?.(track) }]
+        : onDownloadTrack ? [{ id: "download", label: downloadingIDs.has(track.id) ? "Downloading" : "Download", ariaLabel: `Download ${track.title}`, icon: "download" as const, tone: "muted" as const, disabled: downloadingIDs.has(track.id), run: () => onDownloadTrack?.(track) }] : [])
+    ];
+  }
+  function showTrackMenu(track: Track) {
+    closeSwipes();
+    actionTrack = track;
   }
   function openTrackMenu(event: MouseEvent, track: Track) {
     if (!window.matchMedia("(max-width: 980px)").matches) return;
     event.preventDefault();
-    cancelLongPress();
-    actionTrack = track;
+    showTrackMenu(track);
   }
   function playRow(track: Track, index: number) {
     if (performance.now() < suppressClickUntil || (playlistEditing && window.matchMedia("(max-width: 980px)").matches)) return;
     onPlayRow(track, index);
   }
   function beginReorder(event: PointerEvent, index: number) {
+    if (!event.isPrimary || event.button !== 0 || !playlistEditing || guestMode || !onMovePlaylistTrack || !surfaceEl || !visibleTracks[index]) return;
     event.stopPropagation();
     event.preventDefault();
+    const row = (event.currentTarget as HTMLElement).closest<HTMLElement>(".track-row");
+    if (!row) return;
+    const bounds = row.getBoundingClientRect();
     draggingIndex = index;
     dragTarget = index;
     reorderPointerID = event.pointerId;
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    reorderOrder = swipeOrder;
+    reorderStartY = reorderY = event.clientY;
+    reorderPreview = { track: visibleTracks[index], left: bounds.left, width: bounds.width, offsetY: event.clientY - bounds.top };
+    reorderActive = false;
+    surfaceEl.setPointerCapture(event.pointerId);
+  }
+  function updatePlaylistDrop() {
+    if (!tableEl) return;
+    dragTarget = Math.min(visibleTracks.length - 1, Math.max(0, Math.floor((reorderY - tableEl.getBoundingClientRect().top) / rowHeight)));
+  }
+  function scrollPlaylistDrag(time: number) {
+    reorderFrame = 0;
+    if (!reorderActive || draggingIndex === null || !playlistEditing || guestMode || reorderOrder !== swipeOrder) { cancelReorder(); return; }
+    if (scrollTarget instanceof HTMLElement) {
+      const viewport = scrollTarget.getBoundingClientRect();
+      // Floating controls cover the lower part of the content viewport.
+      const controls = surfaceEl?.closest(".app-shell")?.querySelector(".mobile-bottom-controls")?.getBoundingClientRect();
+      const bottom = controls ? Math.min(viewport.bottom, controls.top) : viewport.bottom;
+      scrollTarget.scrollTop += queueEdgeScroll(reorderY, viewport.top, bottom, time - reorderFrameTime);
+    }
+    reorderFrameTime = time;
+    updatePlaylistDrop();
+    reorderFrame = requestAnimationFrame(scrollPlaylistDrag);
   }
   function moveReorder(event: PointerEvent) {
     if (event.pointerId !== reorderPointerID || draggingIndex === null || !tableEl) return;
+    if (reorderOrder !== swipeOrder) { cancelReorder(); return; }
     event.preventDefault();
-    if (scrollTarget instanceof HTMLElement) {
-      const viewport = scrollTarget.getBoundingClientRect();
-      if (event.clientY < viewport.top + 44) scrollTarget.scrollTop -= rowHeight / 4;
-      if (event.clientY > viewport.bottom - 44) scrollTarget.scrollTop += rowHeight / 4;
-    }
-    dragTarget = Math.min(visibleTracks.length - 1, Math.max(0, Math.floor((event.clientY - tableEl.getBoundingClientRect().top) / rowHeight)));
+    reorderY = event.clientY;
+    if (!reorderActive && Math.abs(reorderY - reorderStartY) < 6) return;
+    reorderActive = true;
+    updatePlaylistDrop();
+    if (!reorderFrame) { reorderFrameTime = performance.now(); reorderFrame = requestAnimationFrame(scrollPlaylistDrag); }
   }
   function finishReorder(event: PointerEvent) {
     if (event.pointerId !== reorderPointerID) return;
     event.stopPropagation();
-    if (draggingIndex !== null && dragTarget !== null && draggingIndex !== dragTarget) onMovePlaylistTrack?.(draggingIndex, dragTarget);
+    const from = draggingIndex, to = dragTarget;
+    const commit = reorderActive && reorderOrder === swipeOrder && playlistEditing && !guestMode;
     cancelReorder();
+    if (commit && from !== null && to !== null && from !== to) onMovePlaylistTrack?.(from, to);
     suppressClickUntil = performance.now() + 300;
   }
   function cancelReorder() {
+    const pointerId = reorderPointerID;
     draggingIndex = null;
     dragTarget = null;
     reorderPointerID = null;
+    reorderPreview = null;
+    reorderActive = false;
+    cancelAnimationFrame(reorderFrame);
+    reorderFrame = 0;
+    if (pointerId !== null && surfaceEl?.hasPointerCapture(pointerId)) surfaceEl.releasePointerCapture(pointerId);
   }
   function keyboardReorder(event: KeyboardEvent, track: Track, index: number) {
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -162,6 +224,15 @@
       .map((track, offset) => ({ track, index: clampedVirtualStart + offset }))
   );
   let virtualPadTop = $derived(clampedVirtualStart * rowHeight);
+
+  $effect(() => {
+    swipeOrder;
+    playlistEditing;
+    guestMode;
+    closeSwipes();
+    actionTrack = null;
+    cancelReorder();
+  });
 
   $effect(() => {
     if (visibleTracks.length > 0 && virtualStart >= visibleTracks.length) {
@@ -206,14 +277,23 @@
     window.addEventListener("pointermove", moveReorder, { passive: false });
     window.addEventListener("pointerup", finishReorder);
     window.addEventListener("pointercancel", cancelReorder);
+    window.addEventListener("blur", cancelReorder);
+    window.addEventListener("resize", cancelReorder);
+    const lostCapture = (event: PointerEvent) => { if (event.target === surfaceEl && event.pointerId === reorderPointerID) cancelReorder(); };
+    const hidden = () => { if (document.visibilityState === "hidden") cancelReorder(); };
+    surfaceEl?.addEventListener("lostpointercapture", lostCapture);
+    document.addEventListener("visibilitychange", hidden);
 
     return () => {
       mounted = false;
-      cancelLongPress();
       cancelReorder();
       window.removeEventListener("pointermove", moveReorder);
       window.removeEventListener("pointerup", finishReorder);
       window.removeEventListener("pointercancel", cancelReorder);
+      window.removeEventListener("blur", cancelReorder);
+      window.removeEventListener("resize", cancelReorder);
+      surfaceEl?.removeEventListener("lostpointercapture", lostCapture);
+      document.removeEventListener("visibilitychange", hidden);
       if (virtualFrame) {
         cancelAnimationFrame(virtualFrame);
         virtualFrame = 0;
@@ -234,7 +314,7 @@
     if (event.target !== event.currentTarget) return;
     if ((event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) && window.matchMedia("(max-width: 980px)").matches) {
       event.preventDefault();
-      actionTrack = track;
+      showTrackMenu(track);
       return;
     }
     if (event.key !== "Enter" && event.key !== " ") {
@@ -367,8 +447,15 @@
       <div class="track-window" style={`height: ${virtualHeight}px;`}>
         <div class="track-window-slice" style={`transform: translateY(${virtualPadTop}px);`}>
       {#each virtualRows as { track, index } (`${track.id}:${index}`)}
+        {@const swipeIdentity = JSON.stringify([listIdentity, track.id, track.fingerprint, index])}
+        <MobileSwipeRow identity={swipeIdentity} leading={leadingActions(track)} trailing={trailingActions(track, index)}
+          disabled={playlistEditing || isQueueView}
+          openSide={openSwipeIdentity === swipeIdentity ? openSwipeSide : null}
+          onOpenChange={(side) => setSwipe(swipeIdentity, side)}
+          onLongPress={() => showTrackMenu(track)}>
         <div
           class="track-row"
+          data-track-id={track.id} data-track-index={index}
           class:active={currentTrackId === track.id}
           class:lastVisibleRow={index === visibleTracks.length - 1}
           class:playlist-editing={playlistEditing && !guestMode}
@@ -379,10 +466,6 @@
           aria-label={currentTrackId === track.id && isPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
           onclick={() => playRow(track, index)}
           oncontextmenu={(event) => openTrackMenu(event, track)}
-          onpointerdown={(event) => beginLongPress(event, track)}
-          onpointermove={moveLongPress}
-          onpointerup={cancelLongPress}
-          onpointercancel={cancelLongPress}
           onkeydown={(event) => handleRowKeydown(event, track, index)}
         >
           {#if playlistEditing && !guestMode && onRemovePlaylistTrack}
@@ -436,7 +519,7 @@
             </button>
           {/if}
           {#if !isQueueView}
-            <button class="mobile-track-more" type="button" aria-label={`More actions for ${track.title}`} onclick={(event) => { event.stopPropagation(); actionTrack = track; }}><Ellipsis size={21} /></button>
+            <button class="mobile-track-more" type="button" aria-label={`More actions for ${track.title}`} onclick={(event) => { event.stopPropagation(); showTrackMenu(track); }}><Ellipsis size={21} /></button>
           {/if}
           {#if isQueueView}
             {#if index > 0 && index <= queuedTracksCount}
@@ -477,6 +560,7 @@
               onkeydown={(event) => keyboardReorder(event, track, index)}><GripHorizontal size={22} /></button>
           {/if}
         </div>
+        </MobileSwipeRow>
       {/each}
         </div>
       </div>
@@ -491,6 +575,13 @@
   {/if}
 </section>
 
+{#if reorderActive && reorderPreview}
+  <div class="playlist-drag-preview" aria-hidden="true" style={`left:${reorderPreview.left}px;top:${reorderY - reorderPreview.offsetY}px;width:${reorderPreview.width}px;height:${rowHeight}px`}>
+    {#if reorderPreview.track.artwork_url}<ArtworkImage src={reorderPreview.track.artwork_url} alt="" />{:else}<Music2 size={24} />{/if}
+    <span><strong>{reorderPreview.track.title}</strong><small>{reorderPreview.track.artist}</small></span><GripHorizontal size={22} />
+  </div>
+{/if}
+
 {#if actionTrack}
   {@const track = actionTrack}
   <MobileSheet title={track.title} onClose={() => { actionTrack = null; }}>
@@ -502,10 +593,13 @@
       <button type="button" onclick={() => { onQueueTrack(track); actionTrack = null; }}><ListEnd size={21} /> Play Last</button>
       {#if !guestMode}
         <button type="button" onclick={() => { onEditPlaylists(track); actionTrack = null; }}><ListPlus size={21} /> Add to Playlist</button>
+        {#if onRemovePlaylistTrack}
+          <button class="danger" type="button" onclick={() => { const index = visibleTracks.findIndex(row => row.id === track.id && row.fingerprint === track.fingerprint); if (index >= 0) onRemovePlaylistTrack?.(index); actionTrack = null; }}><CircleMinus size={21} /> Remove from Playlist</button>
+        {/if}
       {/if}
-      {#if downloadedIDs.has(track.id) && onRemoveDownload}
+      {#if !guestMode && downloadedIDs.has(track.id) && onRemoveDownload}
         <button type="button" onclick={() => { onRemoveDownload?.(track); actionTrack = null; }}><Trash2 size={21} /> Remove Download</button>
-      {:else if onDownloadTrack}
+      {:else if !guestMode && onDownloadTrack}
         <button type="button" disabled={downloadingIDs.has(track.id)} onclick={() => { onDownloadTrack?.(track); actionTrack = null; }}>
           {#if downloadingIDs.has(track.id)}<LoaderCircle class="spin-icon" size={21} /> Downloading{:else}<CircleArrowDown size={21} /> Download{/if}
         </button>

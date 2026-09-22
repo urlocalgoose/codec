@@ -9,7 +9,7 @@
   import { formatDuration } from "$lib/library";
   import type { PlaybackDevice } from "$lib/sync";
   import type { RepeatMode, Track } from "$lib/types";
-  import { beginQueueSwipe, finishQueueSwipe, QUEUE_REVEAL_WIDTH, queueDropIndex, queueEdgeScroll, queueEntryKeys, queueOrderMatches, updateQueueSwipe, type QueueGroup, type QueueSwipe } from "$lib/queue-gestures";
+  import { beginQueueSwipe, finishQueueSwipe, QUEUE_REVEAL_WIDTH, queueDropIndex, queueEdgeScroll, queueEntryKeys, queueOrderMatches, queueSwipeDeletes, updateQueueSwipe, type QueueGroup, type QueueSwipe } from "$lib/queue-gestures";
 
   let { currentTrack, isPlaying, shuffle, repeatMode, currentTime, audioDuration,
     showDeviceControl, playbackDeviceOptions, activePlaybackDeviceId, activePlaybackDeviceName, deviceId,
@@ -61,7 +61,7 @@
   let editingQueue = $state(false);
   let scrubTime = $state<number | null>(null);
   let swipedRow = $state("");
-  let swipe = $state<{ key: string; pointerId: number; gesture: QueueSwipe } | null>(null);
+  let swipe = $state<{ key: string; group: QueueGroup; width: number; pointerId: number; gesture: QueueSwipe } | null>(null);
   let dragRow = $state<{
     group: QueueGroup; key: string; order: string[]; index: number; target: number; pointerId: number;
     startY: number; y: number; active: boolean; offsetY: number; left: number; width: number; track: Track; actionsWereOpen: boolean;
@@ -132,14 +132,15 @@
     group === "manual" ? onRemoveQueued(index + 1) : onRemoveUpcoming?.(index);
     queueAnnouncement = `Removed ${title} from queue`;
   }
-  function startSwipe(event: PointerEvent, key: string, canRemove: boolean) {
+  function startSwipe(event: PointerEvent, group: QueueGroup, key: string, canRemove: boolean) {
     if (!event.isPrimary || event.button !== 0) { cancelGestures(); return; }
     if (dragRow) return;
     const wasOpen = swipedRow === key;
     if (swipedRow && !wasOpen) swipedRow = "";
     moveActions = "";
     if (!canRemove || editingQueue) return;
-    swipe = { key, pointerId: event.pointerId, gesture: beginQueueSwipe(event.clientX, event.clientY, performance.now(), wasOpen) };
+    const width = (event.currentTarget as HTMLElement).closest<HTMLElement>("[data-queue-key]")?.getBoundingClientRect().width ?? 0;
+    swipe = { key, group, width, pointerId: event.pointerId, gesture: beginQueueSwipe(event.clientX, event.clientY, performance.now(), wasOpen) };
   }
   function playQueueRow(event: MouseEvent, group: QueueGroup, key: string) {
     if (event.detail !== 0 && performance.now() < suppressRowClickUntil) { event.preventDefault(); return; }
@@ -184,7 +185,7 @@
   }
   function pointerMove(event: PointerEvent) {
     if (swipe?.pointerId === event.pointerId) {
-      const gesture = updateQueueSwipe(swipe.gesture, event.clientX, event.clientY, performance.now());
+      const gesture = updateQueueSwipe(swipe.gesture, event.clientX, event.clientY, performance.now(), Math.max(QUEUE_REVEAL_WIDTH, swipe.width));
       if (gesture.axis === "horizontal") {
         event.preventDefault();
         suppressPointerClick();
@@ -206,8 +207,9 @@
       const finished = swipe;
       swipe = null;
       if (finished.gesture.axis !== "pending" || cancelled) suppressPointerClick();
-      swipedRow = finishQueueSwipe(finished.gesture, performance.now(), cancelled) ? finished.key : "";
       releaseCapture(event.pointerId);
+      if (queueSwipeDeletes(finished.gesture, finished.width, cancelled) && showQueue && !editingQueue) remove(finished.group, finished.key);
+      else swipedRow = finishQueueSwipe(finished.gesture, performance.now(), cancelled) ? finished.key : "";
     }
     if (dragRow?.pointerId !== event.pointerId) return;
     const finished = dragRow;
@@ -264,7 +266,7 @@
               onclick={() => remove(group, key)}><CircleMinus size={21} /></button>
           {/if}
           <button class="mobile-queue-play" type="button" aria-label={`Play ${track.title}`}
-            onpointerdown={(event) => startSwipe(event, key, canRemove)}
+            onpointerdown={(event) => startSwipe(event, group, key, canRemove)}
             onclick={(event) => playQueueRow(event, group, key)}>
             {@render artwork(track)}{@render trackCopy(track)}
             {#if !editingQueue}<span class="mobile-queue-duration">{formatDuration(track.duration_seconds)}</span>{/if}

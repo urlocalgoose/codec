@@ -32,15 +32,17 @@ function fixture(): Library {
 }
 
 function controller(initial: Library, api: Record<string, (...args: any[]) => any>) {
-  const functions = ["createPlaylistFromLibrary", "commitPlaylistRename", "savePlaylistMemberships", "closePlaylistMembershipModal", "applyLocalPlaylistMemberships", "playlistSelectionForTrack", "refreshRemoteLibraryState", "enqueuePlaylistWrite", "movePlaylistSong", "removePlaylistSong", "addPlaylistSong"].map(controllerFunction).join("\n");
+  const functions = ["createPlaylistFromLibrary", "commitPlaylistRename", "savePlaylistMemberships", "closePlaylistMembershipModal", "applyLocalPlaylistMemberships", "playlistSelectionForTrack", "refreshRemoteLibraryState", "enqueuePlaylistWrite", "movePlaylistSong", "removePlaylistSong", "addPlaylistSong", "deleteUserPlaylist"].map(controllerFunction).join("\n");
+  const keyHandler = page.slice(page.indexOf("    const keyHandler ="), page.indexOf('    document.addEventListener("keydown", keyHandler)'));
   const source = `
     let library = initial, lastRemoteLibrary = initial, remoteLibraryRefresh = null, remoteLibraryRefreshAgain = false;
     let lastLibraryRefreshAt = 0, syncReadGeneration = 0;
-    let rootPath = initial.root_path, syncServerUrl = 'http://codec.test', syncTokenDraft = 'secret';
+    let rootPath = initial.root_path, syncServerUrl = 'http://codec.test', syncTokenDraft = 'secret', syncServerReady = true;
     let newPlaylistTitle = '', newPlaylistTrack = null, newPlaylistOpen = true, creatingPlaylist = false, createPlaylistError = '', guestMode = false;
     let selectedPlaylist = initial.playlists[0], selectedView = selectedPlaylist.id, editingPlaylistId = selectedPlaylist.id;
     let playlistNameDraft = '', renamingPlaylist = false, errorMessage = '';
     let playlistModalTrack = null, playlistModalSelectionIds = [], savingPlaylistMemberships = false;
+    let mobileLayout = true;
     let pendingPlaylistWrites = 0, playlistMutationEpoch = 0, playlistWriteTail = Promise.resolve(), addingSongIDs = new Set();
     let visibleTracks = selectedPlaylist.track_ids.map(id => library.tracks.find(track => track.id === id));
     const isRemoteRoot = path => path.startsWith('loud://');
@@ -52,6 +54,7 @@ function controller(initial: Library, api: Record<string, (...args: any[]) => an
     const renameRemotePlaylist = async (...args) => api.rename(...args);
     const addTrackToRemotePlaylist = async (...args) => api.add(...args);
     const removeTrackFromRemotePlaylist = async (...args) => api.remove(...args);
+    const deleteRemotePlaylist = async (...args) => api.delete(...args);
     const setRemotePlaylistTracks = async (...args) => api.reorder(...args);
     const setTrackLiked = async (...args) => api.like(...args);
     const invoke = async () => {throw new Error('Browser attempted a native command')};
@@ -60,6 +63,7 @@ function controller(initial: Library, api: Record<string, (...args: any[]) => an
     function selectView(view) {selectedView=view;selectedPlaylist=library.playlists.find(item=>item.id===view)}
     function cancelPlaylistRename() {editingPlaylistId='';playlistNameDraft=''}
     ${functions}
+    ${keyHandler}
     return {
       refresh: refreshRemoteLibraryState,
       create(name, track=null) {newPlaylistTitle=name;newPlaylistTrack=track;return createPlaylistFromLibrary()},
@@ -69,10 +73,21 @@ function controller(initial: Library, api: Record<string, (...args: any[]) => an
       reorder: movePlaylistSong,
       remove: removePlaylistSong,
       add: addPlaylistSong,
+      delete: deleteUserPlaylist,
       idle: () => playlistWriteTail,
-      changeConnection(next) {syncServerUrl='http://new.test';syncTokenDraft='new';syncLibrary(next)},
-      changeAuthentication(next) {syncTokenDraft='new';syncLibrary(next)},
-      state: () => ({library, selectedView, newPlaylistOpen, createPlaylistError, errorMessage, savingPlaylistMemberships})
+      changeConnection(next) {syncReadGeneration++;syncServerUrl='http://new.test';syncTokenDraft='new';syncLibrary(next)},
+      changeAuthentication(next) {syncReadGeneration++;syncTokenDraft='new';syncLibrary(next)},
+      restoreConnection(next) {syncReadGeneration++;syncServerUrl='http://codec.test';syncTokenDraft='secret';syncLibrary(next)},
+      setGuest(value) {guestMode=value},
+      select: selectView,
+      escapeMembership({mobile=true,nested=false}={}) {
+        mobileLayout=mobile;
+        const event={key:'Escape',defaultPrevented:false,preventDefault(){this.defaultPrevented=true},
+          target:{tagName:'INPUT',closest(selector){return selector==='.native-membership-sheet'&&!nested ? {} : null}}};
+        keyHandler(event);
+        return event.defaultPrevented;
+      },
+      state: () => ({library, selectedView, newPlaylistOpen, createPlaylistError, errorMessage, savingPlaylistMemberships, playlistModalTrack, playlistModalSelectionIds})
     };
   `;
   return new Function("initial", "api", new Bun.Transpiler({ loader: "ts" }).transformSync(source))(initial, api);
@@ -153,6 +168,40 @@ test("membership saves stay locked until requests finish and preserve existing t
   release();
   await saving;
   expect(c.state().savingPlaylistMemberships).toBe(false);
+});
+
+test("mobile Escape commits the same staged memberships as Done or sheet dismissal", async () => {
+  const initial = fixture();
+  const writes: string[] = [];
+  const c = controller(initial, {
+    add: async (_server, playlist, fingerprint) => { writes.push(`add:${playlist}:${fingerprint}`); },
+    remove: async (_server, playlist, fingerprint) => { writes.push(`remove:${playlist}:${fingerprint}`); },
+    fetch: async () => { throw new Error("offline"); }
+  });
+  c.openMembership(["q"]);
+  expect(c.escapeMembership()).toBe(true);
+  expect(c.state().playlistModalTrack).toBeNull();
+  await c.idle();
+  expect(writes).toEqual(["remove:p:a", "add:q:a"]);
+  expect(c.state().library.tracks[0].playlist_ids).toEqual(["q"]);
+});
+
+test("membership Escape preserves desktop cancellation and leaves a nested mobile dialog alone", async () => {
+  const initial = fixture();
+  let writes = 0;
+  const api = { add: async () => { writes++; }, remove: async () => { writes++; }, fetch: async () => initial };
+  const mobile = controller(initial, api);
+  mobile.openMembership(["q"]);
+  expect(mobile.escapeMembership({ nested: true })).toBe(false);
+  expect(mobile.state().playlistModalTrack).toBe(initial.tracks[0]);
+  expect(mobile.state().playlistModalSelectionIds).toEqual(["q"]);
+  const desktop = controller(initial, api);
+  desktop.openMembership(["q"]);
+  expect(desktop.escapeMembership({ mobile: false })).toBe(true);
+  expect(desktop.state().playlistModalTrack).toBeNull();
+  await Promise.all([mobile.idle(), desktop.idle()]);
+  expect(writes).toBe(0);
+  expect(desktop.state().library).toBe(initial);
 });
 
 test("changing servers during a membership save cancels remaining writes and stale rollback", async () => {
@@ -296,6 +345,162 @@ for (const change of ["changeConnection", "changeAuthentication"] as const) {
     expect(removes).toBe(0);
     expect(reads).toBe(0);
     expect(c.state().library).toBe(next);
+  });
+}
+
+test("deleting a playlist preserves its songs, other memberships, and a same-named playlist when refresh is offline", async () => {
+  const initial = fixture();
+  initial.playlists[1].name = initial.playlists[0].name;
+  initial.playlists[1].track_ids = ["track_a"];
+  initial.playlists[2].track_ids = ["track_a"];
+  initial.tracks[0] = { ...initial.tracks[0], playlist_ids: ["p", "q", "liked"], is_liked: true };
+  const calls: string[] = [];
+  const c = controller(initial, {
+    delete: async (_server, id) => { calls.push(id); },
+    fetch: async () => { throw new Error("offline"); }
+  });
+  await c.delete(initial.playlists[0]);
+  expect(calls).toEqual(["p"]);
+  expect(c.state().library.playlists).toEqual(initial.playlists.slice(1));
+  expect(c.state().library.tracks).toEqual([
+    { ...initial.tracks[0], playlist_ids: ["q", "liked"] },
+    { ...initial.tracks[1], playlist_ids: [] }
+  ]);
+  expect(c.state().selectedView).toBe("library");
+});
+
+test("playlist deletion waits for an earlier reorder and reconciles only after both writes", async () => {
+  const initial = fixture(), gate = deferred(), started = deferred();
+  let remote = structuredClone(initial), reads = 0;
+  const writes: string[] = [];
+  const c = controller(initial, {
+    reorder: async (_server, id, ids) => {
+      writes.push(`reorder:${id}`); started.resolve(); await gate.promise;
+      remote.playlists.find(playlist => playlist.id === id)!.track_ids = [...ids];
+    },
+    delete: async (_server, id) => {
+      writes.push(`delete:${id}`);
+      remote = { ...remote, playlists: remote.playlists.filter(playlist => playlist.id !== id),
+        tracks: remote.tracks.map(track => ({ ...track, playlist_ids: track.playlist_ids.filter(member => member !== id) })) };
+    },
+    fetch: async () => { reads++; return structuredClone(remote); }
+  });
+  c.reorder(0, 1);
+  await started.promise;
+  const deleting = c.delete(initial.playlists[0]);
+  await c.refresh(true);
+  expect(writes).toEqual(["reorder:p"]);
+  expect(reads).toBe(0);
+  expect(c.state().library.playlists.some((playlist: Playlist) => playlist.id === "p")).toBe(true);
+  gate.resolve();
+  await deleting;
+  expect(writes).toEqual(["reorder:p", "delete:p"]);
+  expect(reads).toBe(1);
+  expect(c.state().library).toEqual(remote);
+  expect(c.state().library.tracks.map((track: Track) => track.id)).toEqual(["track_a", "track_b"]);
+});
+
+test("a failed playlist deletion rejects for the dialog and leaves the playlist and view intact", async () => {
+  const initial = fixture();
+  const c = controller(initial, {
+    delete: async () => { throw new Error("Could not delete playlist (403)"); },
+    fetch: async () => initial
+  });
+  await expect(c.delete(initial.playlists[0])).rejects.toThrow("Could not delete playlist (403)");
+  expect(c.state().library).toBe(initial);
+  expect(c.state().selectedView).toBe("p");
+  expect(c.state().errorMessage).toBe("Could not delete playlist (403)");
+});
+
+for (const change of ["changeConnection", "changeAuthentication"] as const) {
+  test(`queued playlist deletion is cancelled after ${change}`, async () => {
+    const initial = fixture(), gate = deferred(), started = deferred();
+    let deletes = 0, reads = 0;
+    const c = controller(initial, {
+      reorder: async () => { started.resolve(); await gate.promise; },
+      delete: async () => { deletes++; },
+      fetch: async () => { reads++; return initial; }
+    });
+    c.reorder(0, 1);
+    await started.promise;
+    const deleting = c.delete(initial.playlists[0]);
+    // The new connection deliberately has the same playlist IDs.
+    const next = fixture();
+    c[change](next);
+    gate.resolve();
+    await deleting;
+    expect(deletes).toBe(0);
+    expect(reads).toBe(0);
+    expect(c.state().library).toBe(next);
+    expect(c.state().selectedView).toBe("p");
+  });
+
+  test(`an in-flight playlist deletion cannot alter the next library after ${change}`, async () => {
+    const initial = fixture(), gate = deferred(), started = deferred();
+    let reads = 0;
+    const c = controller(initial, {
+      delete: async () => { started.resolve(); await gate.promise; },
+      fetch: async () => { reads++; return initial; }
+    });
+    const deleting = c.delete(initial.playlists[0]);
+    await started.promise;
+    const next = fixture();
+    c[change](next);
+    gate.resolve();
+    await deleting;
+    expect(reads).toBe(0);
+    expect(c.state().library).toBe(next);
+    expect(c.state().selectedView).toBe("p");
+  });
+}
+
+test("deleting from Library leaves that view selected and rejects liked, missing, local, and guest targets", async () => {
+  const initial = fixture();
+  let deletes = 0;
+  const api = { delete: async () => { deletes++; }, fetch: async () => { throw new Error("offline"); } };
+  const c = controller(initial, api);
+  c.select("library");
+  await expect(c.delete(initial.playlists[2])).rejects.toThrow("no longer available");
+  await expect(c.delete({ ...initial.playlists[0], id: "missing" })).rejects.toThrow("no longer available");
+  c.setGuest(true);
+  await expect(c.delete(initial.playlists[0])).rejects.toThrow("no longer available");
+  const local = controller({ ...initial, root_path: "/music" }, api);
+  await expect(local.delete(initial.playlists[0])).rejects.toThrow("no longer available");
+  expect(deletes).toBe(0);
+  c.setGuest(false);
+  await c.delete(initial.playlists[0]);
+  expect(deletes).toBe(1);
+  expect(c.state().selectedView).toBe("library");
+});
+
+for (const phase of ["queued", "in flight"] as const) {
+  test(`a ${phase} deletion stays stale after switching A → B → A with the same server and token`, async () => {
+    const initial = fixture(), gate = deferred(), started = deferred();
+    let deletes = 0, reads = 0;
+    const c = controller(initial, {
+      reorder: async () => { started.resolve(); await gate.promise; },
+      delete: async () => {
+        deletes++;
+        if (phase === "in flight") { started.resolve(); await gate.promise; }
+      },
+      fetch: async () => { reads++; return initial; }
+    });
+    if (phase === "queued") {
+      c.reorder(0, 1);
+      await started.promise;
+    }
+    const deleting = c.delete(initial.playlists[0]);
+    if (phase === "in flight") await started.promise;
+    c.changeConnection(fixture());
+    const latest = fixture();
+    latest.playlists[0].name = "Updated while away";
+    c.restoreConnection(latest);
+    gate.resolve();
+    await deleting;
+    expect(deletes).toBe(phase === "queued" ? 0 : 1);
+    expect(reads).toBe(0);
+    expect(c.state().library).toBe(latest);
+    expect(c.state().selectedView).toBe("p");
   });
 }
 

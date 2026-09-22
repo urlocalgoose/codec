@@ -34,10 +34,18 @@ Apply safe-area insets once inside controls and extend backgrounds through the
 home-indicator area. Preserve layout during pinch zoom. Reserve scroll clearance
 from measured bottom controls and download feedback, including padding changes.
 
-Queue swipes follow the pointer after horizontal direction lock. Vertical motion
-stays scrolling. Reorder gestures keep capture on the persistent queue container,
-scroll continuously at its edges, and cancel if queue membership/order changes.
-Provide tap/keyboard move controls as well as dragging.
+Song rows follow the native gestures: swipe right for Play Next / Play Last,
+left for Like / Download, or Remove from Playlist within editable playlists.
+A full swipe performs the first action. Playlist deletion always requires
+confirmation; it preserves the songs. Queue rows support full-swipe removal.
+See [the gesture contract](mobile-web-gestures.md) for permissions and platform
+differences.
+
+Swipes follow the pointer after horizontal direction lock. Vertical motion
+stays scrolling. Reorder gestures keep capture on persistent list containers,
+scroll continuously at their edges, and cancel if membership/order changes.
+Provide tap/keyboard move controls as well as dragging. Long presses must
+suppress the release click even when a new modal appears beneath the pointer.
 
 Download feedback belongs inside an open sheet's modal layer as well as the main
 page. Show real progress, cancellation and failures; reserve its occupied space

@@ -22,10 +22,16 @@ otherwise the script serves `build/` itself on an available loopback port.
 `--build-dir`, `--viewports 320,390,430,1024,1440`, `--themes oxide,paper`, and
 `--headed true` and `--browser chromium|webkit` are supported. WebKit uses its Playwright-managed browser and ignores `PLAYWRIGHT_BROWSER_PATH`. Both light and dark themes run by default.
 
-For focused checks, use one of `--interaction-only true`, `--viewport-only true`,
+For focused checks, use one of `--song-gesture-only true`, `--interaction-only true`, `--viewport-only true`,
 `--download-only true`, or `--profile-only true`. Use `--display-mode standalone` with the
 viewport mode to exercise the installed-app contract. Pass `--viewports 390 --themes graphite` for a focused run; the ordinary matrix
 remains available for widths/themes.
+
+Song gesture mode checks right-swipe queue actions, full swipes, repeated queue
+entries, Like and Download, playlist membership removal, guest permissions,
+long-press release suppression, and deep virtual rows. Playlist deletion checks
+confirmation, cancellation, failure/retry, and preservation of songs and queue.
+It uses the same isolated generated fixtures as the ordinary matrix.
 
 The interaction mode checks finger-following swipes, vertical direction lock,
 cancellation, accessible queue moves, and continuous edge scrolling beyond the

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Usage and runtime configuration: scripts/mobile-regression.md
 // Selective profiling: --profile-only true --viewports 390 --themes graphite
-// Focused regression: --interaction-only, --viewport-only, or --download-only true, with
+// Focused regression: --interaction-only, --song-gesture-only, --viewport-only, or --download-only true, with
 // --viewports 390 --themes graphite. Run viewport mode in browser + standalone.
 // Optional --display-mode standalone simulates navigator.standalone for app
 // mode detection. It does not reproduce iOS Safari chrome or OS safe areas.
@@ -53,10 +53,11 @@ const profileOnly = args.get('profile-only') === 'true';
 const interactionOnly = args.get('interaction-only') === 'true';
 const viewportOnly = args.get('viewport-only') === 'true';
 const downloadOnly = args.get('download-only') === 'true';
-assert([profileOnly, interactionOnly, viewportOnly, downloadOnly].filter(Boolean).length <= 1, 'Select at most one focused mode');
+const songGestureOnly = args.get('song-gesture-only') === 'true';
+assert([profileOnly, interactionOnly, viewportOnly, downloadOnly, songGestureOnly].filter(Boolean).length <= 1, 'Select at most one focused mode');
 const displayMode = args.get('display-mode') ?? 'browser';
 assert(['browser', 'standalone'].includes(displayMode), '--display-mode must be browser or standalone');
-report.configuration = { buildDirectory: args.get('build-dir') ?? path.join(repo, 'build'), profileOnly, interactionOnly, viewportOnly, downloadOnly, displayMode,
+report.configuration = { buildDirectory: args.get('build-dir') ?? path.join(repo, 'build'), profileOnly, interactionOnly, viewportOnly, downloadOnly, songGestureOnly, displayMode,
   fixtureTracks: 2000, fixtureArtworkVariants: 4, realIPhone: false };
 
 async function waitUntil(condition, message, timeout = 6000) {
@@ -79,6 +80,10 @@ function fixtures(origin) {
     { id: 'fixture-cover', name: 'Weekend Records', track_ids: tracks.slice(0, 14).map((t) => t.id), artwork_url: `${origin}/api/fixture/artwork/custom`, is_liked: false },
     { id: 'fixture-collage', name: 'Late Night Mix', track_ids: tracks.slice(0, 20).map((t) => t.id), artwork_url: null, is_liked: false }
   ];
+  const updateMemberships = () => {
+    for (const track of tracks) track.playlist_ids = playlists.filter(playlist => playlist.track_ids.includes(track.id)).map(playlist => playlist.id);
+  };
+  updateMemberships();
   const library = { root_path: 'loud://fixture', scanned_at: 1700000000, tracks, playlists, artists: [], albums: [], stats: {
     trackCount: tracks.length, playlistCount: playlists.length, likedCount: 0, artistCount: 4, albumCount: 6, durationSeconds: tracks.length * 180
   } };
@@ -95,6 +100,7 @@ function fixtures(origin) {
   wave.write('data',36); wave.writeUInt32LE(1600,40);
   let audioRequests = 0;
   let audioMode = 'valid', audioGate, releaseAudio, activeAudio = 0, maxActiveAudio = 0;
+  let failPlaylistDelete = false;
   let artworkRequests = 0;
   let received = 0;
   let release;
@@ -104,6 +110,7 @@ function fixtures(origin) {
     get audioRequests() { return audioRequests; },
     get maxActiveAudio() { return maxActiveAudio; },
     setAudioResponse(mode) { audioMode = mode; },
+    setPlaylistDeleteFailure(value) { failPlaylistDelete = value; },
     holdAudioDownloads() { audioGate = new Promise(resolve => { releaseAudio = resolve; }); },
     releaseAudioDownloads() { releaseAudio?.(); audioGate = undefined; },
     get artworkRequests() { return artworkRequests; },
@@ -154,6 +161,15 @@ function fixtures(origin) {
           return await route.fulfill({ contentType: 'audio/wav', body: wave, headers: { 'Content-Length': String(wave.length) } });
         } finally { activeAudio--; }
       }
+      const likedMatch = pathname.match(/^\/api\/v1\/tracks\/([^/]+)\/liked$/);
+      if (likedMatch && request.method() === 'PUT') {
+        const track = tracks.find(track => track.fingerprint === decodeURIComponent(likedMatch[1]));
+        if (!track) return route.fulfill({ status: 404, json: { error: 'Unknown fixture track' } });
+        track.is_liked = request.postDataJSON().liked;
+        library.stats.likedCount = tracks.filter(track => track.is_liked).length;
+        mutations.push({ method: 'PUT', track: track.id, liked: track.is_liked });
+        return route.fulfill({ json: {} });
+      }
       const playlistMatch = pathname.match(/^\/api\/v1\/playlists\/([^/]+)\/tracks(?:\/([^/]+))?$/);
       if (playlistMatch) {
         const playlist = playlists.find(p => p.id === decodeURIComponent(playlistMatch[1]));
@@ -163,7 +179,19 @@ function fixtures(origin) {
         if (request.method() === 'PUT') playlist.track_ids = [...body.track_ids];
         else if (request.method() === 'POST') { const track = tracks.find(t=>t.fingerprint===body.fingerprint); if(track && !playlist.track_ids.includes(track.id))playlist.track_ids.push(track.id); }
         else if (request.method() === 'DELETE') playlist.track_ids = playlist.track_ids.filter(id=>id!==decodeURIComponent(playlistMatch[2]));
+        updateMemberships();
         return route.fulfill({json:playlist});
+      }
+      const deletePlaylistMatch = pathname.match(/^\/api\/v1\/playlists\/([^/]+)$/);
+      if (deletePlaylistMatch && request.method() === 'DELETE') {
+        const id = decodeURIComponent(deletePlaylistMatch[1]);
+        mutations.push({ method: 'DELETE', playlist: id, status: failPlaylistDelete ? 503 : 200 });
+        if (failPlaylistDelete) return route.fulfill({ status: 503, json: { error: 'Fixture playlist delete unavailable' } });
+        const index = playlists.findIndex(playlist => playlist.id === id);
+        if (index < 0) return route.fulfill({ status: 404, json: { error: 'Unknown fixture playlist' } });
+        playlists.splice(index, 1); library.stats.playlistCount = playlists.length;
+        updateMemberships();
+        return route.fulfill({ json: {} });
       }
       if(pathname.startsWith('/api/v1/aux/')) return route.fulfill({json:{code:'ABCD',guest_token:'fixture-guest'}});
       return route.fulfill({ json: {} });
@@ -190,17 +218,29 @@ try {
     // Bundled WebKit's nonpersistent contexts discard CacheStorage on reload,
     // even on an empty page. Downloads need an isolated real profile to test
     // persistence; the profile is removed after this scenario.
-    const profileDirectory = downloadOnly && browserName === 'webkit' ? await fs.mkdtemp(path.join(os.tmpdir(), 'codec-webkit-download-')) : null;
+    const profileDirectory = (downloadOnly || songGestureOnly) && browserName === 'webkit' ? await fs.mkdtemp(path.join(os.tmpdir(), 'codec-webkit-download-')) : null;
     const contextOptions = { viewport: { width, height: mobile ? 844 : 960 }, deviceScaleFactor: mobile ? 2 : 1, isMobile: mobile, hasTouch: mobile, serviceWorkers: 'block' };
     const context = profileDirectory
       ? await browserType.launchPersistentContext(profileDirectory, { ...contextOptions, headless: args.get('headed') !== 'true' })
       : await browser.newContext(contextOptions);
     scenario.storageContext = profileDirectory ? 'isolated temporary persistent profile' : 'isolated nonpersistent context';
-    await context.addInitScript(({ theme, displayMode, profileOnly, viewportOnly, downloadOnly }) => {
+    await context.addInitScript(({ theme, displayMode, profileOnly, viewportOnly, downloadOnly, songGestureOnly }) => {
       localStorage.setItem('codec.theme', theme);
       localStorage.setItem('codec.syncServer', location.origin);
       localStorage.setItem('codec.deviceId', 'fixture-browser');
       Object.defineProperty(navigator, 'standalone', { configurable: true, value: displayMode === 'standalone' });
+      if (songGestureOnly) {
+        window.__songGestureEvents = [];
+        for (const type of ['pointerdown', 'pointerup', 'pointercancel', 'lostpointercapture', 'dragstart', 'click']) {
+          document.addEventListener(type, event => {
+            const element = event.target instanceof Element ? event.target : null;
+            window.__songGestureEvents.push({ type, at: performance.now(), pointerType: event.pointerType, pointerId: event.pointerId,
+              tag: element?.tagName, track: element?.closest('[data-track-id]')?.getAttribute('data-track-id'),
+              label: element?.closest('button')?.getAttribute('aria-label') ?? element?.closest('button')?.textContent?.trim(), x: event.clientX, y: event.clientY });
+            if (window.__songGestureEvents.length > 120) window.__songGestureEvents.shift();
+          }, true);
+        }
+      }
       if (viewportOnly) {
         // Deliberately synthetic geometry: desktop WebKit does not provide
         // actual iPhone Safari chrome, OS keyboard, or home-indicator insets.
@@ -230,7 +270,7 @@ try {
           }
         }).observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
       }
-    }, { theme, displayMode, profileOnly, viewportOnly, downloadOnly });
+    }, { theme, displayMode, profileOnly, viewportOnly, downloadOnly, songGestureOnly });
     const fixture = fixtures(new URL(baseURL).origin);
     if (profileOnly || interactionOnly) fixture.seedLargeManualQueue();
     const page = await context.newPage();
@@ -488,6 +528,17 @@ try {
       assert.deepEqual(fixture.state.context.queued_tracks.map(track => track.id), initialOrder, 'Remote replacement must preserve the server queue exactly');
       assert.equal(await content.evaluate(element => element.hasPointerCapture(1)), false, 'Canceled reorder capture must be released');
       scenario.checks.remoteChangeCancelsDrag = 'Remote queue replacement removes the drag preview, stops edge scrolling, and suppresses stale pointerup reorder';
+      await queue.locator('.mobile-sheet-trailing').getByRole('button', { name: 'Done', exact: true }).first().click();
+      await scroller.evaluate(element => { element.scrollTop = 0; }); await first().waitFor();
+      const removeBox = await first().locator('.mobile-queue-play').boundingBox();
+      const removeQueue = fixture.state.context.queued_tracks.map(track => track.id), beforeRemoveCommands = fixture.receivedCommands;
+      await page.mouse.move(removeBox.x + removeBox.width - 12, removeBox.y + removeBox.height / 2); await page.mouse.down();
+      await page.mouse.move(removeBox.x + 12, removeBox.y + removeBox.height / 2, { steps: 12 }); await page.mouse.up();
+      await waitUntil(() => fixture.state.context.queued_tracks.length === removeQueue.length - 1, 'Full left queue swipe must invoke Remove');
+      assert.deepEqual(fixture.state.context.queued_tracks.map(track => track.id), removeQueue.slice(1), 'Full swipe must remove only its source queue entry');
+      assert.equal(fixture.receivedCommands, beforeRemoveCommands + 1, 'Full swipe must issue exactly one queue change');
+      assert.equal(fixture.state.track.id, initialTrack, 'Full queue swipe must not play the row');
+      scenario.checks.fullQueueSwipe = 'Full left swipe removes exactly the intended queue entry without playing it';
       assert.deepEqual(scenario.errors, [], 'Unhandled browser errors');
     };
     const viewportChecks = async () => {
@@ -648,6 +699,239 @@ try {
       await shot('download-complete-playlist');
       assert.deepEqual(scenario.errors, [], 'Unhandled browser errors');
     };
+    const songGestures = async () => {
+      assert(mobile, '--song-gesture-only is a focused mobile fixture');
+      scenario.simulation = 'Trusted mouse pointers exercise swipe handlers in both engines. Chromium also dispatches trusted touch; WebKit long-press events are synthetic. Physical iPhone gesture physics still require device testing.';
+      await openSongs();
+      const title = number => `Sample track ${String(number).padStart(4, '0')}`;
+      const row = number => page.locator('.track-row').filter({ has: page.locator('.track-title-cell strong', { hasText: title(number) }) });
+      const wrapper = number => page.locator('.mobile-swipe-row').filter({ has: row(number) });
+      const foregroundOffset = number => row(number).evaluate(element => {
+        const foreground = element.closest('.mobile-swipe-row')?.querySelector('.mobile-swipe-content') ?? element;
+        return new DOMMatrixReadOnly(getComputedStyle(foreground).transform).m41;
+      });
+      const swipe = async (number, { direction = 1, full = false, hold = false, verticalFirst = false } = {}) => {
+        await waitUntil(async () => Math.abs(await foregroundOffset(number)) < 1, 'Previous swipe action must settle before starting the next gesture');
+        // Collection navigation animates its whole parent. Match Playwright's
+        // ordinary click readiness before computing raw pointer coordinates.
+        await row(number).click({ trial: true });
+        const box = await row(number).boundingBox();
+        const x = box.x + (direction > 0 ? 24 : box.width - 24), y = box.y + box.height / 2;
+        await page.mouse.move(x, y); await page.mouse.down();
+        if (verticalFirst) await page.mouse.move(x + 1, y + 34, { steps: 4 });
+        await page.mouse.move(x + direction * (full ? box.width - 48 : 115), y + (verticalFirst ? 40 : 2), { steps: 9 });
+        if (!hold) await page.mouse.up();
+        return { x, y, width: box.width };
+      };
+      const queueIDs = () => fixture.state.context.queued_tracks.map(track => track.id);
+      const expectQueue = async expected => {
+        await waitUntil(() => JSON.stringify(queueIDs()) === JSON.stringify(expected), `Queue must become ${JSON.stringify(expected)}`);
+        assert.equal(fixture.state.track.id, 'sample-0', 'Swipe queue actions must leave the current track unchanged');
+        assert.equal(fixture.audioRequests, 0, 'Remote queue actions must not start local streaming');
+        assert(fixture.commands.every(command => command.kind === 'set_queue'), 'Swipe actions must only edit the queue');
+      };
+      const action = (number, label) => wrapper(number).getByRole('button', { name: label === 'Remove from Playlist' ? `Remove ${title(number)} from playlist` : `${label} ${title(number)}`, exact: true });
+      const clickQueueAction = async (number, label) => {
+        await swipe(number);
+        await action(number, label).click();
+      };
+
+      await swipe(2, { hold: true });
+      await waitUntil(async () => (await foregroundOffset(2)) > 30, 'Song artwork/text must follow a right swipe before pointerup');
+      await page.mouse.up();
+      await action(2, 'Play Next').waitFor(); await action(2, 'Play Last').waitFor();
+      assert.equal(fixture.receivedCommands, 0, 'A short swipe reveals actions without playing or queueing');
+      await shot('song-swipe-next-last');
+      await swipe(3);
+      await action(3, 'Play Next').waitFor();
+      await waitUntil(async () => Math.abs(await foregroundOffset(2)) < 1, 'Opening another song must close the first action strip');
+      assert.equal(fixture.receivedCommands, 0, 'Changing the revealed row must not enqueue either song');
+      await swipe(2);
+      await waitUntil(async () => Math.abs(await foregroundOffset(3)) < 1, 'Only one song may expose swipe actions at a time');
+      await action(2, 'Play Next').click(); await expectQueue(['sample-1']);
+      await clickQueueAction(3, 'Play Last'); await expectQueue(['sample-1', 'sample-2']);
+      await swipe(4, { full: true }); await expectQueue(['sample-3', 'sample-1', 'sample-2']);
+      await swipe(4, { full: true }); await expectQueue(['sample-3', 'sample-3', 'sample-1', 'sample-2']);
+      const queued = [...queueIDs()];
+      scenario.checks.songQueueSwipe = 'Short right swipe exposes Next/Last; Next prepends, Last appends; full right swipe adds Next and repeated additions remain distinct';
+
+      let before = fixture.receivedCommands;
+      await swipe(5, { verticalFirst: true });
+      await nextFrames();
+      assert(Math.abs(await foregroundOffset(5)) < 1, 'Vertical-first gesture must not become a horizontal action');
+      assert.equal(fixture.receivedCommands, before, 'Vertical scroll intent must not enqueue or play');
+      await swipe(5, { hold: true });
+      await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, pointerType: 'mouse', isPrimary: true, bubbles: true })));
+      await page.mouse.up();
+      await waitUntil(async () => Math.abs(await foregroundOffset(5)) < 1, 'Canceled song swipe must close');
+      assert.equal(fixture.receivedCommands, before, 'Canceled swipe must not enqueue or play');
+      scenario.checks.songDirectionAndCancel = 'Vertical direction lock and pointer cancellation preserve playback and queue';
+
+      await swipe(5, { hold: true });
+      await page.locator('.content').evaluate(element => { element.scrollTop = 10000; });
+      await row(5).waitFor({ state: 'detached' });
+      await page.mouse.up(); await nextFrames();
+      assert.equal(fixture.receivedCommands, before, 'A gesture whose source row unmounts must not enqueue a recycled row');
+      const deep = await page.locator('.track-row').evaluateAll(elements => {
+        const top = document.querySelector('.content').getBoundingClientRect().top;
+        const bottom = document.querySelector('.mobile-mini-player').getBoundingClientRect().top;
+        const element = elements.find(element => { const box = element.getBoundingClientRect(); return box.top >= top && box.bottom < bottom; });
+        return element ? { id: element.dataset.trackId, index: Number(element.dataset.trackIndex), name: element.querySelector('strong').textContent } : null;
+      });
+      assert(deep && deep.index > 50, 'Deep-scroll fixture must target a globally indexed track');
+      const number = Number(deep.name.match(/\d+$/)[0]);
+      assert.equal(deep.id, `sample-${number - 1}`, 'Virtual row identity must match its title');
+      await swipe(number, { full: true }); await expectQueue([deep.id, ...queued]);
+      assert(await page.locator('.track-row').count() < 100, 'Swiping must preserve bounded row rendering');
+      scenario.checks.songVirtualIdentity = { trackID: deep.id, globalIndex: deep.index, title: deep.name, mountedRows: await page.locator('.track-row').count() };
+
+      await page.locator('.content').evaluate(element => { element.scrollTop = 0; });
+      await row(2).waitFor();
+      if (browserName === 'chromium') {
+        const touch = await context.newCDPSession(page), box = await row(2).boundingBox();
+        const x = box.x + 24, y = box.y + box.height / 2;
+        const order = [...queueIDs()], commandsBeforeTouch = fixture.receivedCommands;
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 0 }] });
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 65, y: y + 1, id: 0 }] });
+        await waitUntil(async () => (await foregroundOffset(2)) > 30, 'Trusted touch must continue following the finger after implicit capture transfer');
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 115, y: y + 1, id: 0 }] });
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        assert.equal(fixture.receivedCommands, commandsBeforeTouch, 'Trusted short swipe must not auto-play or auto-enqueue');
+        await action(2, 'Play Next').click(); await expectQueue(['sample-1', ...order]);
+        await touch.detach();
+        scenario.checks.songTrustedTouch = 'Trusted touch reveals queue actions through implicit pointer capture; the action queues exactly once without playing';
+      }
+      await swipe(2, { direction: -1 });
+      await action(2, 'Like').click();
+      await waitUntil(() => fixture.tracks[1].is_liked, 'Left-swipe Like must persist the intended track');
+      await swipe(2, { direction: -1 });
+      await action(2, 'Unlike').waitFor();
+      await action(2, 'Download').click();
+      await row(2).getByLabel('Downloaded', { exact: true }).waitFor();
+      const saved = await page.evaluate(async () => (await (await caches.open('codec-audio-downloads-v1')).keys()).map(request => request.url));
+      assert.equal(saved.length, 1, 'Left-swipe Download must save real audio');
+      assert(saved[0].endsWith('/sample-1'), 'Download must use the swiped track identity');
+      assert.equal(fixture.state.track.id, 'sample-0', 'Like/download must not start playback');
+      await page.locator('.app-shell > .download-status').getByRole('button', { name: 'Dismiss download status', exact: true }).click();
+      scenario.checks.songTrailingActions = 'Left swipe persists Like/Unlike state and saves the intended audio without playing it';
+
+      // A normal tap and long press must still work after gesture cancellation.
+      const longPressTarget = row(6).locator('.track-title-cell strong');
+      before = fixture.receivedCommands;
+      if (browserName === 'chromium') {
+        const touch = await context.newCDPSession(page), box = await longPressTarget.boundingBox();
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: box.x + 10, y: box.y + box.height / 2, id: 0 }] });
+        await page.getByRole('dialog', { name: title(6), exact: true }).waitFor();
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await touch.detach();
+      } else {
+        const box = await longPressTarget.boundingBox();
+        await longPressTarget.dispatchEvent('pointerdown', { pointerId: 31, pointerType: 'touch', isPrimary: true, button: 0, clientX: box.x + 10, clientY: box.y + box.height / 2 });
+        await page.getByRole('dialog', { name: title(6), exact: true }).waitFor();
+        await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 31, pointerType: 'touch', isPrimary: true, bubbles: true })));
+      }
+      const menu = page.getByRole('dialog', { name: title(6), exact: true });
+      await menu.getByRole('button', { name: 'Play Next', exact: true }).waitFor();
+      await menu.getByRole('button', { name: 'Play Last', exact: true }).waitFor();
+      assert.equal(fixture.receivedCommands, before, 'Long press must open the menu without playing or queueing');
+      await page.keyboard.press('Escape'); await menu.waitFor({ state: 'detached' });
+      await page.waitForTimeout(750); // Deliberate long-press click-suppression window.
+      await page.locator('.content').evaluate(element => { element.scrollTop = 180; });
+      await row(7).click();
+      await waitUntil(() => fixture.state.track.id === 'sample-6', 'Normal row tap must still play the selected song');
+      scenario.checks.songTapAndLongPress = { normalTap: 'plays intended song', longPress: browserName === 'chromium' ? 'trusted touch opens menu without play' : 'synthetic touch opens menu without play' };
+
+      // A playlist supplies a remove action instead of changing library likes.
+      await mobileTab('Library');
+      if (await page.locator('.mobile-library').count() === 0) await page.locator('.mobile-toolbar').getByRole('button', { name: 'Library', exact: true }).click();
+      await page.locator('.mobile-playlist-row').filter({ hasText: 'Weekend Records' }).click();
+      await swipe(2, { direction: -1 });
+      await action(2, 'Remove from Playlist').click();
+      await waitUntil(() => !fixture.library.playlists[0].track_ids.includes('sample-1'), 'Playlist swipe remove must persist the intended song removal');
+      assert.equal(fixture.state.track.id, 'sample-6', 'Playlist remove must not change playback');
+      scenario.checks.songPlaylistRemove = 'Playlist trailing action removes only the intended membership';
+
+      await row(3).click({ button: 'right' });
+      await page.getByRole('dialog', { name: title(3), exact: true }).getByRole('button', { name: 'Add to Playlist', exact: true }).click();
+      const memberships = page.getByRole('dialog', { name: 'Add to Playlist', exact: true });
+      const weekendChoice = memberships.getByRole('checkbox', { name: 'Weekend Records', exact: true });
+      assert.equal(await weekendChoice.isChecked(), true, 'Membership fixture must start with this song in the playlist');
+      await memberships.locator('label').filter({ hasText: 'Weekend Records' }).click();
+      assert.equal(await weekendChoice.isChecked(), false);
+      await page.keyboard.press('Escape'); await memberships.waitFor({ state: 'detached' });
+      await waitUntil(() => !fixture.library.playlists[0].track_ids.includes('sample-2'), 'Escape must save the staged mobile playlist membership');
+      assert.equal(fixture.state.track.id, 'sample-6', 'Membership dismissal must not change playback');
+      scenario.checks.membershipEscape = 'Escape commits the staged mobile playlist selection just like Done/dismissal';
+
+      await mobileTab('Library');
+      if (await page.locator('.mobile-library').count() === 0) await page.locator('.mobile-toolbar').getByRole('button', { name: 'Library', exact: true }).click();
+      const playlistRow = page.locator('.mobile-playlist-row[data-playlist-id="fixture-collage"]');
+      const playlistWrapper = page.locator('.mobile-swipe-row[data-swipe-id="fixture-collage"]');
+      const allTrackIDs = fixture.library.tracks.map(track => track.id), beforeDeleteQueue = [...queueIDs()];
+      const deleteCount = () => fixture.mutations.filter(item => item.method === 'DELETE' && item.playlist === 'fixture-collage').length;
+      const revealDelete = async () => {
+        await waitUntil(async () => playlistWrapper.locator('.mobile-swipe-content').evaluate(element => Math.abs(new DOMMatrixReadOnly(getComputedStyle(element).transform).m41) < 1), 'Playlist action must settle before next swipe');
+        await playlistRow.click({ trial: true });
+        const box = await playlistRow.boundingBox(), y = box.y + box.height / 2;
+        await page.mouse.move(box.x + box.width - 20, y); await page.mouse.down();
+        await page.mouse.move(box.x + 20, y, { steps: 12 }); await page.mouse.up();
+        await playlistWrapper.getByRole('button', { name: 'Delete playlist Late Night Mix', exact: true }).waitFor();
+      };
+      await revealDelete();
+      assert.equal(deleteCount(), 0, 'Even a full playlist swipe must not delete without confirmation');
+      assert.equal(await page.getByRole('dialog', { name: 'Delete Playlist?', exact: true }).count(), 0, 'Full playlist swipe only reveals Delete');
+      const confirm = () => page.getByRole('dialog', { name: 'Delete Playlist?', exact: true });
+      await playlistWrapper.getByRole('button', { name: 'Delete playlist Late Night Mix', exact: true }).click();
+      await confirm().getByRole('button', { name: 'Cancel', exact: true }).click();
+      await confirm().waitFor({ state: 'detached' });
+      assert.equal(deleteCount(), 0, 'Cancel must send no delete request');
+      assert(fixture.library.playlists.some(playlist => playlist.id === 'fixture-collage'));
+      await revealDelete();
+      await playlistWrapper.getByRole('button', { name: 'Delete playlist Late Night Mix', exact: true }).click();
+      fixture.setPlaylistDeleteFailure(true);
+      await confirm().getByRole('button', { name: 'Delete', exact: true }).click();
+      await confirm().getByRole('alert').waitFor();
+      assert.equal(deleteCount(), 1, 'Confirmed failure must attempt one delete');
+      assert(fixture.library.playlists.some(playlist => playlist.id === 'fixture-collage'), 'Server failure must preserve the playlist');
+      assert.equal(await playlistRow.count(), 1, 'Failed playlist delete must keep the row');
+      await shot('playlist-delete-retry');
+      fixture.setPlaylistDeleteFailure(false);
+      await confirm().getByRole('button', { name: 'Delete', exact: true }).click();
+      await confirm().waitFor({ state: 'detached' });
+      await playlistRow.waitFor({ state: 'detached' });
+      assert.equal(deleteCount(), 2, 'Explicit retry must send one new delete request');
+      assert.deepEqual(fixture.library.tracks.map(track => track.id), allTrackIDs, 'Deleting a playlist must retain every library track');
+      assert.deepEqual(queueIDs(), beforeDeleteQueue, 'Deleting a playlist must retain the current queue');
+      assert.equal(fixture.state.track.id, 'sample-6', 'Deleting a playlist must retain current playback');
+      scenario.checks.playlistDelete = 'Full swipe only reveals; cancel sends nothing; failed confirmation preserves playlist; successful retry removes only playlist, retaining all 2000 tracks and queue';
+
+      const beforeGuestMutations = fixture.mutations.length;
+      await page.goto(`${baseURL}/?aux=ABCD`);
+      await page.getByRole('button', { name: /^Open Now Playing:/ }).waitFor();
+      await openSongs();
+      assert.equal(await page.evaluate(async () => (await (await caches.open('codec-audio-downloads-v1')).keys()).length), 1, 'Guest fixture retains the owner download while testing restricted actions');
+      before = fixture.receivedCommands;
+      const guestOrder = [...queueIDs()];
+      await swipe(2); await action(2, 'Play Last').click();
+      await waitUntil(() => JSON.stringify(queueIDs()) === JSON.stringify([...guestOrder, 'sample-1']), 'Guest swipe queue action must work');
+      assert.equal(fixture.receivedCommands, before + 1, 'Guest queue action must issue one command');
+      assert.equal(fixture.state.track.id, 'sample-6', 'Guest queue swipe must retain the current song');
+      before = fixture.receivedCommands;
+      await swipe(3, { direction: -1 });
+      await nextFrames();
+      assert.equal(await wrapper(3).getByRole('button', { name: /^(?:Like|Unlike|Download|Remove) / }).count(), 0, 'Guest rows must not expose owner swipe actions');
+      assert.equal(fixture.receivedCommands, before, 'Guest unavailable left swipe must not accidentally play');
+      await row(3).click({ button: 'right' });
+      const guestMenu = page.getByRole('dialog', { name: title(3), exact: true });
+      await guestMenu.getByRole('button', { name: 'Play Next', exact: true }).waitFor();
+      for (const label of ['Like', 'Unlike', 'Download', 'Remove Download', 'Add to Playlist', 'Remove from Playlist']) {
+        assert.equal(await guestMenu.getByRole('button', { name: label, exact: true }).count(), 0, `Guest menu must hide ${label}`);
+      }
+      assert.equal(fixture.mutations.length, beforeGuestMutations, 'Guest gestures must not mutate likes or playlists');
+      await shot('song-guest-menu');
+      scenario.checks.songGuestActions = 'Guests can queue by swipe, while owner swipe/menu actions stay absent';
+      assert.deepEqual(scenario.errors, [], 'Unhandled browser errors');
+    };
 
     try {
       await page.goto(baseURL);
@@ -663,6 +947,7 @@ try {
       if (interactionOnly) { await interactions(); continue; }
       if (viewportOnly) { await viewportChecks(); continue; }
       if (downloadOnly) { await downloadChecks(); continue; }
+      if (songGestureOnly) { await songGestures(); continue; }
 
       if (mobile) {
         for (const name of ['Search', 'Library', 'Visualizer', 'Home']) {
@@ -937,6 +1222,10 @@ try {
     } catch (error) {
       fixture.releaseCommand();
       fixture.releaseAudioDownloads();
+      scenario.fixtureDiagnostics = { commands: fixture.commands, currentTrack: fixture.state.track.id,
+        queueLength: fixture.state.context.queued_tracks.length, queuedIDs: fixture.state.context.queued_tracks.slice(0, 30).map(track => track.id),
+        mutations: fixture.mutations, audioRequests: fixture.audioRequests };
+      if (songGestureOnly) scenario.gestureEvents = await page.evaluate(() => window.__songGestureEvents).catch(() => []);
       scenario.failure = error.stack ?? String(error);
       report.failures.push({ width, theme, error: scenario.failure });
       await shot('failure').catch(() => {});

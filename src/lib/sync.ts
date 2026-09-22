@@ -567,6 +567,21 @@ export async function addTrackToRemotePlaylist(
   }
 }
 
+/** Delete only the playlist container. Its tracks and media remain in the library. */
+export async function deleteRemotePlaylist(
+  serverUrl: string,
+  playlistId: string,
+  fetcher: typeof fetch = fetch
+): Promise<void> {
+  await withSyncReadTimeout(async signal => {
+    const response = await authorizedFetch(fetcher,
+      `${normalizeServerUrl(serverUrl)}/api/v1/playlists/${encodeURIComponent(playlistId)}`,
+      { method: "DELETE", signal }
+    );
+    if (!response.ok) throw syncApiError("Could not delete playlist", serverUrl, response);
+  });
+}
+
 export async function removeTrackFromRemotePlaylist(
   serverUrl: string,
   playlistId: string,

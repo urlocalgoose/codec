@@ -24,7 +24,7 @@ export function beginQueueSwipe(x: number, y: number, time: number, open = false
   return { startX: x, startY: y, initialOffset: offset, offset, lastX: x, lastTime: time, velocity: 0, axis: "pending" };
 }
 
-export function updateQueueSwipe(swipe: QueueSwipe, x: number, y: number, time: number): QueueSwipe {
+export function updateQueueSwipe(swipe: QueueSwipe, x: number, y: number, time: number, limit = QUEUE_REVEAL_WIDTH): QueueSwipe {
   const dx = x - swipe.startX, dy = y - swipe.startY;
   let axis = swipe.axis;
   if (axis === "pending" && Math.max(Math.abs(dx), Math.abs(dy)) >= 8) {
@@ -33,9 +33,15 @@ export function updateQueueSwipe(swipe: QueueSwipe, x: number, y: number, time: 
   }
   if (axis !== "horizontal") return { ...swipe, axis };
   return {
-    ...swipe, axis, offset: Math.min(0, Math.max(-QUEUE_REVEAL_WIDTH, swipe.initialOffset + dx)),
+    ...swipe, axis, offset: Math.min(0, Math.max(-limit, swipe.initialOffset + dx)),
     velocity: (x - swipe.lastX) / Math.max(1, time - swipe.lastTime), lastX: x, lastTime: time,
   };
+}
+
+export function queueSwipeDeletes(swipe: QueueSwipe, width: number, cancelled = false): boolean {
+  return !cancelled && width > 0 && swipe.axis === "horizontal"
+    && swipe.initialOffset + swipe.lastX - swipe.startX <= -Math.max(180, width * .6)
+    && swipe.startX - swipe.lastX >= Math.max(180, width * .6);
 }
 
 export function finishQueueSwipe(swipe: QueueSwipe, time: number, cancelled = false): boolean {

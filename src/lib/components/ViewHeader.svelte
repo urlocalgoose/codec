@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ArrowDownUp, Check, Image, LoaderCircle, Pencil, Plus, X } from "lucide-svelte";
+  import { ArrowDownUp, Check, Ellipsis, Image, LoaderCircle, Pencil, Plus, Trash2, X } from "lucide-svelte";
+  import MobileSheet from "./MobileSheet.svelte";
   import type { Playlist, SortKey } from "$lib/types";
 
   let {
@@ -15,6 +16,7 @@
     playlistEditing = false,
     onTogglePlaylistEdit,
     onAddSongs,
+    onDeletePlaylist,
     playlistNameDraft = $bindable(),
     onStartRename,
     onCommitRename,
@@ -33,6 +35,7 @@
     playlistEditing?: boolean;
     onTogglePlaylistEdit?: () => void;
     onAddSongs?: () => void;
+    onDeletePlaylist?: () => void;
     playlistNameDraft: string;
     onStartRename: (playlist: Playlist) => void;
     onCommitRename: () => void;
@@ -42,6 +45,7 @@
 
   let nameInputEl: HTMLInputElement | undefined = $state();
   let coverInputEl: HTMLInputElement | undefined = $state();
+  let optionsOpen = $state(false);
 
   function handleCoverPicked(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
@@ -78,9 +82,9 @@
       {#if onTogglePlaylistEdit}
         <button class="mobile-text-button" type="button" aria-pressed={playlistEditing} onclick={onTogglePlaylistEdit}>{playlistEditing ? "Done" : "Edit"}</button>
       {/if}
-      {#if canEditCover || onAddSongs}<span class="native-playlist-media">
-      {#if canEditCover}
-        <button class="mobile-icon-button" type="button" aria-label="Change playlist cover" onclick={() => coverInputEl?.click()}><Image size={21} /></button>
+      {#if canEditCover || onDeletePlaylist || onAddSongs}<span class="native-playlist-media">
+      {#if canEditCover || onDeletePlaylist}
+        <button class="mobile-icon-button" type="button" aria-label="Playlist options" onclick={() => optionsOpen = true}><Ellipsis size={21} /></button>
         <input bind:this={coverInputEl} type="file" accept="image/*" hidden onchange={handleCoverPicked} />
       {/if}
       {#if onAddSongs}
@@ -178,4 +182,13 @@
   </div>
 </section>
 
+{/if}
+
+{#if optionsOpen && mobileToolbarOnly && selectedPlaylist && !selectedPlaylist.is_liked}
+  <MobileSheet title="Playlist options" onClose={() => optionsOpen = false}>
+    <div class="mobile-track-actions">
+      {#if canEditCover}<button type="button" onclick={() => { coverInputEl?.click(); optionsOpen = false; }}><Image size={21} /> Change Artwork</button>{/if}
+      {#if onDeletePlaylist}<button class="danger" type="button" onclick={() => { optionsOpen = false; onDeletePlaylist?.(); }}><Trash2 size={21} /> Delete Playlist</button>{/if}
+    </div>
+  </MobileSheet>
 {/if}

@@ -99,7 +99,7 @@
   .native-queue-sheet .mobile-queue-row .queue-reorder-control { touch-action: none; cursor: grab; width: 44px; min-width: 44px; height: 44px; }
   .native-queue-sheet .queue-drop-target .mobile-queue-row-content { box-shadow: inset 0 3px var(--color-accent); }
   .queue-drag-source .mobile-queue-row-content { opacity: .3; }
-  .queue-swipe-remove { position: absolute; inset: 0 0 0 auto; width: 88px; border: 0; border-radius: 0; padding: 0 12px; background: var(--color-danger); color: var(--color-bg); font-size: 14px; font-weight: 600; pointer-events: none; }
+  .queue-swipe-remove { position: absolute; inset: 0 0 0 auto; width: max(88px,calc(-1 * var(--queue-swipe-x,0px))); border: 0; border-radius: 0; padding: 0 12px; background: var(--color-danger); color: var(--color-bg); font-size: 14px; font-weight: 600; pointer-events: none; }
   .queue-swipe-open .queue-swipe-remove { pointer-events: auto; }
   .queue-move-actions { position: absolute; z-index: 3; top: 21px; right: 64px; display: flex; border-radius: 12px; background: var(--color-surface); box-shadow: inset 0 0 0 1px var(--color-border); }
   .queue-move-actions .mobile-icon-button { width: 44px; min-width: 44px; height: 44px; }

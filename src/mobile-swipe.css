@@ -1,0 +1,29 @@
+/* Row gestures are a mobile affordance. Desktop table geometry stays intact. */
+.mobile-swipe-row, .mobile-swipe-content { display: contents; }
+.row-swipe-actions { display: none; }
+
+@media (max-width: 980px) {
+  .native-library { --swipe-row-background: var(--color-panel); }
+  .mobile-swipe-row { display: block; position: relative; overflow: hidden; isolation: isolate; width: 100%; }
+  .mobile-swipe-content { display: block; position: relative; z-index: 1; width: 100%; transform: translateX(var(--row-swipe-x, 0px)); transition: transform 180ms ease-out; touch-action: pan-y pinch-zoom; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .mobile-swipe-content img { -webkit-user-drag: none; }
+  .swipe-active > .mobile-swipe-content { background: var(--swipe-row-background, var(--color-bg)); }
+  .swipe-active > .mobile-swipe-content > .track-row { background: var(--swipe-row-background, var(--color-bg)); }
+  .swipe-dragging > .mobile-swipe-content { transition: none; }
+  .row-swipe-actions { position: absolute; inset-block: 0; z-index: 0; display: flex; visibility: hidden; pointer-events: none; }
+  .row-swipe-actions.swipe-visible { visibility: visible; pointer-events: auto; }
+  .leading-actions { inset-inline-start: 0; width: var(--leading-swipe-width); }
+  .trailing-actions { inset-inline-end: 0; width: var(--trailing-swipe-width); }
+  .row-swipe-actions button { flex: 1 1 0; min-width: 44px; min-height: 44px; padding: 8px; border: 0; border-radius: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: var(--color-accent); color: var(--button-primary-text); touch-action: manipulation; cursor: pointer; }
+  .row-swipe-actions button[data-tone="muted"] { background: var(--color-surface); color: var(--color-text); }
+  .row-swipe-actions button[data-tone="danger"] { background: var(--color-danger); color: var(--color-bg); }
+  .row-swipe-actions button + button { box-shadow: inset 1px 0 color-mix(in srgb, currentColor 15%, transparent); }
+  .row-swipe-actions button span { font-size: 12px; font-weight: 600; line-height: 15px; text-align: center; }
+  .row-swipe-actions button:disabled { opacity: .5; cursor: default; }
+  .row-swipe-actions button:active:not(:disabled) { filter: brightness(.9); }
+  .row-swipe-actions button:focus-visible { outline: 2px solid currentColor; outline-offset: -4px; }
+  .swipe-full-leading > .leading-actions > button:not(:first-child),
+  .swipe-full-trailing > .trailing-actions > button:not(:first-child) { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) { .mobile-swipe-content { transition: none; } }

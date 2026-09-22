@@ -95,7 +95,7 @@ pages. Navigation uses relative links so the private preview and
 `codec.codie.sh` serve the same files. These pages distinguish the documentation
 website, self-hosted music servers and developer-operated demonstration servers.
 
-The hosting guide targets v0.1.7 Linux AMD64/ARM64 server archives and their
+The hosting guide targets v0.1.8 Linux AMD64/ARM64 server archives and their
 individual checksums, with the bundled Ubuntu installer. Verify those assets
 when updating downloads. Match future guide updates to actual package
 filenames and runtime scripts.

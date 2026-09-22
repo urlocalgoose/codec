@@ -6,6 +6,7 @@
   import "../mobile-library-parity.css";
   import "../mobile-player-parity.css";
   import "../mobile-shell-parity.css";
+  import "../mobile-swipe.css";
 
   let { children } = $props();
 

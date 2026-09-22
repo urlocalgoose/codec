@@ -20,6 +20,7 @@
   import BrowseGrid from "$lib/components/BrowseGrid.svelte";
   import PlayerBar from "$lib/components/PlayerBar.svelte";
   import MobileLibrary from "$lib/components/MobileLibrary.svelte";
+  import MobileDeletePlaylist from "$lib/components/MobileDeletePlaylist.svelte";
   import MobilePlayer from "$lib/components/MobilePlayer.svelte";
   import ArtworkImage from "$lib/components/ArtworkImage.svelte";
   import { boundedVolume } from "$lib/volume-control";
@@ -105,6 +106,7 @@
     uploadTrackAudio,
     uploadTrackMetadata,
     createRemotePlaylist,
+    deleteRemotePlaylist,
     addTrackToRemotePlaylist,
     removeTrackFromRemotePlaylist,
     renameRemotePlaylist,
@@ -213,6 +215,7 @@
   let downloadRun: DownloadRun | null = null;
   let playlistHistory: Record<string, Record<string, number>> = {};
   let mobilePlaylistEditing = false;
+  let deletePlaylistCandidate: Playlist | null = null;
   let addingSongs = false;
   let addSongQuery = "";
   let addingSongIDs = new Set<string>();
@@ -594,8 +597,12 @@
 
       if (event.key === "Escape") {
         if (playlistModalTrack) {
+          // Mobile dismissal commits the staged choices. Leave a nested
+          // dialog's Escape to its own cancel handler instead.
+          if (mobileLayout && !target?.closest(".native-membership-sheet")) return;
           event.preventDefault();
-          closePlaylistMembershipModal();
+          if (mobileLayout) void savePlaylistMemberships();
+          else closePlaylistMembershipModal();
           return;
         }
 
@@ -1399,6 +1406,7 @@
 
   function stopPlaybackDevicePolling() {
     syncReadGeneration++;
+    deletePlaylistCandidate = null;
     resetPlaybackCommandQueue();
     if (playbackDevicePollTimer) {
       window.clearInterval(playbackDevicePollTimer);
@@ -3730,7 +3738,8 @@
   }
 
   function enqueuePlaylistWrite(server: string, token: string, action: () => Promise<void>, propagate = false): Promise<void> {
-    const stillConnected = () => server === syncServerUrl && token === syncTokenDraft && !guestMode;
+    const generation = syncReadGeneration;
+    const stillConnected = () => generation === syncReadGeneration && server === syncServerUrl && token === syncTokenDraft && !guestMode;
     pendingPlaylistWrites++;
     playlistMutationEpoch++;
     const write = playlistWriteTail.then(async () => {
@@ -3757,6 +3766,25 @@
     const [moved] = ids.splice(original,1); ids.splice(target,0,moved);
     syncLibrary({ ...library, playlists: library.playlists.map(p => p.id === playlist.id ? { ...p, track_ids:ids } : p) });
     void enqueuePlaylistWrite(server,token,() => setRemotePlaylistTracks(server,playlist.id,ids));
+  }
+
+  async function deleteUserPlaylist(playlist: Playlist) {
+    const server = syncServerUrl, token = syncTokenDraft;
+    const generation = syncReadGeneration;
+    const stillConnected = () => generation === syncReadGeneration && server === syncServerUrl && token === syncTokenDraft && !guestMode;
+    if (!server || !syncServerReady || guestMode || playlist.is_liked || !isRemoteRoot(rootPath)
+      || !library?.playlists.some(current => current.id === playlist.id && !current.is_liked)) {
+      throw new Error("This playlist is no longer available to delete.");
+    }
+    await enqueuePlaylistWrite(server, token, async () => {
+      await deleteRemotePlaylist(server, playlist.id);
+      if (stillConnected() && library) {
+        syncLibrary({ ...library, playlists: library.playlists.filter(current => current.id !== playlist.id),
+          tracks: library.tracks.map(track => track.playlist_ids.includes(playlist.id)
+            ? { ...track, playlist_ids: track.playlist_ids.filter(id => id !== playlist.id) } : track) });
+      }
+    }, true);
+    if (stillConnected() && selectedView === playlist.id) selectView("library");
   }
 
   function removePlaylistSong(index: number) {
@@ -3815,6 +3843,7 @@
           <ViewHeader viewTitle={mobileViewTitle} {viewSubtitle} {selectedPlaylist} isEditing={false} renaming={false} mobileToolbarOnly mobileSortKey={sortKey} onMobileSort={(value) => sortKey = value}
             playlistEditing={mobilePlaylistEditing} onTogglePlaylistEdit={!guestMode && selectedPlaylist && !selectedPlaylist.is_liked ? () => { mobilePlaylistEditing = !mobilePlaylistEditing; sortKey = "default"; } : undefined}
             onAddSongs={!guestMode && selectedPlaylist && !selectedPlaylist.is_liked ? () => { addingSongs = true; addSongQuery = ""; } : undefined}
+            onDeletePlaylist={!guestMode && selectedPlaylist && !selectedPlaylist.is_liked ? () => { deletePlaylistCandidate = selectedPlaylist; } : undefined}
             canEditCover={Boolean(syncServerUrl && !guestMode && selectedPlaylist && !selectedPlaylist.is_liked)} bind:playlistNameDraft onStartRename={startPlaylistRename} onCommitRename={() => void commitPlaylistRename()} onCancelRename={cancelPlaylistRename} onChangeCover={(file) => void changePlaylistCover(file)}/>
         {:else}<h1 class:codec-title={selectedView === "home"}>{selectedView === "home" ? "Codec" : titleForView(selectedView,null)}</h1>{/if}
         {#if selectedView === "home"}
@@ -3901,6 +3930,7 @@
             onShowAux={() => { auxModalOpen = true; }}
           />
         {:else if selectedView === "library" && !globalSearch}
+          {#key syncReadGeneration}
           <MobileLibrary
             playlists={userPlaylists} {playlistArtwork}
             songCount={stats.trackCount} likedCount={stats.likedCount} downloadedCount={downloadedIDs.size} onOpenDownloaded={() => selectView("downloaded")}
@@ -3908,7 +3938,9 @@
             canCreate={Boolean(syncServerUrl && syncServerReady && isRemoteRoot(rootPath) && !guestMode)}
             onOpen={selectView} onOpenAlbum={openMobileAlbum} onOpenArtist={openMobileArtist}
             onCreate={() => { newPlaylistTrack = null; newPlaylistOpen = true; createPlaylistError = ""; }}
+            onDelete={deleteUserPlaylist}
           />
+          {/key}
         {:else if selectedView === "visualizer"}
           <VisualizerView
             sampler={visualizerSampler}
@@ -3946,7 +3978,10 @@
             {downloadedIDs} {downloadingIDs} onDownloadTrack={!guestMode ? (track) => void downloadSong(track) : undefined} onRemoveDownload={(track) => void removeDownloadedSong(track)}
             onDownloadAll={!guestMode && selectedView !== "downloaded" ? () => void downloadVisibleSongs() : undefined}
             emptyTitle={selectedView === "search" ? "No Results" : selectedPlaylist && !selectedPlaylist.is_liked ? "No Songs" : "No Tracks"} emptyDescription={selectedView === "search" ? `No results for “${searchQuery}”.` : selectedPlaylist && !selectedPlaylist.is_liked ? "Add songs from your library." : undefined}
-            playlistEditing={mobilePlaylistEditing} onMovePlaylistTrack={movePlaylistSong} onRemovePlaylistTrack={removePlaylistSong}
+            listIdentity={`${syncReadGeneration}\u0000${syncServerUrl}\u0000${selectedView}\u0000${globalSearch ? searchQuery : ""}`}
+            playlistEditing={mobilePlaylistEditing}
+            onMovePlaylistTrack={!guestMode && selectedPlaylist && !selectedPlaylist.is_liked && !globalSearch ? movePlaylistSong : undefined}
+            onRemovePlaylistTrack={!guestMode && selectedPlaylist && !selectedPlaylist.is_liked && !globalSearch ? removePlaylistSong : undefined}
             onRemoveQueued={removeQueuedTrackAt}
             {guestMode}
             onEditPlaylists={openPlaylistMembershipModal}
@@ -4120,6 +4155,9 @@
           </VirtualRows>
         </div>
       </MobileSheet>
+    {/if}
+    {#if deletePlaylistCandidate && !guestMode && library?.playlists.some(playlist => playlist.id === deletePlaylistCandidate?.id)}
+      <MobileDeletePlaylist playlist={deletePlaylistCandidate} onDelete={deleteUserPlaylist} onClose={() => deletePlaylistCandidate = null} />
     {/if}
     <DownloadStatus />
     <audio

@@ -1,5 +1,19 @@
 import { expect, test } from "bun:test";
-import { beginQueueSwipe, finishQueueSwipe, queueDropIndex, queueEdgeScroll, queueEntryKeys, queueOrderMatches, updateQueueSwipe } from "./queue-gestures";
+import { beginQueueSwipe, finishQueueSwipe, queueDropIndex, queueEdgeScroll, queueEntryKeys, queueOrderMatches, queueSwipeDeletes, updateQueueSwipe } from "./queue-gestures";
+
+test("full left swipes remove only after deliberate travel, never after scroll, reversal or cancellation", () => {
+  const start = beginQueueSwipe(350, 100, 0);
+  const short = updateQueueSwipe(start, 260, 100, 10, 390);
+  expect(queueSwipeDeletes(short, 390)).toBe(false);
+  const full = updateQueueSwipe(short, 100, 100, 200, 390);
+  expect(full.offset).toBe(-250);
+  expect(queueSwipeDeletes(full, 390)).toBe(true);
+  expect(queueSwipeDeletes(full, 390, true)).toBe(false);
+  expect(queueSwipeDeletes(updateQueueSwipe(full, 300, 100, 250, 390), 390)).toBe(false);
+  const scroll = updateQueueSwipe(start, 348, 140, 20, 390);
+  expect(queueSwipeDeletes(updateQueueSwipe(scroll, 10, 140, 300, 390), 390)).toBe(false);
+  expect(queueSwipeDeletes(full, 0)).toBe(false);
+});
 
 test("queue swipe tracks the finger before release and clamps at the action width", () => {
   const start = beginQueueSwipe(200, 100, 0);
