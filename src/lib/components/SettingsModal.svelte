@@ -3,6 +3,7 @@
     Archive,
     CloudDownload,
     CloudUpload,
+    FolderOpen,
     LoaderCircle,
     Palette,
     Radio,
@@ -65,6 +66,7 @@
   }
 
   let importInputEl: HTMLInputElement | undefined = $state();
+  let importFolderEl: HTMLInputElement | undefined = $state();
 
   function handleImportPicked(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
@@ -138,7 +140,7 @@
           {:else}
             <CloudUpload size={17} />
           {/if}
-          <span>Upload library to server</span>
+          <span>Merge library into server</span>
         </button>
         <button class="settings-row" disabled={syncing} type="button" onclick={onSyncFromServer}>
           <CloudDownload size={17} />
@@ -160,16 +162,22 @@
               <Upload size={17} />
             {/if}
             <span>Import music</span>
-            <small>MP3s, manifest, or .loud.zip</small>
+            <small>MP3s or bundle ZIP</small>
           </button>
           <input
             bind:this={importInputEl}
             type="file"
-            accept=".mp3,audio/mpeg,.json,application/json,.zip,application/zip"
+            accept=".mp3,audio/mpeg,.m4a,audio/mp4,.flac,audio/flac,.wav,audio/wav,.json,application/json,.jpg,.jpeg,.png,image/jpeg,image/png,.zip,application/zip"
             multiple
             hidden
             onchange={handleImportPicked}
           />
+          <button class="settings-row" disabled={importing} type="button" onclick={() => importFolderEl?.click()}>
+            <FolderOpen size={17} />
+            <span>Import bundle folder</span>
+            <small>Audio, playlists &amp; covers</small>
+          </button>
+          <input bind:this={importFolderEl} type="file" webkitdirectory multiple hidden onchange={handleImportPicked} />
         {:else}
           <button class="settings-row" disabled={importing} type="button" onclick={onImportManifest}>
             {#if importing}
@@ -177,8 +185,8 @@
             {:else}
               <Upload size={17} />
             {/if}
-            <span>Import a manifest</span>
-            <small>loud.import.v1</small>
+            <span>Import music bundle</span>
+            <small>Select loud-import.json</small>
           </button>
         {/if}
         {#if canShare}

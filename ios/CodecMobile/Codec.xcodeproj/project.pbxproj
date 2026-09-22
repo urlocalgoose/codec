@@ -11,6 +11,7 @@
 		100000000000000000000103 /* DesignTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000003 /* DesignTokens.swift */; };
 		100000000000000000000106 /* CodieHand-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000006 /* CodieHand-Regular.ttf */; };
 		100000000000000000000107 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000009 /* Assets.xcassets */; };
+		100000000000000000000120 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000020 /* PrivacyInfo.xcprivacy */; };
 		100000000000000000000110 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000010 /* AppModel.swift */; };
 		100000000000000000000111 /* PlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000011 /* PlayerController.swift */; };
 		100000000000000000000112 /* DownloadStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000012 /* DownloadStore.swift */; };
@@ -27,15 +28,49 @@
 		10000000000000000000011D /* Themes.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000001D /* Themes.generated.swift */; };
 		10000000000000000000011E /* ThemePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000001E /* ThemePickerView.swift */; };
 		10000000000000000000011F /* PlaylistDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10000000000000000000001F /* PlaylistDetailView.swift */; };
+		15376ECED5943DE541ECD892 /* SpectrumScrollRegression.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E73AE17D8AF880492E3B93F /* SpectrumScrollRegression.swift */; };
+		173374C375F7189B2D954050 /* NativeSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69F2800E73AC85CC59B307F6 /* NativeSyncTests.swift */; };
+		2038B423C0E784ADFB535BF1 /* ConnectivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78F2DC7661166C198BBB1EC0 /* ConnectivityMonitor.swift */; };
+		21B4171E9756981BF79237A1 /* PlaybackEngineSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AB7AC2F53E57E9B5D4C80B8 /* PlaybackEngineSmokeTests.swift */; };
+		23D9C43621EF319BFB0DE5F4 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 51DD25FCD48FE4208164A01F /* Foundation.framework */; };
+		2624342D7B9753912408AC54 /* NowPlayingBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A1351DA72AB3FD336754A57 /* NowPlayingBackground.swift */; };
+		3093DF9D7995F530D8F8C770 /* SpectrumImageRegression.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0552F176AD25C88BB0E3D8E8 /* SpectrumImageRegression.swift */; };
+		33245997B6B5714F1FD7F4FB /* NativePerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8966CDBA1B46959A12568A6E /* NativePerformanceTests.swift */; };
+		3E9547FDF32047219B91C5CA /* VisualizerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95707805D21544CDA7427B48 /* VisualizerView.swift */; };
+		4886CFA5EB5FE66499DD6277 /* DownloadStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1280123077B584812E50FA0 /* DownloadStoreTests.swift */; };
+		4A2E44379B85EB5F059B54FA /* PlaylistRecencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C14ED2200C0AD1784AE351C /* PlaylistRecencyTests.swift */; };
+		53292C5DDC8E16A3C87F683A /* ArtworkAtmosphere.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B82612F12B63DFADD6274E9 /* ArtworkAtmosphere.swift */; };
+		54AA3601FA3860FD017BD437 /* NativeLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0AE5062FB78B753715418FC /* NativeLifecycleTests.swift */; };
+		757929E8937D471B11EE8755 /* ConnectionRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E55CB6A887A21E0BD52879BF /* ConnectionRecoveryTests.swift */; };
+		8A23B8E0055C9B9619314D2A /* WebVisualizerParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98DC3DA414BB45A896ED3799 /* WebVisualizerParityTests.swift */; };
+		913E750DD5C58AF103972A91 /* ArtworkAtmosphereTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B87B5A48F410CA400473D0FE /* ArtworkAtmosphereTests.swift */; };
+		AC87FBE72A5B0C48E19D7231 /* PlaylistEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB4D08C3A98F55A82BD9461 /* PlaylistEditingTests.swift */; };
+		B02450B85F290139508C7F3C /* NativeScrollPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 361E769B90ED373CF0E98A4D /* NativeScrollPerformanceTests.swift */; };
+		B0FA80752D2B6CFEF4DCB47E /* AudioSpectrumRegression.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECDAE40FB7F6A597F2EF899 /* AudioSpectrumRegression.swift */; };
+		E0446B42C25D4C029A8D4EFB /* AudioSpectrum.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0093021828DB49E5AF241761 /* AudioSpectrum.swift */; };
+		EC879F218976747F16317C03 /* PlaybackContinuityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBA81D742F138A905C5B159 /* PlaybackContinuityTests.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		0913DFFA1D6708E7659DB2A3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 100000000000000000000402 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 100000000000000000000401;
+			remoteInfo = Codec;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		0093021828DB49E5AF241761 /* AudioSpectrum.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSpectrum.swift; sourceTree = "<group>"; };
+		0552F176AD25C88BB0E3D8E8 /* SpectrumImageRegression.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpectrumImageRegression.swift; sourceTree = "<group>"; };
 		100000000000000000000001 /* CodecApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodecApp.swift; sourceTree = "<group>"; };
 		100000000000000000000003 /* DesignTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignTokens.swift; sourceTree = "<group>"; };
 		100000000000000000000006 /* CodieHand-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "CodieHand-Regular.ttf"; sourceTree = "<group>"; };
 		100000000000000000000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		100000000000000000000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		100000000000000000000020 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		100000000000000000000008 /* Codec.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Codec.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		100000000000000000000009 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		100000000000000000000010 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		100000000000000000000011 /* PlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerController.swift; sourceTree = "<group>"; };
 		100000000000000000000012 /* DownloadStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadStore.swift; sourceTree = "<group>"; };
@@ -52,6 +87,26 @@
 		10000000000000000000001D /* Themes.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Themes.generated.swift; sourceTree = "<group>"; };
 		10000000000000000000001E /* ThemePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemePickerView.swift; sourceTree = "<group>"; };
 		10000000000000000000001F /* PlaylistDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistDetailView.swift; sourceTree = "<group>"; };
+		2AB7AC2F53E57E9B5D4C80B8 /* PlaybackEngineSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackEngineSmokeTests.swift; sourceTree = "<group>"; };
+		2B82612F12B63DFADD6274E9 /* ArtworkAtmosphere.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkAtmosphere.swift; sourceTree = "<group>"; };
+		2C14ED2200C0AD1784AE351C /* PlaylistRecencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistRecencyTests.swift; sourceTree = "<group>"; };
+		361E769B90ED373CF0E98A4D /* NativeScrollPerformanceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeScrollPerformanceTests.swift; sourceTree = "<group>"; };
+		3EBA81D742F138A905C5B159 /* PlaybackContinuityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackContinuityTests.swift; sourceTree = "<group>"; };
+		51DD25FCD48FE4208164A01F /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		69F2800E73AC85CC59B307F6 /* NativeSyncTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeSyncTests.swift; sourceTree = "<group>"; };
+		78F2DC7661166C198BBB1EC0 /* ConnectivityMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConnectivityMonitor.swift; sourceTree = "<group>"; };
+		7EB4D08C3A98F55A82BD9461 /* PlaylistEditingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistEditingTests.swift; sourceTree = "<group>"; };
+		8966CDBA1B46959A12568A6E /* NativePerformanceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativePerformanceTests.swift; sourceTree = "<group>"; };
+		8A1351DA72AB3FD336754A57 /* NowPlayingBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingBackground.swift; sourceTree = "<group>"; };
+		94680360F8DDB64DC8E0EC87 /* CodecNativeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodecNativeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		95707805D21544CDA7427B48 /* VisualizerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualizerView.swift; sourceTree = "<group>"; };
+		98DC3DA414BB45A896ED3799 /* WebVisualizerParityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebVisualizerParityTests.swift; sourceTree = "<group>"; };
+		9E73AE17D8AF880492E3B93F /* SpectrumScrollRegression.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpectrumScrollRegression.swift; sourceTree = "<group>"; };
+		B87B5A48F410CA400473D0FE /* ArtworkAtmosphereTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtworkAtmosphereTests.swift; sourceTree = "<group>"; };
+		CECDAE40FB7F6A597F2EF899 /* AudioSpectrumRegression.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AudioSpectrumRegression.swift; sourceTree = "<group>"; };
+		E0AE5062FB78B753715418FC /* NativeLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLifecycleTests.swift; sourceTree = "<group>"; };
+		E55CB6A887A21E0BD52879BF /* ConnectionRecoveryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConnectionRecoveryTests.swift; sourceTree = "<group>"; };
+		F1280123077B584812E50FA0 /* DownloadStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DownloadStoreTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -62,9 +117,40 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		ACB6DED200210BAC576D6CA5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				23D9C43621EF319BFB0DE5F4 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0CF34078A1085FB59D7391DA /* Native Tests */ = {
+			isa = PBXGroup;
+			children = (
+				E0AE5062FB78B753715418FC /* NativeLifecycleTests.swift */,
+				3EBA81D742F138A905C5B159 /* PlaybackContinuityTests.swift */,
+				2AB7AC2F53E57E9B5D4C80B8 /* PlaybackEngineSmokeTests.swift */,
+				B87B5A48F410CA400473D0FE /* ArtworkAtmosphereTests.swift */,
+				2C14ED2200C0AD1784AE351C /* PlaylistRecencyTests.swift */,
+				7EB4D08C3A98F55A82BD9461 /* PlaylistEditingTests.swift */,
+				69F2800E73AC85CC59B307F6 /* NativeSyncTests.swift */,
+				CECDAE40FB7F6A597F2EF899 /* AudioSpectrumRegression.swift */,
+				0552F176AD25C88BB0E3D8E8 /* SpectrumImageRegression.swift */,
+				9E73AE17D8AF880492E3B93F /* SpectrumScrollRegression.swift */,
+				98DC3DA414BB45A896ED3799 /* WebVisualizerParityTests.swift */,
+				E55CB6A887A21E0BD52879BF /* ConnectionRecoveryTests.swift */,
+				F1280123077B584812E50FA0 /* DownloadStoreTests.swift */,
+				8966CDBA1B46959A12568A6E /* NativePerformanceTests.swift */,
+				361E769B90ED373CF0E98A4D /* NativeScrollPerformanceTests.swift */,
+			);
+			name = "Native Tests";
+			path = Tests;
+			sourceTree = "<group>";
+		};
 		100000000000000000000301 = {
 			isa = PBXGroup;
 			children = (
@@ -72,6 +158,8 @@
 				100000000000000000000303 /* CodecKit */,
 				100000000000000000000304 /* Resources */,
 				100000000000000000000305 /* Products */,
+				19AF8EE40F4ECAFC8D2A19C3 /* Frameworks */,
+				0CF34078A1085FB59D7391DA /* Native Tests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -80,13 +168,17 @@
 			children = (
 				100000000000000000000001 /* CodecApp.swift */,
 				100000000000000000000010 /* AppModel.swift */,
+				2B82612F12B63DFADD6274E9 /* ArtworkAtmosphere.swift */,
 				100000000000000000000011 /* PlayerController.swift */,
+				0093021828DB49E5AF241761 /* AudioSpectrum.swift */,
 				100000000000000000000012 /* DownloadStore.swift */,
 				100000000000000000000003 /* DesignTokens.swift */,
 				10000000000000000000001D /* Themes.generated.swift */,
 				100000000000000000000306 /* Views */,
 				100000000000000000000007 /* Info.plist */,
+				100000000000000000000020 /* PrivacyInfo.xcprivacy */,
 				100000000000000000000009 /* Assets.xcassets */,
+				78F2DC7661166C198BBB1EC0 /* ConnectivityMonitor.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -113,6 +205,7 @@
 			isa = PBXGroup;
 			children = (
 				100000000000000000000008 /* Codec.app */,
+				94680360F8DDB64DC8E0EC87 /* CodecNativeTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -124,13 +217,31 @@
 				100000000000000000000016 /* ConnectView.swift */,
 				100000000000000000000017 /* RootView.swift */,
 				100000000000000000000018 /* HomeView.swift */,
+				95707805D21544CDA7427B48 /* VisualizerView.swift */,
 				100000000000000000000019 /* LibraryView.swift */,
 				10000000000000000000001A /* SearchView.swift */,
+				8A1351DA72AB3FD336754A57 /* NowPlayingBackground.swift */,
 				10000000000000000000001B /* NowPlayingView.swift */,
 				10000000000000000000001E /* ThemePickerView.swift */,
 				10000000000000000000001F /* PlaylistDetailView.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		19AF8EE40F4ECAFC8D2A19C3 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				26C5E5795F59FCAF86D8902C /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		26C5E5795F59FCAF86D8902C /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				51DD25FCD48FE4208164A01F /* Foundation.framework */,
+			);
+			name = iOS;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -152,6 +263,24 @@
 			productName = Codec;
 			productReference = 100000000000000000000008 /* Codec.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A282388B8276EEF01F08BAA8 /* CodecNativeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4BD9484A9262D9F6EF6E7D96 /* Build configuration list for PBXNativeTarget "CodecNativeTests" */;
+			buildPhases = (
+				63EEFBA633377860F9AEAC78 /* Sources */,
+				ACB6DED200210BAC576D6CA5 /* Frameworks */,
+				9782C6AC49F1437C85DF4FA6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				63EC1835010055E6589F7603 /* PBXTargetDependency */,
+			);
+			name = CodecNativeTests;
+			productName = CodecNativeTests;
+			productReference = 94680360F8DDB64DC8E0EC87 /* CodecNativeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -183,6 +312,7 @@
 			projectRoot = "";
 			targets = (
 				100000000000000000000401 /* Codec */,
+				A282388B8276EEF01F08BAA8 /* CodecNativeTests */,
 			);
 		};
 /* End PBXProject section */
@@ -194,6 +324,14 @@
 			files = (
 				100000000000000000000106 /* CodieHand-Regular.ttf in Resources */,
 				100000000000000000000107 /* Assets.xcassets in Resources */,
+				100000000000000000000120 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9782C6AC49F1437C85DF4FA6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -206,7 +344,9 @@
 			files = (
 				100000000000000000000101 /* CodecApp.swift in Sources */,
 				100000000000000000000110 /* AppModel.swift in Sources */,
+				53292C5DDC8E16A3C87F683A /* ArtworkAtmosphere.swift in Sources */,
 				100000000000000000000111 /* PlayerController.swift in Sources */,
+				E0446B42C25D4C029A8D4EFB /* AudioSpectrum.swift in Sources */,
 				100000000000000000000112 /* DownloadStore.swift in Sources */,
 				100000000000000000000103 /* DesignTokens.swift in Sources */,
 				10000000000000000000011D /* Themes.generated.swift in Sources */,
@@ -219,13 +359,47 @@
 				100000000000000000000116 /* ConnectView.swift in Sources */,
 				100000000000000000000117 /* RootView.swift in Sources */,
 				100000000000000000000118 /* HomeView.swift in Sources */,
+				3E9547FDF32047219B91C5CA /* VisualizerView.swift in Sources */,
 				100000000000000000000119 /* LibraryView.swift in Sources */,
 				10000000000000000000011A /* SearchView.swift in Sources */,
+				2624342D7B9753912408AC54 /* NowPlayingBackground.swift in Sources */,
 				10000000000000000000011B /* NowPlayingView.swift in Sources */,
+				2038B423C0E784ADFB535BF1 /* ConnectivityMonitor.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		63EEFBA633377860F9AEAC78 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				54AA3601FA3860FD017BD437 /* NativeLifecycleTests.swift in Sources */,
+				EC879F218976747F16317C03 /* PlaybackContinuityTests.swift in Sources */,
+				21B4171E9756981BF79237A1 /* PlaybackEngineSmokeTests.swift in Sources */,
+				913E750DD5C58AF103972A91 /* ArtworkAtmosphereTests.swift in Sources */,
+				4A2E44379B85EB5F059B54FA /* PlaylistRecencyTests.swift in Sources */,
+				AC87FBE72A5B0C48E19D7231 /* PlaylistEditingTests.swift in Sources */,
+				173374C375F7189B2D954050 /* NativeSyncTests.swift in Sources */,
+				B0FA80752D2B6CFEF4DCB47E /* AudioSpectrumRegression.swift in Sources */,
+				3093DF9D7995F530D8F8C770 /* SpectrumImageRegression.swift in Sources */,
+				15376ECED5943DE541ECD892 /* SpectrumScrollRegression.swift in Sources */,
+				8A23B8E0055C9B9619314D2A /* WebVisualizerParityTests.swift in Sources */,
+				757929E8937D471B11EE8755 /* ConnectionRecoveryTests.swift in Sources */,
+				4886CFA5EB5FE66499DD6277 /* DownloadStoreTests.swift in Sources */,
+				33245997B6B5714F1FD7F4FB /* NativePerformanceTests.swift in Sources */,
+				B02450B85F290139508C7F3C /* NativeScrollPerformanceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		63EC1835010055E6589F7603 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = Codec;
+			target = 100000000000000000000401 /* Codec */;
+			targetProxy = 0913DFFA1D6708E7659DB2A3 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		100000000000000000000801 /* Debug */ = {
@@ -344,18 +518,18 @@
 		100000000000000000000803 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = sh.codie.codec.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -369,18 +543,18 @@
 		100000000000000000000804 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = sh.codie.codec.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
@@ -388,6 +562,41 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		18FCAEAFB3036770ACA610D7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "sh.codie.codec.native-tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Codec.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Codec";
+			};
+			name = Debug;
+		};
+		2C3143AD4FB3C3530699FD84 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "sh.codie.codec.native-tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Codec.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Codec";
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
@@ -409,6 +618,15 @@
 			buildConfigurations = (
 				100000000000000000000801 /* Debug */,
 				100000000000000000000802 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4BD9484A9262D9F6EF6E7D96 /* Build configuration list for PBXNativeTarget "CodecNativeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2C3143AD4FB3C3530699FD84 /* Release */,
+				18FCAEAFB3036770ACA610D7 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

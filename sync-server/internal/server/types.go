@@ -55,6 +55,8 @@ type Track struct {
 	Genre           *string           `json:"genre"`
 	Year            *int              `json:"year"`
 	TrackNumber     *int              `json:"track_number"`
+	DiscNumber      *int              `json:"disc_number,omitempty"`
+	Explicit        *bool             `json:"explicit,omitempty"`
 	DurationSeconds *float64          `json:"duration_seconds"`
 	ArtworkURL      *string           `json:"artwork_url"`
 	AudioURL        *string           `json:"audio_url,omitempty"`
@@ -157,6 +159,10 @@ type PlaybackClockV2 struct {
 }
 
 type PlaybackContextV2 struct {
+	// PlaylistID identifies the playlist the user started this source from.
+	// It is provenance, not inferred membership or a foreign key: a playlist
+	// can change or disappear while its playback queue remains active.
+	PlaylistID     *string          `json:"playlist_id,omitempty"`
 	PlaybackSource []TrackReference `json:"playback_source"`
 	PlaybackIndex  int              `json:"playback_index"`
 	QueuedTracks   []TrackReference `json:"queued_tracks"`

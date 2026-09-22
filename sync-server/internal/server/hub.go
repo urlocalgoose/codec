@@ -25,8 +25,10 @@ func (h *playbackEventHub) subscribe() (<-chan PlaybackEvent, func()) {
 	return ch, func() {
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		delete(h.subscribers, id)
-		close(ch)
+		if _, ok := h.subscribers[id]; ok {
+			delete(h.subscribers, id)
+			close(ch)
+		}
 	}
 }
 
@@ -34,10 +36,13 @@ func (h *playbackEventHub) broadcast(event PlaybackEvent) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for _, ch := range h.subscribers {
+	for id, ch := range h.subscribers {
 		select {
 		case ch <- event:
 		default:
+			// Reconnect for a fresh snapshot instead of silently losing state.
+			close(ch)
+			delete(h.subscribers, id)
 		}
 	}
 }

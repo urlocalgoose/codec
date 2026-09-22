@@ -1,7 +1,7 @@
 # Codec UI System
 
 This is the source-of-truth guide for making Codec UI match the app that exists
-now. It covers the Svelte desktop/web app and the SwiftUI iOS app.
+now. It covers the Svelte web app and the SwiftUI iOS app.
 
 Codec should feel like a quiet, native Apple music app on every platform:
 simple flat surfaces, real album art, hairline strokes, low visual noise,
@@ -17,14 +17,14 @@ app's native language — not the other way around. (The older tape-deck
 - Prefer fewer labels. A label must name state or an action the user can take.
 - Rows play when tapped. Do not add a play button to every track row.
 - Artwork is content, not decoration. Show it where it helps identify music.
-- Use icons for compact actions. Desktop uses Lucide; iOS uses SF Symbols.
+- Use icons for compact actions. Web uses Lucide; iOS uses SF Symbols.
 - Avoid outlines on buttons. Buttons are flat fills (accent for primary,
   surface for secondary) or bare tinted glyphs; press feedback is a small
   scale bounce, never 3D depth.
 
-## Desktop / Web
+## Web
 
-Desktop and PWA UI lives in `src/lib/components/`; global styling lives in
+Browser and PWA UI lives in `src/lib/components/`; global styling lives in
 `src/app.css`.
 
 ### Tokens
@@ -179,7 +179,7 @@ Aux is the Codec equivalent of Jam.
 
 ## iOS
 
-The native app lives in `ios/CodecMobile/App`. It mirrors the desktop language,
+The native app lives in `ios/CodecMobile/App`. It shares the web app’s design language,
 but uses native SwiftUI patterns.
 
 ### Tokens
@@ -250,6 +250,6 @@ chrome. Both platforms carry the theme through tint and background only.
 3. Decide if a button is momentary or latched, then apply the correct pressed
    behavior.
 4. Check guest mode if the action mutates library state.
-5. Verify desktop/PWA and iOS separately when the surface exists in both.
+5. Verify browser/PWA and iOS separately when the surface exists in both.
 
 If a new visual rule is needed, update this file in the same change.

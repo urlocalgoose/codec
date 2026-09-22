@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import MediaPlayer
 import Observation
+import OSLog
 import UIKit
 
 enum RepeatMode: String, CaseIterable {
@@ -10,12 +11,29 @@ enum RepeatMode: String, CaseIterable {
     case one
 }
 
+enum PlaybackStreamEvent {
+    case connected
+    case line(String)
+}
+
+typealias PlaybackEventConsumer = @MainActor (
+    URLRequest, @escaping @MainActor (PlaybackStreamEvent) -> Void
+) async throws -> Void
+
 /// The playback engine: owns the AVPlayer, the queue, background audio,
 /// and the lock-screen / Control Center integration.
 @MainActor
 @Observable
 final class PlayerController {
-    private(set) var currentTrack: CodecTrack?
+    private(set) var currentTrack: CodecTrack? {
+        didSet {
+            let identity = currentTrack.map(SpectrumTrackIdentity.init)
+            if oldValue.map(SpectrumTrackIdentity.init) != identity { spectrumTrackRevision &+= 1 }
+            spectrum.beginTrack(identity)
+        }
+    }
+    /// Ensures even an A→B→A change within one UI pass restarts palette loading.
+    private(set) var spectrumTrackRevision = 0
     private(set) var isPlaying = false
     private(set) var currentTime: Double = 0
     var shuffle = false
@@ -24,6 +42,8 @@ final class PlayerController {
     /// The ordered source the current track came from (playlist, album, search…).
     private(set) var source: [CodecTrack] = []
     private(set) var sourceIndex = 0
+    /// Where this source was explicitly started; never inferred from membership.
+    private(set) var sourcePlaylistID: String?
     /// Tracks manually queued with "Play Next" — they win over the source.
     private(set) var manualQueue: [CodecTrack] = []
     private var history: [CodecTrack] = []
@@ -74,6 +94,63 @@ final class PlayerController {
     private(set) var playbackDevices: [CodecPlaybackDevice] = []
     /// Set by the app so context references resolve against the library.
     var resolveTrack: ((CodecTrackReference) -> CodecTrack?)?
+    var refreshLibrary: (() async -> Bool)?
+    var reportSyncError: ((String) -> Void)?
+    var reportSyncFailure: ((Error) -> Void)?
+    private(set) var isSyncAvailable = true
+    private(set) var hasOfflinePlaybackConflict = false
+    var isOfflinePlayback: Bool { offlinePlayback != nil }
+    var hasPendingOfflinePlayback: Bool { offlinePlayback != nil && !hasOfflinePlaybackConflict }
+    private struct OfflinePlayback {
+        var revision: Int64
+        let mayPublish: Bool
+        var hasLocalChanges = false
+    }
+    private var offlinePlayback: OfflinePlayback?
+    private var offlineChangeSequence = 0
+    private var recoveringOfflinePlayback = false
+    /// Explicit playlist starts also update AppModel's local recency history.
+    var recordPlaylistPlayback: ((String) -> Void)?
+    private var commandTask: Task<Void, Never>?
+    private var commandSequence = 0
+    private var syncGeneration = 0
+    private var pendingCommands = 0
+    private var deferredSyncState: PlaybackState?
+    /// Revision after this batch's own acknowledged writes. UI state stays
+    /// deferred until the batch drains, so it cannot supply the next guard.
+    /// nil invalidates queued snapshots after a failure or an external write.
+    private var commandRevision: Int64?
+    private var pendingLocalTransport = false
+    private var acknowledgedLocalState: PlaybackState?
+    private let syncPollInterval: Duration
+    private let syncSafetyRefreshInterval: Duration
+    private let eventStreamTimeout: Duration
+    private let eventReconnectInterval: Duration
+    @ObservationIgnored private let consumePlaybackEvents: PlaybackEventConsumer
+    @ObservationIgnored private var lastEventStreamActivity: ContinuousClock.Instant?
+    @ObservationIgnored private var eventStreamStartedAt: ContinuousClock.Instant?
+    @ObservationIgnored private var lastSyncValidation: ContinuousClock.Instant?
+    @ObservationIgnored private var eventStreamSequence = 0
+    @ObservationIgnored private let makePlayer: @MainActor (AVPlayerItem) -> AVPlayer
+    @ObservationIgnored private let activateAudioSession: @MainActor () throws -> Void
+
+    init(
+        syncPollInterval: Duration = .seconds(30),
+        syncSafetyRefreshInterval: Duration = .seconds(300),
+        eventStreamTimeout: Duration = .seconds(45),
+        eventReconnectInterval: Duration = .seconds(3),
+        consumePlaybackEvents: @escaping PlaybackEventConsumer = PlayerController.consumeSystemPlaybackEvents,
+        makePlayer: @escaping @MainActor (AVPlayerItem) -> AVPlayer = { AVPlayer(playerItem: $0) },
+        activateAudioSession: @escaping @MainActor () throws -> Void = PlayerController.activateSystemAudioSession
+    ) {
+        self.syncPollInterval = syncPollInterval
+        self.syncSafetyRefreshInterval = syncSafetyRefreshInterval
+        self.eventStreamTimeout = eventStreamTimeout
+        self.eventReconnectInterval = eventReconnectInterval
+        self.consumePlaybackEvents = consumePlaybackEvents
+        self.makePlayer = makePlayer
+        self.activateAudioSession = activateAudioSession
+    }
 
     private static let previousDoubleTapWindowMS: Int64 = 3000
     private var lastPreviousTapMS: Int64 = 0
@@ -84,7 +161,7 @@ final class PlayerController {
     /// True when this phone is the device that should be making sound —
     /// which means transport taps can act locally first and sync after.
     var isActiveSyncDevice: Bool {
-        !syncEnabled || syncState?.activeDeviceID == deviceID || syncState?.activeDeviceID == nil
+        offlinePlayback != nil || !syncEnabled || syncState?.activeDeviceID == deviceID || syncState?.activeDeviceID == nil
     }
 
     fileprivate var clockOffsetMS: Int64 = 0
@@ -92,10 +169,11 @@ final class PlayerController {
     fileprivate var presenceTask: Task<Void, Never>?
     fileprivate var remoteClockTask: Task<Void, Never>?
     fileprivate var loadedFingerprint: String?
-    private var preloadedItem: (fingerprint: String, item: AVPlayerItem)?
+    private var preloadedItem: (fingerprint: String, url: URL, item: AVPlayerItem)?
 
     /// True while another device is the one actually making sound.
     var remoteDeviceIsActive: Bool {
+        if offlinePlayback != nil { return false }
         guard syncEnabled, let active = syncState?.activeDeviceID else {
             return false
         }
@@ -103,6 +181,7 @@ final class PlayerController {
     }
 
     var activeDeviceName: String {
+        if offlinePlayback != nil { return deviceName }
         guard let active = syncState?.activeDeviceID, active != deviceID else {
             return deviceName
         }
@@ -110,64 +189,100 @@ final class PlayerController {
     }
 
     private var player: AVPlayer?
+
+    /// Frequency history for the Visualizer, fed by an audio tap on every
+    /// item — recording from the first note, whatever screen is open.
+    let spectrum = SpectrumHistory()
+    @ObservationIgnored private lazy var spectrumAnalyzer = SpectrumAnalyzer(history: spectrum)
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var remoteCommandsConfigured = false
     private var nowPlayingArtworkFingerprint = ""
+    private var audioSessionNeedsActivation = true
+    private var isInterrupted = false
+    private var resumeAfterInterruption = false
+    private var interruptedPlaybackState: PlaybackState?
+    private var lastPublishedRate: Double?
+    private var lastPublishedDuration: Double?
+    private static let audioLog = Logger(subsystem: "sh.codie.codec.mobile", category: "Playback")
 
     // MARK: - Starting playback
 
-    func play(_ track: CodecTrack, from tracks: [CodecTrack]) {
+    func play(_ track: CodecTrack, from tracks: [CodecTrack], playlistID: String? = nil) {
+        guard prepareExplicitPlayback(track) else { return }
+        defer {
+            if let playlistID, isPlaying, !remoteDeviceIsActive {
+                recordPlaylistPlayback?(playlistID)
+            }
+        }
         source = makeQueue(from: tracks.isEmpty ? [track] : tracks, startingAt: track, shuffled: shuffle)
         sourceIndex = 0
+        let trimmedPlaylistID = playlistID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        sourcePlaylistID = trimmedPlaylistID?.isEmpty == false ? trimmedPlaylistID : nil
         manualQueue = []
         history = []
         currentTrack = source.first ?? track
 
         if syncEnabled {
-            sendSyncCommand("play", track: currentTrack, position: 0)
+            if isActiveSyncDevice { startPlayback(at: 0) }
+            sendSyncCommand("play", track: currentTrack, position: 0, locallyApplied: isActiveSyncDevice,
+                            playlistID: remoteDeviceIsActive ? playlistID : nil)
             return
         }
         startPlayback(at: 0)
     }
 
-    func playCollection(_ tracks: [CodecTrack], shuffled: Bool = false) {
-        guard let first = shuffled ? tracks.randomElement() : tracks.first else {
+    func playCollection(_ tracks: [CodecTrack], shuffled: Bool = false, playlistID: String? = nil) {
+        let playable = isSyncAvailable ? tracks : tracks.filter { localPlaybackURL(for: $0) != nil }
+        guard let first = shuffled ? playable.randomElement() : playable.first else {
+            if !tracks.isEmpty { reportSyncError?("Download songs from this collection to play it offline.") }
             return
         }
         shuffle = shuffled
-        play(first, from: tracks)
+        play(first, from: tracks, playlistID: playlistID)
     }
 
     /// Jumps the line: plays right after the current track.
     func playNext(_ track: CodecTrack) {
+        guard canEditCurrentPlayback else { return }
         manualQueue.insert(track, at: 0)
         if currentTrack == nil {
-            advance()
+            next()
+        } else if syncEnabled {
+            sendSyncCommand("set_queue")
         }
     }
 
     /// Joins the end of the manual queue.
     func playLater(_ track: CodecTrack) {
+        guard canEditCurrentPlayback else { return }
         manualQueue.append(track)
         if currentTrack == nil {
-            advance()
+            next()
+        } else if syncEnabled {
+            sendSyncCommand("set_queue")
         }
     }
 
     func removeFromQueue(at index: Int) {
+        guard canEditCurrentPlayback else { return }
         guard manualQueue.indices.contains(index) else {
             return
         }
         manualQueue.remove(at: index)
+        if syncEnabled { sendSyncCommand("set_queue") }
     }
 
     func moveInQueue(from source: IndexSet, to destination: Int) {
+        guard canEditCurrentPlayback else { return }
         manualQueue.move(fromOffsets: source, toOffset: destination)
+        if syncEnabled { sendSyncCommand("set_queue") }
     }
 
     func clearQueue() {
+        guard canEditCurrentPlayback else { return }
         manualQueue = []
+        if syncEnabled { sendSyncCommand("set_queue") }
     }
 
     /// A queue row with an identity that follows the TRACK, not its
@@ -213,13 +328,15 @@ final class PlayerController {
             return
         }
         let track = manualQueue[index]
+        guard prepareExplicitPlayback(track) else { return }
         manualQueue.removeSubrange(0...index)
         if let playing = currentTrack {
             history.append(playing)
         }
         currentTrack = track
         if syncEnabled {
-            sendSyncCommand("play", track: track, position: 0)
+            if isActiveSyncDevice { startPlayback(at: 0) }
+            sendSyncCommand("play", track: track, position: 0, locallyApplied: isActiveSyncDevice)
         } else {
             startPlayback(at: 0)
         }
@@ -231,28 +348,33 @@ final class PlayerController {
         guard source.indices.contains(index), index > sourceIndex else {
             return
         }
+        guard prepareExplicitPlayback(source[index]) else { return }
         if let playing = currentTrack {
             history.append(playing)
         }
         sourceIndex = index
         currentTrack = source[index]
         if syncEnabled {
-            sendSyncCommand("play", track: currentTrack, position: 0)
+            if isActiveSyncDevice { startPlayback(at: 0) }
+            sendSyncCommand("play", track: currentTrack, position: 0, locallyApplied: isActiveSyncDevice)
         } else {
             startPlayback(at: 0)
         }
     }
 
     func removeUpcoming(sourceIndex index: Int) {
+        guard canEditCurrentPlayback else { return }
         guard source.indices.contains(index), index > sourceIndex else {
             return
         }
         source.remove(at: index)
+        if syncEnabled { sendSyncCommand("set_queue") }
     }
 
     /// Reorders within the up-next slice; offsets are relative to the slice
     /// the queue screen displays (0 == the track right after the current one).
     func moveUpcoming(from offsets: IndexSet, to destination: Int) {
+        guard canEditCurrentPlayback else { return }
         let base = sourceIndex + 1
         let translated = IndexSet(offsets.map { $0 + base })
         let target = destination + base
@@ -260,26 +382,65 @@ final class PlayerController {
             return
         }
         source.move(fromOffsets: translated, toOffset: target)
+        if syncEnabled { sendSyncCommand("set_queue") }
     }
 
     // MARK: - Transport
 
-    func togglePlayback() {
+    func togglePlayback(playlistID: String? = nil) {
+        guard canEditCurrentPlayback else { return }
+        let wasPlaying = isPlaying
+        let canResumeLocally = isActiveSyncDevice && player != nil && currentTrack != nil
+        defer {
+            if !wasPlaying, isPlaying, canResumeLocally, let playlistID {
+                recordPlaylistPlayback?(playlistID)
+            }
+        }
+        if isInterrupted, isActiveSyncDevice {
+            // An interruption is not guaranteed to deliver .ended. An
+            // explicit Play can retry activation; iOS refuses it if a call
+            // still owns the session.
+            resumeAfterInterruption = true
+            guard currentTrack != nil, player != nil else { return }
+            do {
+                try activateAudioSession()
+            } catch {
+                return
+            }
+            audioSessionNeedsActivation = false
+            isInterrupted = false
+            resumeAfterInterruption = false
+            interruptedPlaybackState = nil
+            player?.play()
+            isPlaying = true
+            updateNowPlayingPlaybackState()
+            if syncEnabled { sendSyncCommand("play", position: currentTime, locallyApplied: true) }
+            return
+        }
         if syncEnabled {
+            if isActiveSyncDevice, player == nil, let track = currentTrack {
+                guard prepareExplicitPlayback(track) else { return }
+                startPlayback(at: currentTime)
+                sendSyncCommand("play", track: track, position: currentTime, locallyApplied: true)
+                return
+            }
             // Instant local flip when this phone is the speaker; the server
             // command follows in the background instead of gating the tap.
             if isActiveSyncDevice, player != nil, currentTrack != nil {
-                if isPlaying {
+                let wasPlaying = isPlaying
+                if wasPlaying {
                     player?.pause()
                     isPlaying = false
                 } else {
-                    configureAudioSession()
+                    guard configureAudioSession() else { return }
                     player?.play()
                     isPlaying = true
                 }
                 updateNowPlayingPlaybackState()
+                sendSyncCommand(wasPlaying ? "pause" : "play", position: currentTime, locallyApplied: true)
+                return
             }
-            syncTogglePlayback()
+            syncTogglePlayback(playlistID: playlistID)
             return
         }
 
@@ -294,14 +455,27 @@ final class PlayerController {
             player.pause()
             isPlaying = false
         } else {
-            configureAudioSession()
+            guard configureAudioSession() else { return }
             player.play()
             isPlaying = true
         }
         updateNowPlayingPlaybackState()
     }
 
+    /// Also accepts a lock-screen pause while an interruption has already
+    /// made the local engine silent.
+    func pausePlayback() {
+        resumeAfterInterruption = false
+        if isPlaying {
+            togglePlayback()
+        } else if isInterrupted, syncEnabled, isActiveSyncDevice {
+            sendSyncCommand("pause", position: currentTime, locallyApplied: true)
+        }
+    }
+
     func next() {
+        guard canEditCurrentPlayback else { return }
+        if !isSyncAvailable { discardUnavailableUpcomingTracks() }
         if syncEnabled {
             guard isActiveSyncDevice else {
                 sendSyncCommand("next", position: syncedPosition())
@@ -310,12 +484,12 @@ final class PlayerController {
             // Advance locally for instant audio, then tell the server the
             // outcome as an explicit play (a bare "next" would advance the
             // server's copy a second time).
-            let before = currentTrack?.id
-            advance()
-            if let track = currentTrack, track.id != before {
-                sendSyncCommand("play", track: track, position: 0)
+            if let next = peekNextTrack() {
+                advance()
+                sendSyncCommand("play", track: next, position: 0, locallyApplied: true)
             } else {
-                sendSyncCommand("next", position: syncedPosition())
+                advance()
+                sendSyncCommand("next", position: currentTime, locallyApplied: true)
             }
             return
         }
@@ -326,9 +500,13 @@ final class PlayerController {
     /// second press within the window steps to the previous song (and keeps
     /// stepping back on further presses).
     func previous() {
+        guard canEditCurrentPlayback else { return }
         let now = Self.nowMS()
         let steppingBack = now - lastPreviousTapMS < Self.previousDoubleTapWindowMS
         lastPreviousTapMS = now
+        if !isSyncAvailable, steppingBack {
+            while let previous = history.last, localPlaybackURL(for: previous) == nil { history.removeLast() }
+        }
 
         if syncEnabled {
             guard isActiveSyncDevice else {
@@ -342,10 +520,10 @@ final class PlayerController {
                 }
                 currentTrack = previous
                 startPlayback(at: 0)
-                sendSyncCommand("play", track: previous, position: 0)
+                sendSyncCommand("play", track: previous, position: 0, locallyApplied: true)
             } else {
                 seekLocally(to: 0)
-                sendSyncCommand("seek", position: 0)
+                sendSyncCommand("seek", position: 0, locallyApplied: true)
             }
             return
         }
@@ -363,6 +541,7 @@ final class PlayerController {
     }
 
     func seek(to seconds: Double) {
+        guard canEditCurrentPlayback else { return }
         if syncEnabled {
             if isActiveSyncDevice {
                 seekLocally(to: seconds)
@@ -371,7 +550,7 @@ final class PlayerController {
             }
             // Hold the remote clock off the slider until the server confirms.
             suppressClockUntilMS = Self.nowMS() + 1500
-            sendSyncCommand("seek", position: seconds)
+            sendSyncCommand("seek", position: seconds, locallyApplied: isActiveSyncDevice)
             return
         }
         seekLocally(to: seconds)
@@ -388,6 +567,7 @@ final class PlayerController {
     }
 
     func toggleShuffle() {
+        guard canEditCurrentPlayback else { return }
         if syncEnabled {
             syncToggleShuffle()
             return
@@ -411,6 +591,7 @@ final class PlayerController {
     }
 
     func cycleRepeat() {
+        guard canEditCurrentPlayback else { return }
         let nextRepeat: RepeatMode
         switch repeatMode {
         case .off: nextRepeat = .all
@@ -418,11 +599,11 @@ final class PlayerController {
         case .one: nextRepeat = .off
         }
 
+        repeatMode = nextRepeat
         if syncEnabled {
             sendSyncCommand("set_repeat", position: syncedPosition(), repeatMode: nextRepeat.rawValue)
             return
         }
-        repeatMode = nextRepeat
     }
 
     // MARK: - Engine
@@ -465,25 +646,29 @@ final class PlayerController {
         }
 
         if repeatMode == .all, !source.isEmpty {
-            sourceIndex = 0
-            currentTrack = source[0]
-            startPlayback(at: 0)
-            return
+            if let index = source.firstIndex(where: { isSyncAvailable || localPlaybackURL(for: $0) != nil }) {
+                sourceIndex = index
+                currentTrack = source[index]
+                startPlayback(at: 0)
+                return
+            }
         }
 
+        player?.pause()
         isPlaying = false
         updateNowPlayingPlaybackState()
     }
 
-    private func handleTrackEnded() {
+    func handleTrackEnded() {
+        guard isPlaying, !isInterrupted, isActiveSyncDevice else { return }
         if syncEnabled {
-            guard syncState?.activeDeviceID == deviceID else {
-                return
-            }
             if repeatMode == .one {
-                sendSyncCommand("seek", targetDeviceID: deviceID, position: 0)
+                seekLocally(to: 0)
+                player?.play()
+                isPlaying = true
+                sendSyncCommand("seek", targetDeviceID: deviceID, position: 0, locallyApplied: true)
             } else {
-                sendSyncCommand("next", targetDeviceID: deviceID, position: syncedPosition())
+                next()
             }
             return
         }
@@ -493,57 +678,57 @@ final class PlayerController {
             player?.play()
             return
         }
-        advance()
+        next()
     }
 
-    private func startPlayback(at position: Double) {
+    private func startPlayback(at position: Double, shouldPlay: Bool = true) {
         guard let track = currentTrack, let url = playbackURL(for: track) else {
             isPlaying = false
             return
         }
 
-        configureAudioSession()
+        if shouldPlay, isInterrupted {
+            resumeAfterInterruption = true
+            interruptedPlaybackState = nil
+        }
+
         configureRemoteCommands()
         detachPlayerObservers()
 
-        // A preloaded item has already buffered its head — track changes
-        // start without a network cold-start.
+        // Reuse the prepared next item. AVPlayer controls when media is
+        // actually fetched; an unattached item is not a gapless buffer.
         let item: AVPlayerItem
-        if let preloaded = preloadedItem, preloaded.fingerprint == track.fingerprint {
+        if let preloaded = preloadedItem, preloaded.fingerprint == track.fingerprint, preloaded.url == url {
             item = preloaded.item
             preloadedItem = nil
         } else {
             item = AVPlayerItem(asset: makeAsset(for: url))
         }
+        spectrumAnalyzer.attach(to: item)
         // Buffer well ahead - everything streams through the tunnel, so a
         // deep buffer is what keeps playback smooth.
         item.preferredForwardBufferDuration = 30
-        let nextPlayer = AVPlayer(playerItem: item)
+        let nextPlayer = makePlayer(item)
         player = nextPlayer
 
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification,
             object: item,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self, weak nextPlayer] _ in
             Task { @MainActor in
-                self?.handleTrackEnded()
+                guard let self, let nextPlayer, self.player === nextPlayer else { return }
+                self.handleTrackEnded()
             }
         }
 
         timeObserver = nextPlayer.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
             queue: .main
-        ) { [weak self] time in
+        ) { [weak self, weak nextPlayer] time in
             Task { @MainActor in
-                guard let self else {
-                    return
-                }
-                self.currentTime = time.seconds.isFinite ? time.seconds : 0
-                if self.isPlaying, nextPlayer.timeControlStatus == .paused {
-                    self.acceptSystemPause()
-                }
-                self.updateNowPlayingPlaybackState()
+                guard let nextPlayer else { return }
+                self?.handlePlaybackTick(time, from: nextPlayer)
             }
         }
 
@@ -551,19 +736,31 @@ final class PlayerController {
             nextPlayer.seek(to: CMTime(seconds: position, preferredTimescale: 600))
         }
         currentTime = position
-        nextPlayer.play()
-        isPlaying = true
+        isPlaying = shouldPlay && !isInterrupted && configureAudioSession()
+        if isPlaying { nextPlayer.play() }
         loadedFingerprint = track.fingerprint
         updateNowPlayingMetadata(for: track)
         publishPresenceSoon()
         preloadNextIfNeeded()
     }
 
+    func handlePlaybackTick(_ time: CMTime, from observedPlayer: AVPlayer) {
+        // Removing an observer cannot recall an already enqueued callback.
+        // An old player's final paused tick must never stop the next song.
+        guard player === observedPlayer else { return }
+        currentTime = time.seconds.isFinite ? time.seconds : 0
+        // AVPlayer can briefly report paused during startup and natural
+        // completion. Only session/route/explicit transport events pause
+        // shared playback, never this progress callback.
+        updateNowPlayingPlaybackState(periodic: true)
+    }
+
     private func makeAsset(for url: URL) -> AVURLAsset {
-        if url.isFileURL || client?.authHeaders.isEmpty != false {
+        let headers = client?.authHeaders(for: url) ?? [:]
+        if url.isFileURL || headers.isEmpty {
             return AVURLAsset(url: url)
         }
-        return AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": client?.authHeaders ?? [:]])
+        return AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
     }
 
     private func peekNextTrack() -> CodecTrack? {
@@ -574,33 +771,69 @@ final class PlayerController {
             return source[sourceIndex + 1]
         }
         if repeatMode == .all, !source.isEmpty {
-            return source[0]
+            return source.first { isSyncAvailable || localPlaybackURL(for: $0) != nil }
         }
         return nil
     }
 
-    /// Builds the next track's player item ahead of time so the transition
-    /// between songs starts instantly instead of buffering from zero.
+    /// Prepares the next asset/item for reuse at the track boundary.
     private func preloadNextIfNeeded() {
         guard let next = peekNextTrack() else {
             preloadedItem = nil
-            return
-        }
-        guard preloadedItem?.fingerprint != next.fingerprint else {
             return
         }
         guard let url = playbackURL(for: next) else {
             preloadedItem = nil
             return
         }
-        preloadedItem = (next.fingerprint, AVPlayerItem(asset: makeAsset(for: url)))
+        guard preloadedItem?.fingerprint != next.fingerprint || preloadedItem?.url != url else { return }
+        let preloaded = AVPlayerItem(asset: makeAsset(for: url))
+        preloadedItem = (next.fingerprint, url, preloaded)
+    }
+
+    private func localPlaybackURL(for track: CodecTrack) -> URL? {
+        if let local = downloads?.localAudioURL(for: track) { return local }
+        if let url = track.audioURL, url.isFileURL,
+           let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isReadableKey, .fileSizeKey]),
+           values.isRegularFile == true, values.isReadable == true, (values.fileSize ?? 0) > 0 {
+            return url
+        }
+        return nil
     }
 
     private func playbackURL(for track: CodecTrack) -> URL? {
-        if let local = downloads?.localAudioURL(for: track) {
-            return local
-        }
+        if let local = localPlaybackURL(for: track) { return local }
+        guard isSyncAvailable else { return nil }
         return client?.audioURL(for: track)
+    }
+
+    private var canEditCurrentPlayback: Bool {
+        guard isSyncAvailable || isActiveSyncDevice else {
+            reportSyncError?("The server is unavailable. Choose a downloaded song to play on this iPhone.")
+            return false
+        }
+        return true
+    }
+
+    private func prepareExplicitPlayback(_ track: CodecTrack) -> Bool {
+        guard !isSyncAvailable else { return true }
+        guard localPlaybackURL(for: track) != nil else {
+            reportSyncError?("This song isn't downloaded. Connect to play it or choose a downloaded song.")
+            return false
+        }
+        beginOfflinePlayback()
+        offlinePlayback?.hasLocalChanges = true
+        return true
+    }
+
+    /// Keep queue order while skipping entries that cannot play offline.
+    /// Explicit selection is checked before mutating the existing session.
+    private func discardUnavailableUpcomingTracks() {
+        while let next = manualQueue.first, localPlaybackURL(for: next) == nil { manualQueue.removeFirst() }
+        guard manualQueue.isEmpty else { return }
+        while sourceIndex + 1 < source.count, localPlaybackURL(for: source[sourceIndex + 1]) == nil {
+            source.remove(at: sourceIndex + 1)
+        }
     }
 
     private func detachPlayerObservers() {
@@ -615,11 +848,27 @@ final class PlayerController {
         player?.pause()
     }
 
-    private func configureAudioSession() {
+    static func activateSystemAudioSession() throws {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default)
-        try? session.setActive(true)
+        if session.category != .playback || session.mode != .default {
+            try session.setCategory(.playback, mode: .default)
+        }
+        try session.setActive(true)
+    }
+
+    @discardableResult
+    private func configureAudioSession() -> Bool {
+        guard !isInterrupted else { return false }
         configureSystemObservers()
+        guard audioSessionNeedsActivation else { return true }
+        do {
+            try activateAudioSession()
+            audioSessionNeedsActivation = false
+            return true
+        } catch {
+            Self.audioLog.error("Audio session activation failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
     }
 
     // MARK: - System interruptions
@@ -642,7 +891,10 @@ final class PlayerController {
         ) { [weak self] notification in
             let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
             let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
-            Task { @MainActor in
+            // This observer is already delivered on the main queue. An
+            // extra Task lets a queued sync snapshot seek/restart audio
+            // before the controller learns that iOS interrupted it.
+            MainActor.assumeIsolated {
                 self?.handleInterruption(typeValue: typeValue, optionsValue: optionsValue)
             }
         }
@@ -653,13 +905,24 @@ final class PlayerController {
             queue: .main
         ) { [weak self] notification in
             let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.handleRouteChange(reasonValue: reasonValue)
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                // The activation cache belongs to the old audio service.
+                self?.audioSessionNeedsActivation = true
             }
         }
     }
 
-    private func handleInterruption(typeValue: UInt?, optionsValue: UInt?) {
+    func handleInterruption(typeValue: UInt?, optionsValue: UInt?) {
         guard let typeValue,
               let type = AVAudioSession.InterruptionType(rawValue: typeValue)
         else {
@@ -668,25 +931,50 @@ final class PlayerController {
 
         switch type {
         case .began:
-            acceptSystemPause()
+            guard !isInterrupted else { return }
+            resumeAfterInterruption = isPlaying && isActiveSyncDevice && player != nil
+            isInterrupted = true
+            audioSessionNeedsActivation = true
+            interruptedPlaybackState = nil
+            guard isActiveSyncDevice else { return }
+            let position = player?.currentTime().seconds ?? currentTime
+            if position.isFinite { currentTime = position }
+            player?.pause()
+            isPlaying = false
+            updateNowPlayingPlaybackState()
+            // A short system interruption is local. Sending a shared pause
+            // and play creates delayed echoes that can rewind or pause the
+            // resumed engine. Publish the final position when it ends.
         case .ended:
-            if AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0).contains(.shouldResume),
-               currentTrack != nil, player != nil {
-                try? AVAudioSession.sharedInstance().setActive(true)
-                player?.play()
-                isPlaying = true
+            guard isInterrupted else { return }
+            isInterrupted = false
+            let shouldResume = resumeAfterInterruption &&
+                AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0).contains(.shouldResume)
+            resumeAfterInterruption = false
+            let pendingState = interruptedPlaybackState
+            interruptedPlaybackState = nil
+            guard isActiveSyncDevice, let track = currentTrack else { return }
+            if shouldResume, configureAudioSession() {
+                if let pendingState {
+                    syncLocalAudio(to: pendingState, track: track, previousState: nil)
+                } else if let player {
+                    player.play()
+                    isPlaying = true
+                }
                 updateNowPlayingPlaybackState()
                 publishPresenceSoon()
-                if syncEnabled, isActiveSyncDevice {
-                    sendSyncCommand("play", position: currentTime)
+                if syncEnabled {
+                    sendSyncCommand("play", position: currentTime, locallyApplied: true)
                 }
+            } else if syncEnabled, syncState?.isPlaying == true {
+                sendSyncCommand("pause", position: currentTime, locallyApplied: true)
             }
         @unknown default:
             break
         }
     }
 
-    private func handleRouteChange(reasonValue: UInt?) {
+    func handleRouteChange(reasonValue: UInt?) {
         guard let reasonValue,
               let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue),
               reason == .oldDeviceUnavailable
@@ -694,6 +982,8 @@ final class PlayerController {
             return
         }
         // Headphones yanked: pause like every music app does.
+        guard isActiveSyncDevice else { return }
+        resumeAfterInterruption = false
         player?.pause()
         acceptSystemPause()
     }
@@ -708,7 +998,7 @@ final class PlayerController {
         updateNowPlayingPlaybackState()
         publishPresenceSoon()
         if syncEnabled, isActiveSyncDevice {
-            sendSyncCommand("pause", position: currentTime)
+            sendSyncCommand("pause", position: currentTime, locallyApplied: true)
         }
     }
 
@@ -731,9 +1021,7 @@ final class PlayerController {
         }
         center.pauseCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                if self?.isPlaying == true {
-                    self?.togglePlayback()
-                }
+                self?.pausePlayback()
             }
             return .success
         }
@@ -785,7 +1073,7 @@ final class PlayerController {
         Task { [weak self] in
             guard let self, let client = self.client,
                   let url = client.artworkURL(for: track),
-                  let image = await ArtworkLoader.shared.image(for: url, headers: client.authHeaders)
+                  let image = await ArtworkLoader.shared.image(for: url, headers: client.authHeaders(for: url))
             else {
                 return
             }
@@ -806,14 +1094,22 @@ final class PlayerController {
         MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in image }
     }
 
-    private func updateNowPlayingPlaybackState() {
+    private func updateNowPlayingPlaybackState(periodic: Bool = false) {
+        let rate = isPlaying && player?.timeControlStatus == .playing ? 1.0 : 0.0
+        let mediaDuration = duration
+        // iOS advances elapsed time from the published rate. Rebuilding
+        // artwork/metadata four times a second just to tick its clock causes
+        // needless lock-screen work, especially while the display wakes.
+        if periodic, lastPublishedRate == rate, lastPublishedDuration == mediaDuration { return }
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
-        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
-        if duration > 0 {
-            info[MPMediaItemPropertyPlaybackDuration] = duration
+        info[MPNowPlayingInfoPropertyPlaybackRate] = rate
+        if mediaDuration > 0 {
+            info[MPMediaItemPropertyPlaybackDuration] = mediaDuration
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        lastPublishedRate = rate
+        lastPublishedDuration = mediaDuration
     }
 }
 
@@ -824,15 +1120,74 @@ final class PlayerController {
 // truth, and this phone only makes sound when it is the active device.
 
 extension PlayerController {
+    /// Reachability is supplied by AppModel after authorized server validation.
+    /// Losing that capability suspends control traffic, never the audio engine.
+    func setSyncAvailable(_ available: Bool) {
+        guard available != isSyncAvailable else { return }
+        if !available, currentTrack != nil, player != nil, isActiveSyncDevice {
+            beginOfflinePlayback()
+        }
+        isSyncAvailable = available
+        syncGeneration += 1
+        commandTask?.cancel()
+        commandTask = nil
+        pendingCommands = 0
+        commandRevision = nil
+        pendingLocalTransport = false
+        acknowledgedLocalState = nil
+        deferredSyncState = nil
+        recoveringOfflinePlayback = false
+        eventsTask?.cancel()
+        eventsTask = nil
+        presenceTask?.cancel()
+        presenceTask = nil
+        lastEventStreamActivity = nil
+        eventStreamStartedAt = nil
+        lastSyncValidation = nil
+        eventStreamSequence += 1
+        if available, syncEnabled { startSyncTasks() }
+    }
+
+    private func beginOfflinePlayback() {
+        guard offlinePlayback == nil else { return }
+        let baseline = acknowledgedLocalState ?? syncState
+        if let acknowledgedLocalState { syncState = acknowledgedLocalState }
+        offlinePlayback = OfflinePlayback(
+            revision: baseline?.revision ?? 0,
+            mayPublish: baseline?.activeDeviceID == nil || baseline?.activeDeviceID == deviceID,
+            hasLocalChanges: pendingCommands > 0
+        )
+        hasOfflinePlaybackConflict = false
+        offlineChangeSequence += 1
+        remoteClockTask?.cancel()
+        remoteClockTask = nil
+    }
+
     func startSync(client: CodecClient) {
+        if syncEnabled, self.client?.baseURL == client.baseURL, self.client?.token == client.token { return }
+        let sameServer = self.client?.baseURL == client.baseURL && self.client?.token == client.token
+        let localSession = sameServer && currentTrack != nil && player != nil && (offlinePlayback != nil || !syncEnabled)
+        let savedOffline = offlinePlayback
+        let savedState = syncState
+        let savedPlaylistID = sourcePlaylistID
+        stopSync()
+        if localSession {
+            syncState = savedState
+            sourcePlaylistID = savedPlaylistID
+            offlinePlayback = savedOffline
+            beginOfflinePlayback()
+        } else {
+            player?.pause()
+            loadedFingerprint = nil
+            preloadedItem = nil
+        }
         self.client = client
         syncEnabled = true
+        if isSyncAvailable { startSyncTasks() }
+    }
 
-        eventsTask?.cancel()
-        eventsTask = Task { [weak self] in
-            await self?.runEventLoop()
-        }
-
+    private func startSyncTasks() {
+        restartEventStream()
         presenceTask?.cancel()
         presenceTask = Task { [weak self] in
             await self?.runPresenceLoop()
@@ -840,7 +1195,19 @@ extension PlayerController {
     }
 
     func stopSync() {
+        syncGeneration += 1
+        commandTask?.cancel()
+        commandTask = nil
+        pendingCommands = 0
+        pendingLocalTransport = false
+        acknowledgedLocalState = nil
+        deferredSyncState = nil
+        commandRevision = nil
         syncEnabled = false
+        lastEventStreamActivity = nil
+        eventStreamStartedAt = nil
+        lastSyncValidation = nil
+        eventStreamSequence += 1
         eventsTask?.cancel()
         eventsTask = nil
         presenceTask?.cancel()
@@ -848,10 +1215,19 @@ extension PlayerController {
         remoteClockTask?.cancel()
         remoteClockTask = nil
         syncState = nil
+        sourcePlaylistID = nil
         playbackDevices = []
+        offlinePlayback = nil
+        hasOfflinePlaybackConflict = false
+        recoveringOfflinePlayback = false
+        offlineChangeSequence += 1
     }
 
     func syncedPosition() -> Double {
+        if isActiveSyncDevice, let player, loadedFingerprint == currentTrack?.fingerprint {
+            let position = player.currentTime().seconds
+            if position.isFinite { return max(0, position) }
+        }
         guard let syncState else {
             return currentTime
         }
@@ -860,11 +1236,12 @@ extension PlayerController {
 
     // MARK: Commands
 
-    func syncTogglePlayback() {
+    func syncTogglePlayback(playlistID: String? = nil) {
         let target = syncState?.activeDeviceID ?? deviceID
-        let targetIsPlaying = syncState?.isPlaying == true && syncState?.activeDeviceID == target
+        let targetIsPlaying = isPlaying
 
         if targetIsPlaying {
+            isPlaying = false
             sendSyncCommand("pause", targetDeviceID: target, position: syncedPosition())
             return
         }
@@ -883,11 +1260,14 @@ extension PlayerController {
         }
 
         let position = currentTrack?.fingerprint == track.fingerprint ? syncedPosition() : 0
-        sendSyncCommand("play", targetDeviceID: target, track: track, position: position)
+        isPlaying = true
+        sendSyncCommand("play", targetDeviceID: target, track: syncState?.track == nil ? track : nil, position: position,
+                        playlistID: playlistID)
     }
 
     func syncToggleShuffle() {
         let nextShuffle = !shuffle
+        shuffle = nextShuffle
         if let currentTrack {
             if nextShuffle {
                 source = [currentTrack] + source.filter { $0.id != currentTrack.id }.shuffled()
@@ -898,6 +1278,17 @@ extension PlayerController {
     }
 
     func transferPlayback(to targetDeviceID: String) {
+        guard isSyncAvailable else {
+            reportSyncError?("Connect to change playback devices.")
+            return
+        }
+        if offlinePlayback != nil, let track = currentTrack {
+            offlinePlayback = nil
+            hasOfflinePlaybackConflict = false
+            sendSyncCommand(isPlaying ? "play" : "load", targetDeviceID: targetDeviceID,
+                            track: track, position: currentTime, locallyApplied: targetDeviceID == deviceID)
+            return
+        }
         sendSyncCommand("transfer", targetDeviceID: targetDeviceID, position: syncedPosition())
     }
 
@@ -907,30 +1298,128 @@ extension PlayerController {
         track: CodecTrack? = nil,
         position: Double? = nil,
         shuffle shuffleOverride: Bool? = nil,
-        repeatMode repeatOverride: String? = nil
+        repeatMode repeatOverride: String? = nil,
+        locallyApplied: Bool = false,
+        playlistID: String? = nil
     ) {
         guard let client else {
             return
         }
 
-        let command = PlaybackCommand(
+        if !isSyncAvailable || offlinePlayback != nil {
+            guard isActiveSyncDevice else { return }
+            beginOfflinePlayback()
+            offlinePlayback?.hasLocalChanges = true
+            offlineChangeSequence += 1
+            return
+        }
+
+        var command = PlaybackCommand(
             kind: kind,
             deviceID: deviceID,
             targetDeviceID: targetDeviceID ?? syncState?.activeDeviceID ?? deviceID,
             track: track.map(CodecTrackReference.init(track:)),
-            context: contextSnapshot(shuffle: shuffleOverride, repeatMode: repeatOverride),
+            context: ["play", "load", "set_queue", "set_shuffle"].contains(kind) && (kind != "play" || track != nil) ? contextSnapshot(shuffle: shuffleOverride, repeatMode: repeatOverride) : nil,
             positionSeconds: position,
             shuffle: shuffleOverride,
             repeatMode: repeatOverride
         )
 
-        Task {
+        if pendingCommands == 0 {
+            commandRevision = syncState?.revision ?? 0
+            pendingLocalTransport = false
+            acknowledgedLocalState = nil
+        }
+        pendingLocalTransport = pendingLocalTransport || locallyApplied
+        let previous = commandTask
+        // Preserve the origin connection's callback. AppModel scopes this
+        // callback to its server, even if a new library connects mid-command.
+        let recordPlaylistPlayback = self.recordPlaylistPlayback
+        let generation = syncGeneration
+        commandSequence += 1
+        let sequence = commandSequence
+        pendingCommands += 1
+        commandTask = Task { [weak self] in
+            await previous?.value
+            guard let self, !Task.isCancelled, generation == self.syncGeneration else { return }
+            if offlinePlayback != nil {
+                pendingCommands -= 1
+                return
+            }
             do {
+                if command.context != nil || locallyApplied {
+                    guard let commandRevision else {
+                        throw CodecClientError.httpStatus(409, "Queued context is no longer current")
+                    }
+                    command.expectedRevision = commandRevision
+                }
+                if locallyApplied, command.context == nil,
+                   let owner = (acknowledgedLocalState ?? syncState)?.activeDeviceID,
+                   owner != deviceID {
+                    // An earlier queued transfer may have succeeded before
+                    // this system pause/resume runs. Do not take it back.
+                    throw CodecClientError.httpStatus(409, "Local playback ownership changed")
+                }
                 let state = try await client.sendPlaybackCommand(command)
-                applySyncState(state, force: true)
+                guard generation == syncGeneration else { return }
+                if let playlistID, state.isPlaying {
+                    recordPlaylistPlayback?(playlistID)
+                }
+                // Only our own contiguous acknowledgements can advance the
+                // guard. A transport-only command may succeed after another
+                // device edited the queue; its newer revision must not grant
+                // permission to overwrite that queue with an old snapshot.
+                // Bare next/previous mutate context only on the server, so
+                // queued local snapshots also cannot be rebased over them.
+                if !["next", "previous"].contains(command.kind),
+                   let commandRevision, state.revision == commandRevision + 1 {
+                    self.commandRevision = state.revision
+                } else {
+                    commandRevision = nil
+                }
+                if pendingLocalTransport, commandRevision != nil {
+                    acknowledgedLocalState = state
+                } else {
+                    acknowledgedLocalState = nil
+                }
+                pendingCommands -= 1
+                if sequence == commandSequence {
+                    let latest = deferredSyncState.flatMap { $0.revision > state.revision ? $0 : nil } ?? state
+                    deferredSyncState = nil
+                    let preserveLocalTransport = pendingLocalTransport && commandRevision != nil && latest.revision == state.revision
+                    pendingLocalTransport = false
+                    acknowledgedLocalState = nil
+                    applySyncState(latest, preservingLocalTransport: preserveLocalTransport)
+                }
             } catch {
-                // A dropped command should not brick local controls; the SSE
-                // stream or the next poll repairs state.
+                guard generation == syncGeneration else { return }
+                commandRevision = nil
+                if Self.isConnectionFailure(error) {
+                    if isActiveSyncDevice, currentTrack != nil {
+                        beginOfflinePlayback()
+                        offlinePlayback?.hasLocalChanges = true
+                    }
+                    reportSyncFailure?(error)
+                    guard generation == syncGeneration else { return }
+                    pendingCommands -= 1
+                    if sequence == commandSequence {
+                        deferredSyncState = nil
+                        pendingLocalTransport = false
+                        acknowledgedLocalState = nil
+                    }
+                    return
+                }
+                if case CodecClientError.httpStatus(409, _) = error {
+                    reportSyncError?("Playback changed on another device. Try the action again.")
+                }
+                pendingCommands -= 1
+                if sequence == commandSequence {
+                    deferredSyncState = nil
+                    let acknowledged = locallyApplied ? nil : acknowledgedLocalState
+                    acknowledgedLocalState = nil
+                    pendingLocalTransport = false
+                    await reconcilePlayback(force: true, preservingLocalState: acknowledged)
+                }
             }
         }
     }
@@ -942,19 +1431,28 @@ extension PlayerController {
             queuedTracks: manualQueue.map(CodecTrackReference.init(track:)),
             playHistory: history.map(CodecTrackReference.init(track:)),
             shuffle: shuffleOverride ?? shuffle,
-            repeatMode: repeatOverride ?? repeatMode.rawValue
+            repeatMode: repeatOverride ?? repeatMode.rawValue,
+            playlistID: sourcePlaylistID
         )
     }
 
     // MARK: Applying server state
 
-    func applySyncState(_ state: PlaybackState, force: Bool = false) {
-        guard force || state.revision > (syncState?.revision ?? -1) else {
+    func applySyncState(_ state: PlaybackState, force: Bool = false, preservingLocalTransport: Bool = false) {
+        // The server still describes the session before connectivity was lost.
+        // Keep the local song, queue and transport until guarded recovery wins.
+        guard offlinePlayback == nil else { return }
+        let revision = syncState?.revision ?? -1
+        guard state.revision > revision || (force && state.revision == revision) else {
             return
         }
 
-        clockOffsetMS = state.serverTimeMS - Self.nowMS()
+        let previousState = syncState
+        if syncState?.serverTimeMS != state.serverTimeMS {
+            clockOffsetMS = state.serverTimeMS - Self.nowMS()
+        }
         syncState = state
+        sourcePlaylistID = state.context.playlistID
         shuffle = state.context.shuffle
         repeatMode = RepeatMode(rawValue: state.context.repeatMode) ?? .off
 
@@ -963,20 +1461,36 @@ extension PlayerController {
             manualQueue = state.context.queuedTracks.compactMap(resolveTrack)
             history = state.context.playHistory.compactMap(resolveTrack)
             sourceIndex = max(0, min(state.context.playbackIndex, max(source.count - 1, 0)))
-            if let reference = state.track, let resolved = resolveTrack(reference) {
+            let resolved = state.track.flatMap(resolveTrack)
+            // A transient library refresh must not evict an already loaded
+            // song when the authoritative track has not changed.
+            if resolved != nil || state.track?.fingerprint != currentTrack?.fingerprint {
                 currentTrack = resolved
             }
         }
 
-        if Self.nowMS() >= suppressClockUntilMS {
+        if state.activeDeviceID != deviceID, Self.nowMS() >= suppressClockUntilMS {
             currentTime = state.position(atClientTimeMS: Self.nowMS(), clockOffsetMS: clockOffsetMS)
         }
 
+        if state.track != nil && currentTrack == nil {
+            player?.pause()
+            isPlaying = false
+            Task { [weak self] in
+                _ = await self?.refreshLibrary?()
+                guard let self, let latest = self.syncState,
+                      let reference = latest.track, self.resolveTrack?(reference) != nil else { return }
+                self.applySyncState(latest, force: true)
+            }
+            return
+        }
         if state.activeDeviceID == deviceID, let track = currentTrack {
             remoteClockTask?.cancel()
             remoteClockTask = nil
-            syncLocalAudio(to: state, track: track)
+            syncLocalAudio(to: state, track: track, previousState: previousState,
+                           preservingLocalTransport: preservingLocalTransport)
         } else {
+            resumeAfterInterruption = false
             player?.pause()
             isPlaying = state.isPlaying
             startRemoteClockIfNeeded()
@@ -984,21 +1498,138 @@ extension PlayerController {
         publishPresenceSoon()
     }
 
-    private func syncLocalAudio(to state: PlaybackState, track: CodecTrack) {
+    private static func isConnectionFailure(_ error: Error) -> Bool {
+        if let error = error as? URLError { return error.code != .cancelled }
+        if case CodecClientError.httpStatus(let status, _) = error {
+            return status == 401 || status == 403 || status == 408 || status == 429 || status >= 500
+        }
+        return false
+    }
+
+    private func resolveOfflineConflict(with remote: PlaybackState?) {
+        if let intent = offlinePlayback, !intent.hasLocalChanges,
+           let remote, remote.revision >= intent.revision {
+            // Merely continuing audio through an outage is not an instruction
+            // to override an explicit pause/transfer from another device.
+            offlinePlayback = nil
+            deferredSyncState = nil
+            hasOfflinePlaybackConflict = false
+            applySyncState(remote, force: true)
+            return
+        }
+        syncState = remote
+        deferredSyncState = nil
+        if !hasOfflinePlaybackConflict {
+            hasOfflinePlaybackConflict = true
+            reportSyncError?("Playback changed on another device. Your song and queue are still on this iPhone.")
+        }
+    }
+
+    private func recoverOfflinePlayback(using snapshot: PlaybackState?) async -> Bool {
+        guard let intent = offlinePlayback else { return true }
+        guard !recoveringOfflinePlayback, isSyncAvailable, let client else { return false }
+        let remote = deferredSyncState.flatMap { $0.revision > (snapshot?.revision ?? -1) ? $0 : nil } ?? snapshot
+        let revision = remote?.revision ?? 0
+        guard intent.mayPublish, !hasOfflinePlaybackConflict,
+              revision == intent.revision || remote == nil,
+              remote?.activeDeviceID == nil || remote?.activeDeviceID == deviceID else {
+            resolveOfflineConflict(with: remote)
+            return true
+        }
+        guard let track = currentTrack else { return true }
+        let generation = syncGeneration
+        let sequence = offlineChangeSequence
+        let intendsToPlay = isPlaying || (isInterrupted && resumeAfterInterruption)
+        var command = PlaybackCommand(
+            kind: intendsToPlay ? "play" : "load", deviceID: deviceID, targetDeviceID: deviceID,
+            track: CodecTrackReference(track: track), context: contextSnapshot(), positionSeconds: syncedPosition()
+        )
+        command.expectedRevision = revision
+        recoveringOfflinePlayback = true
+        defer { if generation == syncGeneration { recoveringOfflinePlayback = false } }
+        do {
+            let acknowledgement = try await client.sendPlaybackCommand(command)
+            guard generation == syncGeneration, isSyncAvailable, !Task.isCancelled,
+                  offlinePlayback != nil else { return false }
+            if let deferredSyncState, deferredSyncState.revision > acknowledgement.revision {
+                resolveOfflineConflict(with: deferredSyncState)
+                return true
+            }
+            if sequence != offlineChangeSequence {
+                // Local controls stayed live during the upload. Its accepted
+                // revision authorizes a later upload of the latest local intent.
+                offlinePlayback?.revision = acknowledgement.revision
+                syncState = acknowledgement
+                lastSyncValidation = nil
+                Task { [weak self] in
+                    guard let self, generation == self.syncGeneration else { return }
+                    await self.reconcilePlayback()
+                }
+                return false
+            }
+            offlinePlayback = nil
+            deferredSyncState = nil
+            hasOfflinePlaybackConflict = false
+            applySyncState(acknowledgement, force: true, preservingLocalTransport: true)
+            return true
+        } catch {
+            guard generation == syncGeneration else { return false }
+            if case CodecClientError.httpStatus(409, _) = error {
+                hasOfflinePlaybackConflict = true
+                reportSyncError?("Playback changed on another device. Your song and queue are still on this iPhone.")
+            } else {
+                reportSyncFailure?(error)
+            }
+            return false
+        }
+    }
+
+    /// Context/volume commands rebase the server clock without seeking.
+    /// Compare both trajectories at the same instant; receipt latency and
+    /// AVPlayer's initial buffering are not reasons to skip audio.
+    private static func changesPlaybackPosition(from previous: PlaybackState?, to state: PlaybackState) -> Bool {
+        guard let previous, previous.activeDeviceID == state.activeDeviceID,
+              previous.track?.fingerprint == state.track?.fingerprint else { return true }
+        let before = previous.position(atClientTimeMS: state.clock.updatedAtMS)
+        return abs(before - state.clock.positionSeconds) > 0.05
+    }
+
+    private func syncLocalAudio(to state: PlaybackState, track: CodecTrack,
+                                previousState: PlaybackState?, preservingLocalTransport: Bool = false) {
         let position = state.position(atClientTimeMS: Self.nowMS(), clockOffsetMS: clockOffsetMS)
+        let positionChanged = Self.changesPlaybackPosition(from: previousState, to: state)
+
+        if isInterrupted {
+            if !state.isPlaying {
+                resumeAfterInterruption = false
+            } else if previousState?.isPlaying == false || previousState?.activeDeviceID != deviceID {
+                // A new remote Play supersedes an earlier remote Pause.
+                resumeAfterInterruption = true
+            }
+            if !preservingLocalTransport,
+               positionChanged || previousState?.isPlaying != state.isPlaying || interruptedPlaybackState != nil {
+                interruptedPlaybackState = state
+            }
+            isPlaying = false
+            return
+        }
 
         if loadedFingerprint != track.fingerprint || player == nil {
-            startPlayback(at: position)
-        } else if abs((player?.currentTime().seconds ?? 0) - position) > 0.75 {
+            startPlayback(at: position, shouldPlay: state.isPlaying)
+            return
+        } else if !preservingLocalTransport,
+                  positionChanged || previousState?.isPlaying != state.isPlaying,
+                  abs((player?.currentTime().seconds ?? 0) - position) > 0.02 {
             seekLocally(to: position)
         }
 
         if state.isPlaying {
-            configureAudioSession()
-            player?.play()
-            isPlaying = true
+            if (!isPlaying || previousState?.activeDeviceID != deviceID), configureAudioSession() {
+                player?.play()
+                isPlaying = true
+            }
         } else {
-            player?.pause()
+            if isPlaying { player?.pause() }
             isPlaying = false
         }
         updateNowPlayingPlaybackState()
@@ -1027,46 +1658,105 @@ extension PlayerController {
 
     // MARK: Event stream + presence
 
-    private func runEventLoop() async {
-        while !Task.isCancelled, syncEnabled {
-            await consumeEventStream()
-            if !Task.isCancelled, syncEnabled {
-                try? await Task.sleep(for: .seconds(3))
+    private func restartEventStream() {
+        eventsTask?.cancel()
+        lastEventStreamActivity = nil
+        eventStreamStartedAt = nil
+        eventStreamSequence += 1
+        let sequence = eventStreamSequence
+        let generation = syncGeneration
+        eventsTask = Task { [weak self] in
+            await self?.runEventLoop(generation: generation, sequence: sequence)
+        }
+    }
+
+    private func runEventLoop(generation: Int, sequence: Int) async {
+        while !Task.isCancelled, syncEnabled, isSyncAvailable,
+              generation == syncGeneration, sequence == eventStreamSequence {
+            await consumeEventStream(generation: generation, sequence: sequence)
+            if !Task.isCancelled, syncEnabled, isSyncAvailable,
+               generation == syncGeneration, sequence == eventStreamSequence {
+                try? await Task.sleep(for: eventReconnectInterval)
             }
         }
     }
 
-    private func consumeEventStream() async {
-        guard let client else {
-            return
+    static func consumeSystemPlaybackEvents(
+        _ request: URLRequest, receive: @escaping @MainActor (PlaybackStreamEvent) -> Void
+    ) async throws {
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else { throw CodecClientError.invalidResponse }
+        guard http.statusCode == 200 else { throw CodecClientError.httpStatus(http.statusCode, "") }
+        try Task.checkCancellation()
+        receive(.connected)
+        for try await line in bytes.lines {
+            try Task.checkCancellation()
+            receive(.line(line))
         }
+    }
 
+    private func consumeEventStream(generation: Int, sequence: Int) async {
+        guard isSyncAvailable, let client else { return }
+        eventStreamStartedAt = .now
+        defer {
+            // A cancelled stream must not clear the health of its replacement.
+            if generation == syncGeneration, sequence == eventStreamSequence {
+                lastEventStreamActivity = nil
+                eventStreamStartedAt = nil
+            }
+        }
         do {
             let request = try client.playbackEventsRequest()
-            let (bytes, response) = try await URLSession.shared.bytes(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-                return
-            }
-
-            for try await line in bytes.lines {
-                guard line.hasPrefix("data:") else {
-                    continue
+            try await consumePlaybackEvents(request) { [weak self] event in
+                guard let self, !Task.isCancelled, generation == self.syncGeneration,
+                      sequence == self.eventStreamSequence else { return }
+                switch event {
+                case .connected:
+                    self.lastEventStreamActivity = .now
+                    // The stream supplies fresh playback/devices snapshots.
+                    // Library changes while disconnected still need one fetch.
+                    self.refreshLibraryFromEvent(generation: generation)
+                case .line(let line):
+                    if line == ": heartbeat" {
+                        self.lastEventStreamActivity = .now
+                    } else if line.hasPrefix("data:") {
+                        let json = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                        if self.handleEventPayload(json) { self.lastEventStreamActivity = .now }
+                    }
                 }
-                let json = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                handleEventPayload(json)
+            }
+            if !Task.isCancelled, generation == syncGeneration, sequence == eventStreamSequence {
+                reportSyncFailure?(URLError(.networkConnectionLost))
             }
         } catch {
             // Connection dropped; the outer loop reconnects.
+            if !Task.isCancelled, generation == syncGeneration, sequence == eventStreamSequence {
+                reportSyncFailure?(error)
+            }
         }
     }
 
-    private func handleEventPayload(_ json: String) {
+    private func refreshLibraryFromEvent(generation: Int) {
+        Task { [weak self] in
+            guard let self, self.syncEnabled, self.isSyncAvailable, generation == self.syncGeneration else { return }
+            let refreshed = await self.refreshLibrary?() ?? true
+            guard self.syncEnabled, generation == self.syncGeneration else { return }
+            if !refreshed { self.lastSyncValidation = nil }
+        }
+    }
+
+    private func handleEventPayload(_ json: String) -> Bool {
         guard let data = json.data(using: .utf8),
-              let payload = try? JSONDecoder().decode(PlaybackEventPayload.self, from: data)
+              let payload = try? JSONDecoder().decode(PlaybackEventPayload.self, from: data),
+              let type = payload.type,
+              ["library", "devices", "device", "playback_state"].contains(type)
         else {
-            return
+            return false
         }
 
+        if type == "library" {
+            refreshLibraryFromEvent(generation: syncGeneration)
+        }
         if let devices = payload.devices {
             playbackDevices = devices.sorted { $0.updatedAt > $1.updatedAt }
         }
@@ -1076,19 +1766,85 @@ extension PlayerController {
             playbackDevices = next.sorted { $0.updatedAt > $1.updatedAt }
         }
         if let state = payload.playbackState {
-            applySyncState(state)
+            if offlinePlayback != nil {
+                if hasOfflinePlaybackConflict {
+                    if state.revision > (syncState?.revision ?? -1) { syncState = state }
+                } else if state.revision > (deferredSyncState?.revision ?? -1) {
+                    deferredSyncState = state
+                }
+            } else if pendingCommands > 0 {
+                if state.revision > (deferredSyncState?.revision ?? -1) { deferredSyncState = state }
+            } else {
+                applySyncState(state)
+            }
         }
+        return true
     }
 
     private func runPresenceLoop() async {
-        while !Task.isCancelled, syncEnabled {
+        let generation = syncGeneration
+        while !Task.isCancelled, syncEnabled, isSyncAvailable, generation == syncGeneration {
             await publishPresence()
-            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled, generation == syncGeneration else { return }
+
+            let now = ContinuousClock.now
+            let streamHealthy = lastEventStreamActivity.map {
+                $0.duration(to: now) < eventStreamTimeout
+            } ?? false
+            let validationDue = lastSyncValidation.map {
+                $0.duration(to: now) >= syncSafetyRefreshInterval
+            } ?? true
+
+            if !streamHealthy || validationDue {
+                // TCP can remain open after connectivity disappears. Recover
+                // it when two 15s heartbeats have been missed, without touching
+                // local audio. Failed/reconnecting streams retain 30s fallback.
+                let connectionStalled = eventStreamStartedAt.map {
+                    $0.duration(to: now) >= eventStreamTimeout
+                } ?? false
+                if !streamHealthy, lastEventStreamActivity != nil || connectionStalled {
+                    restartEventStream()
+                }
+                let playbackValidated = await reconcilePlayback()
+                guard !Task.isCancelled, generation == syncGeneration else { return }
+                let libraryValidated = await refreshLibrary?() ?? true
+                guard !Task.isCancelled, generation == syncGeneration else { return }
+                // A live event connection does not guarantee that REST reads
+                // succeeded. Failed safety reads must retry next presence tick.
+                if playbackValidated && libraryValidated { lastSyncValidation = .now }
+            }
+            try? await Task.sleep(for: syncPollInterval)
+        }
+    }
+
+    @discardableResult
+    func reconcilePlayback(force: Bool = false, preservingLocalState: PlaybackState? = nil) async -> Bool {
+        guard syncEnabled, isSyncAvailable, let client else { return false }
+        let generation = syncGeneration
+        do {
+            async let devices = client.playbackDevices()
+            async let state = client.playbackState()
+            let (nextDevices, nextState) = try await (devices, state)
+            guard generation == syncGeneration, !Task.isCancelled else { return false }
+            playbackDevices = nextDevices
+            if offlinePlayback != nil { return await recoverOfflinePlayback(using: nextState) }
+            if pendingCommands == 0, let nextState {
+                let preserve = preservingLocalState.map {
+                    $0.isPlaying == nextState.isPlaying &&
+                    !Self.changesPlaybackPosition(from: $0, to: nextState)
+                } ?? false
+                applySyncState(nextState, force: force, preservingLocalTransport: preserve)
+            }
+            return true
+        } catch {
+            // Presence polling and reconnect retry without interrupting local audio.
+            if !Task.isCancelled, generation == syncGeneration { reportSyncFailure?(error) }
+            return false
         }
     }
 
     func publishPresenceSoon() {
-        guard syncEnabled else {
+        guard syncEnabled, isSyncAvailable else {
             return
         }
         Task { [weak self] in
@@ -1097,9 +1853,10 @@ extension PlayerController {
     }
 
     private func publishPresence() async {
-        guard syncEnabled, let client else {
+        guard syncEnabled, isSyncAvailable, let client else {
             return
         }
+        let generation = syncGeneration
 
         let device = CodecPlaybackDevice(
             deviceID: deviceID,
@@ -1112,13 +1869,20 @@ extension PlayerController {
             volume: 1,
             updatedAt: Self.nowMS()
         )
-        try? await client.publishPlaybackDevice(device)
+        do {
+            try await client.publishPlaybackDevice(device)
+        } catch {
+            if !Task.isCancelled, generation == syncGeneration { reportSyncFailure?(error) }
+        }
     }
 
     /// Devices for the "Playing on" picker: this phone first, then the rest,
     /// freshest presence first.
     var deviceOptions: [CodecPlaybackDevice] {
-        var options = playbackDevices.filter { $0.deviceID != deviceID }
+        // Match the server's two-minute presence expiry without fetching its
+        // entire device list on every heartbeat.
+        let cutoff = Self.nowMS() + clockOffsetMS - 120_000
+        var options = playbackDevices.filter { $0.deviceID != deviceID && $0.updatedAt > cutoff }
         options.sort { $0.updatedAt > $1.updatedAt }
         let me = playbackDevices.first { $0.deviceID == deviceID }
             ?? CodecPlaybackDevice(deviceID: deviceID, name: deviceName)

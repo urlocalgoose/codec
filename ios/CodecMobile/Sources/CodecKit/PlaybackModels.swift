@@ -5,6 +5,16 @@ public struct CodecTrackReference: Codable, Equatable, Sendable {
     public let id: String
     public let path: String
     public let fingerprint: String
+    public var title: String?
+    public var artist: String?
+    public var mediaURL: URL?
+    public var artworkURL: URL?
+
+    enum CodingKeys: String, CodingKey {
+        case id, path, fingerprint, title, artist
+        case mediaURL = "media_url"
+        case artworkURL = "artwork_url"
+    }
 
     public init(id: String, path: String, fingerprint: String) {
         self.id = id
@@ -14,6 +24,13 @@ public struct CodecTrackReference: Codable, Equatable, Sendable {
 
     public init(track: CodecTrack) {
         self.init(id: track.id, path: "loud://track/\(track.fingerprint)", fingerprint: track.fingerprint)
+        if let url = track.audioURL,
+           URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: { $0.name == "access_token" && $0.value?.hasPrefix("grant_") == true }) == true {
+            mediaURL = url
+            artworkURL = track.artworkURL
+            title = track.title
+            artist = track.artist
+        }
     }
 }
 
@@ -24,6 +41,8 @@ public struct PlaybackContext: Codable, Equatable, Sendable {
     public var playHistory: [CodecTrackReference]
     public var shuffle: Bool
     public var repeatMode: String
+    /// Explicit source identity; older clients omit it and clear any previous origin.
+    public var playlistID: String?
 
     enum CodingKeys: String, CodingKey {
         case playbackSource = "playback_source"
@@ -32,6 +51,7 @@ public struct PlaybackContext: Codable, Equatable, Sendable {
         case playHistory = "play_history"
         case shuffle
         case repeatMode = "repeat"
+        case playlistID = "playlist_id"
     }
 
     public init(
@@ -40,7 +60,8 @@ public struct PlaybackContext: Codable, Equatable, Sendable {
         queuedTracks: [CodecTrackReference] = [],
         playHistory: [CodecTrackReference] = [],
         shuffle: Bool = false,
-        repeatMode: String = "off"
+        repeatMode: String = "off",
+        playlistID: String? = nil
     ) {
         self.playbackSource = playbackSource
         self.playbackIndex = playbackIndex
@@ -48,6 +69,8 @@ public struct PlaybackContext: Codable, Equatable, Sendable {
         self.playHistory = playHistory
         self.shuffle = shuffle
         self.repeatMode = repeatMode
+        let trimmedID = playlistID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.playlistID = trimmedID?.isEmpty == false ? trimmedID : nil
     }
 
     public init(from decoder: Decoder) throws {
@@ -58,6 +81,9 @@ public struct PlaybackContext: Codable, Equatable, Sendable {
         playHistory = try container.decodeIfPresent([CodecTrackReference].self, forKey: .playHistory) ?? []
         shuffle = try container.decodeIfPresent(Bool.self, forKey: .shuffle) ?? false
         repeatMode = try container.decodeIfPresent(String.self, forKey: .repeatMode) ?? "off"
+        let trimmedID = try container.decodeIfPresent(String.self, forKey: .playlistID)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        playlistID = trimmedID?.isEmpty == false ? trimmedID : nil
     }
 }
 
@@ -171,6 +197,7 @@ public struct CodecPlaybackDevice: Codable, Equatable, Sendable, Identifiable {
 }
 
 public struct PlaybackCommand: Encodable, Sendable {
+    public var expectedRevision: Int64? = nil
     public let commandID: String
     public let kind: String
     public let deviceID: String
@@ -217,11 +244,13 @@ public struct PlaybackCommand: Encodable, Sendable {
 
 /// One event from `GET /api/v2/playback/events` (SSE).
 public struct PlaybackEventPayload: Decodable, Sendable {
+    public let type: String?
     public let device: CodecPlaybackDevice?
     public let devices: [CodecPlaybackDevice]?
     public let playbackState: PlaybackState?
 
     enum CodingKeys: String, CodingKey {
+        case type
         case device
         case devices
         case playbackState = "playback_state"

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Check, Image, LoaderCircle, Pencil, X } from "lucide-svelte";
-  import type { Playlist } from "$lib/types";
+  import { ArrowDownUp, Check, Image, LoaderCircle, Pencil, Plus, X } from "lucide-svelte";
+  import type { Playlist, SortKey } from "$lib/types";
 
   let {
     viewTitle,
@@ -9,6 +9,12 @@
     isEditing,
     renaming,
     canEditCover = false,
+    mobileToolbarOnly = false,
+    mobileSortKey = "default",
+    onMobileSort,
+    playlistEditing = false,
+    onTogglePlaylistEdit,
+    onAddSongs,
     playlistNameDraft = $bindable(),
     onStartRename,
     onCommitRename,
@@ -21,6 +27,12 @@
     isEditing: boolean;
     renaming: boolean;
     canEditCover?: boolean;
+    mobileToolbarOnly?: boolean;
+    mobileSortKey?: SortKey;
+    onMobileSort?: (sort: SortKey) => void;
+    playlistEditing?: boolean;
+    onTogglePlaylistEdit?: () => void;
+    onAddSongs?: () => void;
     playlistNameDraft: string;
     onStartRename: (playlist: Playlist) => void;
     onCommitRename: () => void;
@@ -60,6 +72,31 @@
   }
 </script>
 
+{#if mobileToolbarOnly}
+  <div class="native-collection-toolbar" aria-label={`${viewTitle} options`}>
+    {#if selectedPlaylist && !selectedPlaylist.is_liked}
+      {#if onTogglePlaylistEdit}
+        <button class="mobile-text-button" type="button" aria-pressed={playlistEditing} onclick={onTogglePlaylistEdit}>{playlistEditing ? "Done" : "Edit"}</button>
+      {/if}
+      {#if canEditCover || onAddSongs}<span class="native-playlist-media">
+      {#if canEditCover}
+        <button class="mobile-icon-button" type="button" aria-label="Change playlist cover" onclick={() => coverInputEl?.click()}><Image size={21} /></button>
+        <input bind:this={coverInputEl} type="file" accept="image/*" hidden onchange={handleCoverPicked} />
+      {/if}
+      {#if onAddSongs}
+        <button class="mobile-icon-button" type="button" aria-label="Add songs" onclick={onAddSongs}><Plus size={22} /></button>
+      {/if}
+      </span>{/if}
+    {:else if onMobileSort}
+      <label class="native-sort-control"><ArrowDownUp size={21} aria-hidden="true" />
+        <select aria-label="Sort songs" value={mobileSortKey} onchange={(event) => onMobileSort?.(event.currentTarget.value as SortKey)}>
+          <option value="default">Default</option><option value="title">Title</option><option value="artist">Artist</option><option value="added">Newest</option>
+          {#if !["default", "title", "artist", "added"].includes(mobileSortKey)}<option value={mobileSortKey}>{mobileSortKey === "album" ? "Album" : "Time"}</option>{/if}
+        </select>
+      </label>
+    {/if}
+  </div>
+{:else}
 <section class="view-header">
   <div class="view-heading">
     {#if selectedPlaylist && isEditing}
@@ -140,3 +177,5 @@
     <p>{viewSubtitle}</p>
   </div>
 </section>
+
+{/if}

@@ -220,6 +220,7 @@ pub fn rename_playlist_path(
         existing.name = clean_name;
     } else {
         state.playlists.push(StatePlaylist {
+            artwork: None,
             id: playlist_id.to_string(),
             name: clean_name,
             track_fingerprints: Vec::new(),

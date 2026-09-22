@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101312">
+  <meta name="description" content="Codec is a music player for a server you run. Listen on iPhone, iPad, or in your browser.">
+  <title>Codec — Self-hosted music player</title>
+  <link rel="icon" href="assets/codec-mark.webp">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header wrap">
+    <a class="brand" href="#" aria-label="Codec home"><img src="assets/codec-mark.webp" alt="" width="44" height="44"><span>Codec</span></a>
+    <nav aria-label="Main navigation">
+      <a class="section-link" href="#the-app">The app</a>
+      <a class="section-link" href="#start">How it works</a>
+      <a href="docs.html">Docs</a>
+      <a href="https://github.com/urlocalgoose/codec">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <h1 id="hero-title"><span>Self-hosted</span><span>music player.</span></h1>
+        <p class="hero-description">Keep your music on a server you run. Listen on your iPhone, iPad, or in your browser.</p>
+        <div class="actions">
+          <a class="button button-primary" href="docs/hosting.html">Set up Codec <span aria-hidden="true">→</span></a>
+          <a class="button button-secondary" href="https://github.com/urlocalgoose/codec">View GitHub <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="platforms">iPhone <span>·</span> iPad <span>·</span> Web</p>
+      </div>
+      <div class="hero-screens" aria-label="Real Codec iPhone screens">
+        <figure class="phone hero-library"><img src="assets/iphone-library.webp" alt="Codec Library with illustrated playlists and access to saved music" width="660" height="1434" fetchpriority="high"></figure>
+        <figure class="phone hero-playing"><img src="assets/iphone-now-playing.webp" alt="Codec playing aura horizon by Zane Little Music, with a background colored by The Great Wave artwork" width="660" height="1434" fetchpriority="high"></figure>
+      </div>
+    </section>
+
+    <section class="library-story wrap" id="the-app" aria-labelledby="library-title">
+      <div class="story-heading">
+        <h2 id="library-title">The app</h2>
+        <p>Browse your library, make playlists, and play music.</p>
+      </div>
+      <div class="screens-gallery" tabindex="0" role="region" aria-label="Codec screenshots. Scroll sideways to see each screen.">
+        <figure class="screen-story">
+          <a class="phone" href="assets/iphone-home.webp" aria-label="View the full Home screenshot"><img src="assets/iphone-home.webp" alt="Codec Home with recently played playlists and recently added albums" width="660" height="1434" loading="lazy" decoding="async"></a>
+          <figcaption><div><h3>Home</h3><p>Recently played playlists and new music.</p></div></figcaption>
+        </figure>
+        <figure class="screen-story">
+          <a class="phone" href="assets/iphone-search.webp" aria-label="View the full Search screenshot"><img src="assets/iphone-search.webp" alt="Codec Search browsing the licensed music collection" width="660" height="1434" loading="lazy" decoding="async"></a>
+          <figcaption><div><h3>Search</h3><p>Search by song, artist, or album.</p></div></figcaption>
+        </figure>
+        <figure class="screen-story">
+          <a class="phone" href="assets/iphone-visualizer.webp" aria-label="View the full Visualizer screenshot"><img src="assets/iphone-visualizer.webp" alt="Codec’s live visualizer using the blue and cream colors of the song’s artwork" width="660" height="1434" loading="lazy" decoding="async"></a>
+          <figcaption><div><h3>Visualizer</h3><p>Reacts to the audio using colors from the cover art.</p></div></figcaption>
+        </figure>
+      </div>
+      <p class="gallery-hint">More screenshots <span aria-hidden="true">→</span></p>
+    </section>
+
+    <section class="everywhere-section" aria-labelledby="everywhere-title">
+      <div class="everywhere wrap">
+        <div class="everywhere-copy">
+          <h2 id="everywhere-title">Use it across<br>your devices.</h2>
+          <p>Connect your devices to the same server. Switch where music is playing without rebuilding your queue.</p>
+        </div>
+        <figure class="tablet-story"><a href="assets/ipad-home.webp" aria-label="View the full iPad Home screenshot"><img src="assets/ipad-home.webp" alt="Codec’s iPad layout with a wide row of playlists and a grid of albums" width="1050" height="1400" loading="lazy" decoding="async"></a><figcaption>Codec on iPad</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="personal-section wrap" aria-labelledby="personal-title">
+      <div class="story-heading">
+        <h2 id="personal-title">Downloads and appearance</h2>
+        <p>Save music for offline listening. Change the app’s colors.</p>
+      </div>
+      <div class="screens-gallery personal-gallery" tabindex="0" role="region" aria-label="Downloads and appearance screenshots. Scroll sideways to see each screen.">
+        <figure class="screen-story">
+          <a class="phone" href="assets/iphone-downloaded.webp" aria-label="View the full Downloaded screenshot"><img src="assets/iphone-downloaded.webp" alt="Downloaded music saved in Codec on iPhone" width="660" height="1434" loading="lazy" decoding="async"></a>
+          <figcaption><div><h3>Downloaded music</h3><p>Play songs saved on your iPhone or iPad without a server connection.</p></div></figcaption>
+        </figure>
+        <figure class="screen-story">
+          <a class="phone" href="assets/iphone-palettes.webp" aria-label="View the full Palettes screenshot"><img src="assets/iphone-palettes.webp" alt="Codec’s appearance picker with its collection of color palettes" width="660" height="1434" loading="lazy" decoding="async"></a>
+          <figcaption><div><h3>Color palettes</h3><p>33 palettes, including Graphite, shown here.</p></div></figcaption>
+        </figure>
+      </div>
+      <p class="gallery-hint">More screenshots <span aria-hidden="true">→</span></p>
+    </section>
+
+    <section class="start-section wrap" id="start" aria-labelledby="start-title">
+      <div class="start-heading"><div><h2 id="start-title">How to set it up</h2></div><p>You’ll need music files and a computer or cloud server to keep them on.</p></div>
+      <ol class="steps">
+        <li><span class="step-number" aria-hidden="true">01</span><h3>Run the server</h3><p>Run the Codec server on a computer at home or a small cloud server. Keep it on when you want to stream.</p><a href="docs/hosting.html">Read the setup guide <span aria-hidden="true">↗</span></a></li>
+        <li><span class="step-number" aria-hidden="true">02</span><h3>Add music</h3><p>Import your files through the web player. Your server stores the music, playlists, and artwork.</p><a href="docs/loud.html">Read the format guide <span aria-hidden="true">↗</span></a></li>
+        <li><span class="step-number" aria-hidden="true">03</span><h3>Connect the app</h3><p>Enter your server address and auth token in Codec. To stream away from home, your server needs to be reachable over the internet.</p><a href="docs/hosting.html#away-from-home">Connect away from home <span aria-hidden="true">↗</span></a></li>
+      </ol>
+    </section>
+
+    <section class="questions wrap" aria-labelledby="questions-title">
+      <div><h2 id="questions-title">Questions</h2></div>
+      <div class="answers">
+        <details><summary>Does Codec come with music?<span aria-hidden="true">+</span></summary><p>No music catalog is included. Codec plays the files you add to your own server. The screenshots show a separate licensed demonstration collection.</p></details>
+        <details><summary>Do I need to run a server?<span aria-hidden="true">+</span></summary><p>Yes. Your server stores the music and keeps your devices in sync. You can run it on a computer you already have, or rent a small cloud server. The browser player comes with it.</p></details>
+        <details><summary>Can I listen without internet?<span aria-hidden="true">+</span></summary><p>Yes, with music you’ve downloaded to your iPhone or iPad. Other songs need a connection to your server.</p></details>
+        <details><summary>How do I set it up?<span aria-hidden="true">+</span></summary><p>Follow the <a href="docs/hosting.html">hosting guide</a> to install the server and web player, then connect your devices with your server address and token.</p></details>
+      </div>
+    </section>
+
+    <section class="closing wrap" aria-labelledby="closing-title"><h2 id="closing-title">Set up your server</h2><p>The hosting guide covers downloads, installation, and connecting your devices.</p><a class="button button-primary" href="docs/hosting.html">Read the hosting guide <span aria-hidden="true">→</span></a></section>
+  </main>
+  <footer class="site-footer wrap"><a class="footer-brand" href="#">Codec</a><nav aria-label="Footer navigation"><a href="docs.html">Docs</a><a href="https://github.com/urlocalgoose/codec">GitHub</a><a href="privacy.html">Privacy</a><a href="support.html">Support</a><a href="credits.html">Screenshot credits</a></nav><p>Screenshots use a licensed demo library. Music is not included with Codec.</p></footer>
+</body>
+</html>

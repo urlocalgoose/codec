@@ -10,7 +10,8 @@ import {
   searchTracks,
   sortTracks,
   trackReference,
-  tracksFromReferences
+  tracksFromReferences,
+  tracksForMobileCollection
 } from "./library";
 import type { Library, Track } from "./types";
 
@@ -85,6 +86,27 @@ const library: Library = {
 };
 
 describe("library helpers", () => {
+  test("mobile albums match compilation buckets and native track order", () => {
+    const compilation = {
+      ...library,
+      tracks: [
+        { ...baseTrack, id: "second", artist: "Grace", album_artist: "Various Artists", album: "Mix", track_number: 2 },
+        { ...baseTrack, id: "first", artist: "Ada", album_artist: "VARIOUS ARTISTS", album: "MIX", track_number: 1 },
+        { ...baseTrack, id: "unnumbered", artist: "Third", album_artist: "Various Artists", album: "Mix", track_number: null },
+        { ...baseTrack, id: "other", artist: "Ada", album_artist: null, album: "Mix", track_number: 1 }
+      ]
+    };
+    expect(tracksForMobileCollection(compilation, { kind: "album", title: "Mix", artist: "Various Artists" }).map((track) => track.id)).toEqual(["first", "second", "unnumbered"]);
+    expect(tracksForMobileCollection(compilation, { kind: "artist", title: "Ada" }).map((track) => track.id)).toEqual(["first", "other"]);
+    expect(compilation.tracks[0].id).toBe("second");
+  });
+
+  test("mobile albums fall back to track artist for empty album-artist tags", () => {
+    const emptyTag = { ...library, tracks: [{ ...baseTrack, album_artist: "" }] };
+    expect(tracksForMobileCollection(emptyTag, { kind: "album", title: baseTrack.album, artist: "ADA" })).toEqual(emptyTag.tracks);
+    expect(tracksForMobileCollection(null, { kind: "album", title: "missing", artist: "nobody" })).toEqual([]);
+  });
+
   test("searches across title artist album genre and filename", () => {
     expect(searchTracks(tracks, "ada compiler")).toEqual([tracks[0]]);
     expect(searchTracks(tracks, "debug hearts")).toEqual([tracks[1]]);

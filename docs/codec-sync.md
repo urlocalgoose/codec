@@ -41,16 +41,63 @@ CODEC_AUTH_TOKEN='long-random-secret' ./codec-sync-server \
 With a token set, the server accepts HTTP Basic auth in the browser and Bearer
 auth for API clients.
 
-## Desktop Flow
+## Additive Headless Imports
 
-1. Open Codec.
-2. Open your local music folder.
-3. Use the sync controls to upload metadata, audio files, and cached artwork thumbnails.
-4. On another desktop, enter the same server URL and click download.
+Use an empty staging music folder for a prepared import bundle, then merge it
+into the server with the CLI. Authentication is read from a file (or
+`CODEC_AUTH_TOKEN`), and is never included in the JSON report:
 
-Pulling from the server downloads missing audio files into a temp import bundle,
-imports them through the normal Codec importer, then applies playlist and liked
-state by fingerprint. Existing tracks should not duplicate.
+```bash
+cargo run --manifest-path src-tauri/Cargo.toml --bin codec_import -- \
+  /path/to/staging-library /path/to/bundle/codec-import.json \
+  --server http://127.0.0.1:8787 --token-file /private/path/token \
+  --report /path/to/import-report.json
+```
+
+Server imports are additive by default; `--merge` is an optional explicit
+spelling. This path does **not** call the snapshot replacement endpoint:
+
+- Tracks match by exact fingerprint. Existing metadata is retained; only new
+  tracks receive metadata and missing audio is uploaded.
+- Likes are a union: incoming likes may add likes but cannot remove existing
+  ones.
+- Regular playlists match by their exact trimmed name. Ambiguous duplicate
+  names abort before any server writes. New playlists use the ID returned by
+  the server; existing playlist IDs and ordered memberships are retained, with
+  only missing tracks appended in incoming order.
+- Original sidecar images are uploaded with their actual MIME type, without
+  JPEG re-encoding. External sidecars support JPEG and PNG up to 12 MiB,
+  8192 pixels on either edge, and 16,777,216 pixels total. Playlist covers upload after the destination playlist is
+  created. Existing destination covers are preserved using HEAD checks and
+  conditional PUTs. A failed HEAD never authorizes an overwrite. Servers with
+  conditional-upload support also protect against a concurrent cover edit;
+  older servers preserve covers observed by HEAD but cannot close that race.
+
+`track-artwork.json` and `playlist-artwork.json` use the S2Y artwork sidecar
+schemas described in [S2Y artwork import](s2y-artwork-import.md). Artwork is
+applied by exact track fingerprint or destination playlist name, including
+already-matched tracks. No mobile app update is required: uploads use the
+existing library, audio, and artwork API endpoints.
+
+The report contains local import details, successful track fingerprints,
+server track matched/added counts, media transferred/already-present counts,
+track and playlist artwork uploaded/downloaded/present/missing/failed counts,
+playlist creation/membership counts, likes added, failures, and source-to-server
+playlist ID mappings. The CLI exits unsuccessfully if any import or transfer
+fails and still writes the report when requested. Re-running the command skips
+completed media and memberships.
+
+For a restart/rescan check or an artwork/audio round trip:
+
+```bash
+codec_import /path/to/staging-library --scan --report /path/to/scan.json
+codec_import /path/to/receiving-library --download \
+  --server http://127.0.0.1:8787 --token-file /private/path/token \
+  --report /path/to/download.json
+```
+
+The CLI download applies server playlist and liked state to the local library. The additive preservation guarantee above applies to
+imports **into the server**.
 
 ## Mobile / PWA Flow
 
@@ -58,10 +105,12 @@ state by fingerprint. Existing tracks should not duplicate.
 2. Open the server URL in Safari.
 3. Add it to Home Screen.
 
-The phone uses the same Svelte UI as desktop. It streams audio from the same
-server with HTTP range support. Offline audio downloads for iOS still need a
-dedicated download/cache UI because browser storage limits and range requests
-are strict; the current service worker only caches the app shell.
+Mobile browsers use the same Svelte web app as larger screens. It streams audio from the same
+server with HTTP range support. Explicit browser downloads keep audio in
+CacheStorage and play it through local Blob URLs; the service worker caches the
+app shell rather than every streamed song. Browser storage can be evicted and is
+separate from the Swift app’s managed downloads. See
+[mobile continuity and cache](mobile-continuity-and-cache.md).
 
 ## API Shape
 
@@ -126,13 +175,50 @@ client can refresh and resume watching by id.
 
 Playlist edits are partial updates: `POST /api/v1/playlists` creates a playlist
 from `{"name": "..."}`, and the `/tracks` endpoints add or remove one track by
-fingerprint without replaying the whole playlist row — so two devices editing
-the same playlist never clobber each other.
+fingerprint without replaying the whole playlist row. Reordering is different:
+it replaces the supplied membership order, so clients must account for changes
+made by another device rather than assuming every playlist edit is conflict-free.
 
 Audio uploads remember their `Content-Type` (`audio/mpeg`, `audio/mp4`,
 `audio/flac`, `audio/wav`) and serve it back on download; anything
 unrecognized is stored as MP3, the historical default.
 
+
+## Playback playlist origin
+
+The shared `loud.playback.v2` state and commands accept an optional
+`context.playlist_id`. Clients set it to the destination library playlist ID
+when starting playback from that playlist, including Liked Songs. This is the
+source the user chose, not a guess based on which playlists contain the current
+song. For example:
+
+```json
+{
+  "playlist_id": "playlist-destination-id",
+  "playback_source": [{"id": "track-id", "path": "/music/song.mp3", "fingerprint": "track-fingerprint"}],
+  "playback_index": 0,
+  "queued_tracks": [],
+  "play_history": [],
+  "shuffle": false,
+  "repeat": "off"
+}
+```
+
+The ID stays attached to the source through next/previous, pause/resume, seek,
+shuffle, repeat, queue edits, playback transfer, SSE snapshots, and server
+restart. A manually queued song does not change the source playlist. Queue
+replacements must include the current ID if they retain the same source.
+An explicit replacement context without `playlist_id` clears the previous
+origin; this includes older clients and playback started from search, an album,
+or the whole library. Missing, null, and blank IDs all mean unknown.
+
+The server treats this as playback metadata and does not require the playlist
+to still exist. Clients resolve the ID against their current library to display
+the current playlist name and cover; they hide the playlist entry if unavailable
+or deleted. Renaming a playlist therefore does not leave an old name in playback
+state. Existing phone versions remain compatible with the optional field.
+The `loud.playback.v1` saved-session payload can also include `playlist_id`;
+the server preserves that JSON extension without changing the schema version.
 
 ## Aux (`loud.aux.v1`) — shared listening
 

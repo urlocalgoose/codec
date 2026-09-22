@@ -36,9 +36,12 @@ type Server struct {
 	playbackEvents *playbackEventHub
 	// Bumped on every library write; drives the library ETag so unchanged
 	// refreshes cost a 304 instead of the full payload.
-	libraryVersion atomic.Int64
-	importMu       sync.Mutex
-	importJobs     map[string]*ImportJob
+	libraryVersion   atomic.Int64
+	libraryEpoch     string
+	libraryResponses libraryResponseCache
+	importMu         sync.Mutex
+	bundleImportMu   sync.Mutex
+	importJobs       map[string]*ImportJob
 }
 
 type HandlerOptions struct {
@@ -64,11 +67,17 @@ func Open(dataDir string) (*Server, error) {
 	}
 	db.SetMaxOpenConns(1)
 
+	epoch := make([]byte, 16)
+	if _, err := rand.Read(epoch); err != nil {
+		db.Close()
+		return nil, err
+	}
 	srv := &Server{
 		dataDir:        dataDir,
 		db:             db,
 		now:            time.Now,
 		playbackEvents: newPlaybackEventHub(),
+		libraryEpoch:   hex.EncodeToString(epoch),
 	}
 	if err := srv.migrate(context.Background()); err != nil {
 		db.Close()
@@ -107,6 +116,7 @@ func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
 	mux.HandleFunc("HEAD /api/v1/playlists/{id}/artwork", s.handleGetPlaylistArtwork)
 	mux.HandleFunc("DELETE /api/v1/playlists/{id}/artwork", s.handleDeletePlaylistArtwork)
 	mux.HandleFunc("PUT /api/v1/playlists/{id}", s.handlePlaylist)
+	mux.HandleFunc("PUT /api/v1/playlists/{id}/name", s.handleRenamePlaylist)
 	mux.HandleFunc("POST /api/v1/aux", s.handleCreateAux)
 	mux.HandleFunc("GET /api/v1/aux", s.handleListAux)
 	mux.HandleFunc("DELETE /api/v1/aux/{code}", s.handleEndAux)
@@ -132,7 +142,7 @@ func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
 
 	var handler http.Handler = withGzip(mux)
 	if strings.TrimSpace(options.WebDir) != "" {
-		handler = serveWebApp(strings.TrimSpace(options.WebDir), mux)
+		handler = serveWebApp(strings.TrimSpace(options.WebDir), handler)
 	}
 	if strings.TrimSpace(options.AuthToken) != "" {
 		handler = withAuth(handler, strings.TrimSpace(options.AuthToken), s)

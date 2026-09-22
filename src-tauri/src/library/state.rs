@@ -10,6 +10,8 @@ pub(super) fn default_library_state() -> LibraryState {
         playlists: Vec::new(),
         removed_playlist_memberships: Vec::new(),
         managed_tracks: BTreeMap::new(),
+        managed_tracks_by_identity: BTreeMap::new(),
+        track_artwork: BTreeMap::new(),
         scan_cache: BTreeMap::new(),
     }
 }
@@ -43,7 +45,59 @@ pub(super) fn read_library_state(root: &Path) -> Result<LibraryState, String> {
         state.schema_version = 1;
     }
 
+    for (relative_path, metadata) in &state.managed_tracks {
+        let Some(identity) = managed_file_identity(&root.join(relative_path)) else {
+            continue;
+        };
+        state
+            .managed_tracks_by_identity
+            .entry(identity)
+            .and_modify(|existing| {
+                if existing
+                    .as_ref()
+                    .is_some_and(|existing| existing.fingerprint != metadata.fingerprint)
+                {
+                    *existing = None;
+                }
+            })
+            .or_insert_with(|| Some(metadata.clone()));
+    }
     Ok(state)
+}
+
+fn managed_file_identity(path: &Path) -> Option<ManagedFileIdentity> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = fs::metadata(path).ok()?;
+        metadata.is_file().then(|| (metadata.dev(), metadata.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        path.canonicalize().ok().filter(|path| path.is_file())
+    }
+}
+
+pub(super) fn managed_metadata_for_track<'a>(
+    root: &Path,
+    path: &Path,
+    state: &'a LibraryState,
+) -> Result<Option<&'a StateTrackMetadata>, String> {
+    if let Some(metadata) = state.managed_tracks.get(&relative_path_key(root, path)) {
+        return Ok(Some(metadata));
+    }
+    let Some(identity) = managed_file_identity(path) else {
+        return Ok(None);
+    };
+    match state.managed_tracks_by_identity.get(&identity) {
+        Some(Some(metadata)) => Ok(Some(metadata)),
+        // Never choose one explicit identity arbitrarily when aliases conflict.
+        Some(None) => Err(format!(
+            "Conflicting managed fingerprints refer to the same audio file: {}",
+            path.display()
+        )),
+        None => Ok(None),
+    }
 }
 
 pub(super) fn write_library_state(root: &Path, state: &LibraryState) -> Result<(), String> {
@@ -79,11 +133,20 @@ pub(super) fn apply_state_playlists(
         if let Some(playlist) = playlists_by_id.get_mut(&playlist_id) {
             if !playlist.is_liked {
                 playlist.name = state_playlist.name.clone();
+                playlist.artwork = state_playlist
+                    .artwork
+                    .as_ref()
+                    .and_then(|art| stored_artwork_ref(root, art));
             }
         } else {
             playlists_by_id.insert(
                 playlist_id.clone(),
                 Playlist {
+                    artwork_url: None,
+                    artwork: state_playlist
+                        .artwork
+                        .as_ref()
+                        .and_then(|art| stored_artwork_ref(root, art)),
                     id: playlist_id.clone(),
                     name: state_playlist.name.clone(),
                     path: path_to_string(&state_file_path(root)),
@@ -139,6 +202,7 @@ pub(super) fn state_playlist_mut_by_id<'a>(
     }
 
     state.playlists.push(StatePlaylist {
+        artwork: None,
         id: id.to_string(),
         name: clean_name,
         track_fingerprints: Vec::new(),
@@ -165,6 +229,7 @@ pub(super) fn state_playlist_mut<'a>(
     }
 
     state.playlists.push(StatePlaylist {
+        artwork: None,
         id,
         name: clean_name,
         track_fingerprints: Vec::new(),
@@ -269,5 +334,9 @@ pub(super) fn apply_state_track_metadata(track: &mut Track, metadata: &StateTrac
     track.genre = metadata.genre.clone();
     track.year = metadata.year;
     track.track_number = metadata.track_number;
+    track.disc_number = metadata.disc_number.or(track.disc_number);
+    track.explicit = metadata.explicit.or(track.explicit);
+    track.identifiers.extend(metadata.identifiers.to_map());
+    track.source_urls.extend(metadata.source_urls.clone());
     track.duration_seconds = metadata.duration_seconds;
 }

@@ -1,165 +1,116 @@
 <p align="center">
-  <img src="art/codec-logo.png" alt="Codec" width="180">
+  <img src="site/assets/codec-mark.webp" alt="Codec" width="100">
 </p>
 
 # Codec
 
-Codec is a music player for people who keep their music as files. You run a
-small server wherever you want, point it at your library, and every device
-you own can browse, stream, and pick up playback where another left off.
-There are no accounts and nothing phones home. The whole thing is one Go
-binary, a web app it serves, a desktop app, and an iOS app.
+Codec is a self-hosted music player. Run the server, add your music files, and
+listen through the web player or the iPhone/iPad app. The server stores your
+library, playlists, artwork and playback state. Each device plays its own audio.
 
-It's built for one person. One library, one token, as many devices as you
-like. If you want multi-user, this isn't that.
+[Project site](https://codec.codie.sh) · [Documentation](https://codec.codie.sh/docs.html) · [Server downloads](https://github.com/urlocalgoose/codec/releases/latest)
 
 <p align="center">
-  <img src="docs/screenshots/web-desktop.png" alt="Home view" width="720" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/web-visualizer.png" alt="The visualizer running during playback" width="720" />
-</p>
-
-Every screen is themed — there are 33 themes and they carry through the web
-app and the iOS app, down to the QR codes:
-
-<p align="center">
-  <img src="docs/screenshots/web-albums-ember.png" alt="Albums in the Ember theme" width="360" />
-  <img src="docs/screenshots/web-playlists-glacier.png" alt="Playlists in the Glacier theme" width="360" />
-</p>
-<p align="center">
-  <img src="docs/screenshots/ios-home.png" alt="iOS app, Oxide theme" width="240" />
-  <img src="docs/screenshots/ios-home-light.png" alt="iOS app, Paper theme" width="240" />
+  <img src="site/assets/iphone-home.webp" alt="Codec Home" width="260">
+  <img src="site/assets/iphone-now-playing.webp" alt="Codec Now Playing" width="260">
 </p>
 
 ## What it does
 
-You get the things you'd expect: playlists, likes, search, album and artist
-browsing, a queue you can reorder, and gapless-enough playback in the
-browser, on desktop, and on iOS. Then the parts that make it feel like one
-system instead of three apps:
+- Plays the music files you add to your server. No music catalog is included.
+- Keeps playlists, likes and playback state available across connected devices.
+- Moves playback to another connected device with its queue and position.
+- Saves songs for offline listening on iPhone and iPad.
+- Supports custom playlist covers, 33 color palettes and a live visualizer
+  that uses colors from the song’s artwork.
+- Lets invited Aux participants browse music and add to a shared queue.
 
-- Playback follows you. Start a song on your Mac, flip it to your phone from
-  the "Playing on" picker, and the queue and position come along.
-- Aux is shared listening: you start one, friends scan a QR code, and they
-  can browse your library and push songs onto the queue from their phones.
-  They can't touch your playlists or likes, and their access dies when you
-  end the aux.
-- The visualizer draws a live spectrograph of whatever's playing, in your
-  theme's colors. It keeps recording while you're on other screens, so
-  opening it mid-song shows the last half minute instead of a blank wall.
-  Double-click for fullscreen.
-- Playlists can have custom covers. Set them from the web or the iOS photo
-  picker.
-- The library loads instantly after the first visit — clients keep a local
-  copy and refresh it in the background, which also means you can read your
-  library offline.
+The web player works in a browser, including on computers. The SwiftUI app is a
+separate iPhone/iPad client. This release distributes the server and web player;
+iOS distribution is managed separately.
 
-## Get it running
+## Run the server
 
-One download per platform from
-[Releases](https://github.com/urlocalgoose/codec/releases) — macOS, Linux,
-or Windows — and it holds the whole ecosystem: the server, the web app it
-serves, and the desktop app. Unzip it and run the server binary:
+The current server release supports **Linux amd64 and arm64**. Each archive
+contains the Go server, built web player, Ubuntu/systemd installer and checksums.
+It starts with an empty library; your music and auth token are never included in
+a release download.
 
-```bash
-./codec-sync-server        # codec-sync-server.exe on Windows
+Start with [Hosting Codec](https://codec.codie.sh/docs/hosting.html), or use the
+[included release guide](docs/server-release.md). Keep the archive and its
+matching `.sha256` file together. The installer keeps persistent data separate
+from application updates and generates an auth token for a new server.
+
+The web player comes with the Go server. It does not need a separate Node server,
+database service or website deployment. To listen from outside your network,
+make the server reachable through HTTPS or a private network such as Tailscale.
+
+## The Loud format
+
+A Loud bundle is a folder or `.loud.zip` with a `loud.import.v1` JSON manifest,
+audio and optional artwork. It is a way to move music collections, not an audio
+encoding. Fingerprints identify songs; playlists and likes reference those songs.
+
+- [Format guide and examples](https://codec.codie.sh/docs/loud.html)
+- [Manifest reference](docs/codec-import-v1.md) and [JSON Schema](docs/codec-import.schema.json)
+- [Track artwork example](site/examples/track-artwork.json)
+- [Playlist artwork example](site/examples/playlist-artwork.json)
+
+Use **Settings → Import music** in the web player to upload a bundle. Server
+imports add missing tracks and playlist members while preserving existing
+metadata, likes, order and custom covers. Each song occurs at most once in a
+playlist; repeated source entries collapse. Refresh the phone library after
+import to receive the music and artwork.
+
+The `codec_import` command-line tool is also available from source for large
+collections. Its import library remains in `src-tauri/src/library/` for
+compatibility with existing tooling. See the format guide for its arguments.
+
+## Documentation and source
+
+Documentation has two parts:
+
+1. **Using Codec:** [Loud bundles](https://codec.codie.sh/docs/loud.html) and
+   [server setup](https://codec.codie.sh/docs/hosting.html).
+2. **Code reference:** [how the parts fit together](https://codec.codie.sh/docs/code.html),
+   file locations, contracts and build/test commands.
+
+The [repository docs index](docs/README.md) links the source references. Start
+in `sync-server/` for the Go server, `src/` for the Svelte web player,
+`ios/CodecMobile/` for the Swift app, and `site/` for the static project website.
+
+```sh
+bun install --frozen-lockfile
+bun run dev                    # Web development
+bun run build                  # Built web player in build/
+go -C sync-server build ./cmd/codec-sync-server
+open ios/CodecMobile/Codec.xcodeproj   # iOS project; requires macOS/Xcode
 ```
 
-That's the installer. It asks whether to put the desktop app in your
-Applications, whether to run the server on this machine (and where to keep
-data, what port, whether to lock it with a token — it generates one for
-you), and whether to start the server at login. Say yes to everything and a
-minute later the desktop app is installed, the server is running in the
-background and will come back after a reboot, and you're looking at the
-URL and token to use from your phone. Say no to the server if this is just
-a laptop and the server lives somewhere else. Answers are saved to
-`~/.codec/server.json`; re-run with `--setup` to change any of it.
-
-For headless boxes — a Pi, a VPS, an old Intel Mac mini — there are
-server-only zips too; same questions, minus the desktop app. macOS will
-complain the binary is unsigned the first time: right-click → Open, or
-`xattr -d com.apple.quarantine codec-sync-server`.
-
-To reach the server from outside your network, put HTTPS in front
-(Cloudflare Tunnel, Caddy, nginx — anything). Notes in
-[DEPLOY.md](DEPLOY.md), phone details in [docs/iphone.md](docs/iphone.md),
-the security model in [docs/secure-sync.md](docs/secure-sync.md).
-
-### About the token
-
-The token is Codec's entire auth story, on purpose. You invent one secret
-(or let setup generate it), start the server with it, and paste it into each
-app once — the web app asks for it right on its connect screen. Under the
-hood, clients trade it for short-lived stream tokens so your real secret
-never ends up in media URLs or proxy logs. No token means an open server,
-which is fine on a trusted LAN and a terrible idea on the internet.
-
-## The loud format
-
-Libraries move around as **bundles**: one `.loud.zip` holding a
-[`loud.import.v1`](docs/codec-import-v1.md) manifest plus all the audio.
-The manifest carries titles, likes, playlists, and stable identities (ISRC,
-MusicBrainz, Spotify/YouTube IDs, or normalized tags), so a bundle is a
-complete, self-contained library — no folder layout to preserve, nothing
-depending on where files happen to live.
-
-That makes sharing trivial. Settings → Share library gives you
-`library.loud.zip`; hand it to anyone running Codec and they import it with
-one pick — identity matching means they only gain the songs they don't
-already have, and your playlists and likes come along for the ones they
-take. If you write a downloader or migration tool, produce bundles. It's the
-format everything else in Codec speaks.
-
-## Getting music in
-
-- **A bundle or manifest**: Settings → Import music, pick the `.loud.zip`
-  (or a manifest with its files). Likes and playlists apply, duplicates
-  skip.
-- **Plain MP3s**: same place. Tags are read right in the browser and
-  identity is derived the same way, so even bare files dedupe properly.
-- **The desktop app**: point it at a folder of music; it scans, plays
-  locally, and syncs to the server when you tell it to.
-- **Scripted**: `codec_import` imports manifests headlessly, and
-  [`codec-add`](scripts/codec-add.sh) chains a downloader into it — playlist
-  link in, songs on every device out.
-
-## Building from source
-
-You'll want [Bun](https://bun.sh), [Go](https://go.dev), and — for the
-desktop and iOS apps — [Rust](https://rustup.rs) and Xcode.
-
-```bash
-bun install
-bun run server:dev     # build the web app, run the server on :8787
-bun run tauri dev      # the desktop app
-open ios/CodecMobile/Codec.xcodeproj   # the iOS app
+```sh
+bun run check
+bun run test:frontend
+bun run test:server
+bun run test:rust              # Import/library core
+(cd ios/CodecMobile && swift test)   # CodecKit client/model tests
 ```
 
-Tests, if you're changing things:
+The phone’s app-hosted playback and rendering tests are separate from
+`swift test`; see [native test scopes](ios/CodecMobile/Tests/README.md).
 
-```bash
-bun run check && bun test                # web
-cd sync-server && go test ./...          # server
-cargo test --manifest-path src-tauri/Cargo.toml   # rust core
-cd ios/CodecMobile && swift test          # ios client
-```
+## Contributions
 
-The layout is what you'd guess: `src/` is the Svelte app, `sync-server/` is
-the Go server, `src-tauri/` is the Rust core behind the desktop app,
-`ios/CodecMobile/` is SwiftUI. Contracts and guides live in `docs/` —
-[codec-sync.md](docs/codec-sync.md) for the API,
-[ui-system.md](docs/ui-system.md) for the visual language,
-[modding.md](docs/modding.md) for where to change what.
+We’re not accepting contributions or pull requests right now. The source is
+available to read and use under the MIT license. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Why "loud" is everywhere
+## Names and compatibility
 
-Codec used to be called Loud. The wire schemas (`loud.sync.v1`,
-`loud.playback.v2`, `loud.import.v1`), the `.loud/` state folder, and
-`loud://` paths keep the old name so nobody's library breaks on a rename.
-They're protocol IDs now, nothing more. `LOUD_AUTH_TOKEN` still works too,
-but use `CODEC_AUTH_TOKEN`.
+Codec used to be called Loud. The `loud.*` wire schemas, `.loud/` local state
+folder and `loud://` identifiers keep their original names so existing libraries
+and clients continue to work. New setup uses `CODEC_AUTH_TOKEN`; the old
+`LOUD_AUTH_TOKEN` name remains an alias.
 
 ## License
 
-MIT
+MIT. The screenshots use a separate licensed demo collection; its music is not
+included with Codec. [Screenshot credits](https://codec.codie.sh/credits.html).

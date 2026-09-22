@@ -1,0 +1,121 @@
+<h1>The Loud format</h1>
+<p>A Loud bundle carries your audio files, song details, likes, playlists, and optional covers into Codec. Use it to move a collection or prepare an import from another tool.</p>
+<p class="doc-note">The artwork sidecars and additive server imports described here require Codec server <strong>v0.1.5 or later</strong>. See the <a href="hosting.html#quick-start">hosting guide</a> for setup.</p>
+
+<h2 id="bundle">What is in a bundle?</h2>
+<p><code>collection.loud.zip</code> is an ordinary ZIP containing files. <code>loud.import.v1</code> is the format identifier inside its JSON manifest. Neither is an audio codec. The Loud names remain for compatibility; the app is Codec.</p>
+<pre><code>my-collection/
+├── loud-import.json
+├── audio/
+│   └── song.mp3
+├── artwork/                 optional original JPEG/PNG covers
+├── track-artwork.json       optional track-cover sidecar
+└── playlist-artwork.json    optional playlist-cover sidecar</code></pre>
+<p>Keep folder paths intact. Use one main manifest: preferably <code>loud-import.json</code>, or <code>codec-import.json</code>. Browser/server selection prefers those names in that order, then an unambiguous JSON document declaring <code>loud.import.v1</code>. Filenames are case-sensitive; conflicting candidates are rejected.</p>
+
+<h2 id="example">A small, valid manifest</h2>
+<p>Save this as <code>loud-import.json</code>, or <a href="../examples/loud-import.json" download>download the example</a>. The filename, song details, and <code>example:song-1</code> identity are placeholders: supply your actual audio and a stable, unique identity. This example passes the schema; importing it also requires the referenced file.</p>
+<pre><code class="language-json">{
+  "schema": "loud.import.v1",
+  "source": { "base_path": "." },
+  "tracks": [
+    {
+      "file": "audio/song.mp3",
+      "fingerprint": "example:song-1",
+      "title": "Example Song",
+      "artist": "Example Artist",
+      "liked": true
+    }
+  ],
+  "playlists": [
+    {
+      "name": "My Mix",
+      "mode": "append",
+      "tracks": [{ "fingerprint": "example:song-1" }]
+    }
+  ]
+}</code></pre>
+<p>Only <code>schema</code> and <code>tracks</code> are required at the top level; each track requires <code>file</code>. A playlist requires <code>name</code>; empty playlists are supported.</p>
+<p>Imports accept MP3, M4A, FLAC, and WAV files. Playback depends on the encoding inside each file and the client platform.</p>
+<p>Optional song fields include title, artist, album, album artist, genre, year, track/disc numbers, explicit flag, duration, identifiers, source URLs, likes, playlist names, and artwork. <code>duration_ms</code> takes precedence over <code>duration_seconds</code>. See the <a href="../schemas/codec-import.schema.json" download>main JSON Schema</a> for exact keys, types, and limits.</p>
+
+<h3 id="paths">Where paths start</h3>
+<p>Main-manifest files use <code>source.base_path</code>, relative to the manifest's folder. With <code>"."</code>, the example resolves to <code>audio/song.mp3</code>; with <code>"files"</code>, to <code>files/audio/song.mp3</code>. Omitting it uses the manifest folder. Every artwork sidecar has its <em>own</em> <code>base_path</code>; it never inherits the main one. Use relative paths inside the bundle. ZIP and artwork paths cannot escape it.</p>
+
+<h2 id="identity">Song identity, likes, and playlists</h2>
+<p>A fingerprint identifies a song exactly. Preserve existing Codec fingerprints when migrating: different fingerprints remain different tracks even with identical titles. Without one, identity comes from ISRC, MusicBrainz recording ID, Spotify track ID, YouTube video ID, then normalized title + artist + album, in that order.</p>
+<p>Playlist references use fingerprints, identifiers, or audio filenames; they do not copy audio. Explicit playlist order comes first; per-track playlist memberships append omissions. Each track appears at most once per playlist: repeated occurrences collapse to the first position. Exact trimmed playlist names match existing playlists; ambiguous names fail. Rename an incoming playlist to keep it separate.</p>
+<p>Server imports preserve existing metadata, likes, covers, and playlist order. Incoming likes add likes; missing playlist members append in incoming order. Repeated imports reuse matching songs and memberships. Keep <code>mode: "append"</code>, the default. Local imports also support <code>"replace"</code> for playlist membership; server merges always append.</p>
+
+<h2 id="artwork">Covers and checksums</h2>
+<p>Put an <code>artwork</code> descriptor directly on a track or playlist, or use a sibling sidecar:</p>
+<ul>
+  <li><code>track-artwork.json</code>: <code>s2y.track-artwork.v1</code>, with <code>tracks</code> entries containing an exact <code>fingerprint</code> and <code>artwork</code>.</li>
+  <li><code>playlist-artwork.json</code>: <code>s2y.playlist-artwork.v1</code>, with <code>playlists</code> entries containing <code>name</code> and <code>artwork</code>.</li>
+</ul>
+<p>These examples match the manifest above. The track cover targets <code>example:song-1</code>, the song's fingerprint. The playlist cover targets <code>My Mix</code>, the playlist's name. A song title or playlist ID is not a substitute.</p>
+<p>Keep all three JSON files together. Download <a href="../examples/artwork/cover.jpg" download="cover.jpg">the example cover</a> into an <code>artwork</code> folder beside them. Its real hash and dimensions are already filled in below. The image is a public-domain painting from The Met; <a href="../examples/CREDITS.txt">credits and setup notes</a> are included. No audio is included.</p>
+<details>
+  <summary id="track-artwork-example">track-artwork.json — a cover for one song</summary>
+  <pre><code class="language-json">{
+  "schema": "s2y.track-artwork.v1",
+  "base_path": ".",
+  "tracks": [
+    {
+      "fingerprint": "example:song-1",
+      "artwork": {
+        "file": "artwork/cover.jpg",
+        "sha256": "94f349d7962f0472d0f8318af881c6426f12321966e97892894951f4519cc0d8",
+        "mime_type": "image/jpeg",
+        "width": 600,
+        "height": 489
+      }
+    }
+  ]
+}</code></pre>
+  <p><a href="../examples/track-artwork.json" download>Download track-artwork.json</a>. Replace the fingerprint with the exact value from your track when adapting this example.</p>
+</details>
+<details>
+  <summary id="playlist-artwork-example">playlist-artwork.json — a cover for a playlist</summary>
+  <pre><code class="language-json">{
+  "schema": "s2y.playlist-artwork.v1",
+  "base_path": ".",
+  "playlists": [
+    {
+      "name": "My Mix",
+      "artwork": {
+        "file": "artwork/cover.jpg",
+        "sha256": "94f349d7962f0472d0f8318af881c6426f12321966e97892894951f4519cc0d8",
+        "mime_type": "image/jpeg",
+        "width": 600,
+        "height": 489
+      }
+    }
+  ]
+}</code></pre>
+  <p><a href="../examples/playlist-artwork.json" download>Download playlist-artwork.json</a>. Replace the name with your playlist's exact name when adapting this example.</p>
+</details>
+<p>Both examples reuse one image, but the track and playlist can use different files. For your own cover, update its path, SHA-256, MIME type, and dimensions together.</p>
+<p>Descriptors require <code>file</code>, the original file's 64-character hexadecimal <code>sha256</code>, <code>mime_type</code>, <code>width</code>, and <code>height</code>. Codec checks the bytes, decoded type, and dimensions. JPEG/PNG only; maximum 12 MiB, 8192 pixels per edge, and 16,777,216 total pixels.</p>
+<p>Original image bytes are retained; thumbnails are separate. Existing destination covers win; for new audio, valid external artwork wins over embedded fallback artwork. Inline descriptors take precedence over sidecars. Missing artwork does not clear covers; invalid artwork reports separately from valid music changes. Metadata URLs never trigger remote image downloads.</p>
+<p>Download the <a href="../schemas/s2y-track-artwork.schema.json" download>track-cover schema</a> and <a href="../schemas/s2y-playlist-artwork.schema.json" download>playlist-cover schema</a>. Keep all three schemas together. Retain your original bundle, checksums, provenance, and verification documents: imports do not validate arbitrary audit files or preserve every source record in exports.</p>
+
+<h2 id="import">Import your collection</h2>
+<ul>
+  <li><strong>Web/mobile web:</strong> Settings → Import music. Choose a ZIP, bundle folder, or manifest plus every referenced file. Imports go to your connected server.</li>
+  <li><strong>Rust CLI:</strong> unzip first; give <code>codec_import</code> a dedicated staging folder and manifest path. Server merge scans that entire folder. Use <code>--server</code> and <code>--token-file</code> for server transfer; omit both for local import.</li>
+  <li><strong>Native iPhone/iPad:</strong> refresh your connected library after import. There is no native bundle picker.</li>
+</ul>
+<p>For large collections, CLI transfer sends missing audio files individually. Browser and proxy upload limits still apply to ZIPs. Review skipped files and artwork warnings even when a job finishes.</p>
+<details>
+  <summary id="cli">CLI example</summary>
+  <p>Run from a cloned Codec repository with Rust installed. Replace the example folders and server address. The token file contains your server token; keep it private.</p>
+  <pre><code>cargo build --release --manifest-path src-tauri/Cargo.toml --bin codec_import
+mkdir -p ./staging-library
+src-tauri/target/release/codec_import \
+  ./staging-library ./my-collection/loud-import.json \
+  --server https://your-server.example \
+  --token-file /private/path/codec-token \
+  --report ./import-report.json</code></pre>
+</details>
+<p>Need a server first? Follow <a href="hosting.html">Hosting Codec</a>. Implementation details live in the <a href="code.html">code reference</a>.</p>

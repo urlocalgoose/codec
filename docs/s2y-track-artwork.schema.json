@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codec.local/schemas/s2y-track-artwork.schema.json",
+  "title": "S2Y Track Artwork Sidecar v1",
+  "$ref": "codec-import.schema.json#/$defs/track_artwork_sidecar"
+}

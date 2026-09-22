@@ -3,6 +3,7 @@ package server
 
 import (
 	"compress/gzip"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -10,7 +11,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -59,9 +62,8 @@ func serveMedia(w http.ResponseWriter, r *http.Request, path, contentType string
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Accept-Ranges", "bytes")
-	// Media is fingerprint-addressed: the bytes behind a URL never change,
-	// so clients may cache them forever.
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	// Revalidate mutable media, and never authorize a shared cache to reuse it.
+	w.Header().Set("Cache-Control", "private, no-cache")
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), file)
 }
 
@@ -164,62 +166,170 @@ func (recorder *statusRecorder) Flush() {
 	}
 }
 
-// The library payload is hundreds of kilobytes of JSON; compressing it
-// matters most for phones connecting over cellular through the tunnel.
-var gzipPaths = map[string]bool{
-	"/api/v1/library":       true,
-	"/api/v1/sync/snapshot": true,
+// Queue/command responses can be as large as the library. Compress JSON on
+// those routes too, but never buffer SSE, media/ranges, exports, or credentials.
+func compressibleJSONRequest(r *http.Request) bool {
+	path := r.URL.Path
+	if !strings.HasPrefix(path, "/api/") || r.Method == http.MethodHead || r.Header.Get("Range") != "" {
+		return false
+	}
+	for _, prefix := range []string{"/api/v1/auth/", "/api/v1/aux", "/api/v1/media-grants", "/api/v1/export"} {
+		if strings.HasPrefix(path, prefix) {
+			return false
+		}
+	}
+	for _, suffix := range []string{"/events", "/audio", "/artwork"} {
+		if strings.HasSuffix(path, suffix) {
+			return false
+		}
+	}
+	return true
 }
 
-// Compression starts lazily on the first 200 so bodyless responses (304
-// from the ETag check) go out untouched — a gzip trailer on a 304 would
-// corrupt it.
+func acceptsGzip(r *http.Request) bool {
+	gzipQuality, wildcardQuality, identityQuality := -1.0, -1.0, -1.0
+	for _, part := range strings.Split(strings.Join(r.Header.Values("Accept-Encoding"), ","), ",") {
+		fields := strings.Split(part, ";")
+		quality := 1.0
+		for _, parameter := range fields[1:] {
+			name, value, ok := strings.Cut(strings.TrimSpace(parameter), "=")
+			if ok && strings.EqualFold(strings.TrimSpace(name), "q") {
+				parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+				if err != nil || parsed < 0 || parsed > 1 || parsed != parsed {
+					quality = 0
+				} else {
+					quality = parsed
+				}
+			}
+		}
+		switch strings.ToLower(strings.TrimSpace(fields[0])) {
+		case "gzip":
+			gzipQuality = quality
+		case "*":
+			wildcardQuality = quality
+		case "identity":
+			identityQuality = quality
+		}
+	}
+	if gzipQuality < 0 {
+		gzipQuality = wildcardQuality
+	}
+	return gzipQuality > 0 && gzipQuality >= identityQuality
+}
+
+func addVary(header http.Header, value string) {
+	for _, line := range header.Values("Vary") {
+		for _, existing := range strings.Split(line, ",") {
+			if strings.EqualFold(strings.TrimSpace(existing), value) || strings.TrimSpace(existing) == "*" {
+				return
+			}
+		}
+	}
+	header.Add("Vary", value)
+}
+
+const minimumGzipBytes = 512
+
+// A writer has a sizable deflate workspace. Reuse it instead of allocating
+// one for every playback command; the library uses precompressed cache bytes.
+var gzipWriters = sync.Pool{New: func() any { return gzip.NewWriter(io.Discard) }}
+
+// Delay committing a JSON response until it crosses the compression threshold.
+// Small replies, errors, and bodyless 304/204 replies remain plain. Buffering is
+// bounded to the threshold, not the size of a large queue/library response.
 type gzipResponseWriter struct {
 	http.ResponseWriter
-	gz          *gzip.Writer
-	wroteHeader bool
-	compressing bool
+	gz        *gzip.Writer
+	status    int
+	committed bool
+	buffer    []byte
 }
 
 func (w *gzipResponseWriter) WriteHeader(status int) {
-	if !w.wroteHeader {
-		w.wroteHeader = true
-		if status == http.StatusOK {
-			w.Header().Set("Content-Encoding", "gzip")
-			w.Header().Del("Content-Length")
-			w.compressing = true
-		}
+	if status >= 100 && status < 200 {
+		w.ResponseWriter.WriteHeader(status)
+		return
 	}
-	w.ResponseWriter.WriteHeader(status)
+	if w.status == 0 {
+		w.status = status
+	}
+}
+
+func (w *gzipResponseWriter) commit(compress bool) {
+	if w.committed {
+		return
+	}
+	w.committed = true
+	if compress {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Del("Content-Length")
+		w.gz = gzipWriters.Get().(*gzip.Writer)
+		w.gz.Reset(w.ResponseWriter)
+	}
+	w.ResponseWriter.WriteHeader(w.status)
 }
 
 func (w *gzipResponseWriter) Write(body []byte) (int, error) {
-	if !w.wroteHeader {
+	if w.status == 0 {
 		w.WriteHeader(http.StatusOK)
 	}
-	if w.compressing {
+	if !w.committed {
+		canCompress := w.status >= 200 && w.status < 300 && w.status != http.StatusNoContent &&
+			strings.HasPrefix(w.Header().Get("Content-Type"), "application/json") &&
+			w.Header().Get("Content-Encoding") == "" &&
+			!strings.Contains(strings.ToLower(w.Header().Get("Cache-Control")), "no-transform")
+		if canCompress && len(w.buffer)+len(body) < minimumGzipBytes {
+			w.buffer = append(w.buffer, body...)
+			return len(body), nil
+		}
+		w.commit(canCompress)
+		if len(w.buffer) > 0 {
+			if _, err := w.write(w.buffer); err != nil {
+				return 0, err
+			}
+			w.buffer = nil
+		}
+	}
+	return w.write(body)
+}
+
+func (w *gzipResponseWriter) write(body []byte) (int, error) {
+	if w.gz != nil {
 		return w.gz.Write(body)
 	}
 	return w.ResponseWriter.Write(body)
 }
 
 func (w *gzipResponseWriter) close() {
-	if w.compressing {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	if !w.committed {
+		w.commit(false)
+		if len(w.buffer) > 0 {
+			_, _ = w.ResponseWriter.Write(w.buffer)
+		}
+	}
+	if w.gz != nil {
 		_ = w.gz.Close()
+		w.gz.Reset(io.Discard)
+		gzipWriters.Put(w.gz)
 	}
 }
 
 func withGzip(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet ||
-			!gzipPaths[r.URL.Path] ||
-			!strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		if !compressibleJSONRequest(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
-
-		w.Header().Add("Vary", "Accept-Encoding")
-		writer := &gzipResponseWriter{ResponseWriter: w, gz: gzip.NewWriter(w)}
+		// Plain responses vary too: caches must not reuse them for gzip clients.
+		addVary(w.Header(), "Accept-Encoding")
+		if !acceptsGzip(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		writer := &gzipResponseWriter{ResponseWriter: w}
 		defer writer.close()
 		next.ServeHTTP(writer, r)
 	})
@@ -250,9 +360,9 @@ func logRequests(next http.Handler) http.Handler {
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Last-Event-ID, Range")
-		w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Last-Event-ID, Range, If-None-Match, If-Match")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, ETag")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -275,6 +385,7 @@ func withAuth(next http.Handler, token string, s *Server) http.Handler {
 		// Stream tokens keep long-lived auth out of audio/SSE URLs. They are
 		// short-lived and only work on GET/HEAD media + playback streams.
 		if stream := presentedToken(r); stream != "" && s.streamTokenAllows(stream, r) {
+			r = r.WithContext(context.WithValue(r.Context(), streamAuthorizationKey{}, func() bool { return s.streamTokenAllows(stream, r) }))
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -290,6 +401,7 @@ func withAuth(next http.Handler, token string, s *Server) http.Handler {
 		// guest surface, dead the moment the host ends the session.
 		if guest := presentedToken(r); guest != "" && s.isAuxGuestToken(guest) {
 			if auxGuestAllowed(r) {
+				r = r.WithContext(context.WithValue(r.Context(), streamAuthorizationKey{}, func() bool { return s.isAuxGuestToken(guest) }))
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -371,4 +483,11 @@ func publicBaseURL(r *http.Request) string {
 		host = r.Host
 	}
 	return proto + "://" + host
+}
+
+type streamAuthorizationKey struct{}
+
+func streamAuthorized(r *http.Request) bool {
+	check, ok := r.Context().Value(streamAuthorizationKey{}).(func() bool)
+	return !ok || check()
 }

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Connection help, offline playback guidance and support for Codec.">
+  <title>Support · Codec</title>
+  <link rel="icon" href="/favicon.png">
+  <link rel="stylesheet" href="/legal.css">
+</head>
+<body>
+  <header>
+    <a class="brand" href="/"><img src="/favicon.png" alt="" width="46" height="46">Codec</a>
+    <nav aria-label="Information"><a href="/privacy.html">Privacy</a><a href="/support.html" aria-current="page">Support</a></nav>
+  </header>
+  <main>
+    <h1>Support</h1>
+    <p>Get help with Codec, report a bug, or find the server setup documentation.</p>
+    <p class="note"><a href="https://github.com/urlocalgoose/codec/issues">Open the Codec support tracker</a><br>Issues are public. Keep auth tokens, private server addresses and personal music files out of your report.</p>
+
+    <h2>Connecting to your music</h2>
+    <p>Codec uses three parts: a server that stores and serves your music, a web interface served by that server, and the app on your phone. The app and website can connect to the same library.</p>
+    <ol>
+      <li>Get the server URL and auth token from the person running your server.</li>
+      <li>Enter them on Codec’s connection screen. Use the server’s HTTPS URL when connecting over the internet.</li>
+      <li>If a saved connection stops working, check your internet or local network connection, then use <strong>Settings → Reconnect</strong>.</li>
+    </ol>
+    <p>A local network address only works while your device can reach that network. A running app cannot reconnect to a server that is stopped or unavailable. For installation and hosting details, see the <a href="https://github.com/urlocalgoose/codec/blob/main/docs/codec-sync.md">server documentation</a>.</p>
+
+    <h2>Offline playback</h2>
+    <p>Download songs in the app before going offline. Downloaded music can play without reaching the server; music that has not been downloaded still needs a connection. Cached album covers and library listings do not mean a song’s audio is downloaded.</p>
+    <p>To free space, use <strong>Remove Download</strong> on a downloaded song. This removes its local copy and keeps the song on your server.</p>
+
+    <h2>Playback or syncing problems</h2>
+    <p>Check the playback device shown in Now Playing, especially if another phone or browser is connected. If the wrong device is active, select the device you want to control. Reconnect if the server status shows a connection problem.</p>
+    <p>When reporting a problem, include your app version, phone model and operating system, or browser name and version. Describe what you did, what happened, and whether the song was downloaded or streamed. For a glitch during lock, unlock or a notification, mention which action triggered it.</p>
+
+    <h2>Playlists and artwork</h2>
+    <p>Removing a song from a playlist or deleting a playlist does not delete its music from the library. A playlist cover you select is uploaded to your connected server and shared with other clients that can access that library.</p>
+    <p>The separate demonstration and review collection uses artist-published CC0 music and public-domain Open Access images from The Met. Its covers are replacement collection artwork, not the musicians’ original album covers. See <a href="https://creativecommons.org/publicdomain/zero/1.0/">CC0 1.0</a> and <a href="https://www.metmuseum.org/hubs/open-access">The Met’s Open Access policy</a>.</p>
+
+    <h2>Privacy and data requests</h2>
+    <p>Read the <a href="/privacy.html">Privacy Policy</a> for local storage, synchronization and deletion details. For data on a self-hosted server, contact its operator. For a developer-operated demonstration or review server, use the <a href="https://github.com/urlocalgoose/codec/issues">support tracker</a> to request a private follow-up before sharing sensitive details.</p>
+  </main>
+  <footer>Codec · <a href="/privacy.html">Privacy Policy</a> · <a href="https://github.com/urlocalgoose/codec">Source code</a></footer>
+</body>
+</html>

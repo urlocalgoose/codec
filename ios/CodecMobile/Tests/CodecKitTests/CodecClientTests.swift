@@ -111,6 +111,20 @@ private func httpResponse(url: URL, status: Int = 200) -> HTTPURLResponse {
         #expect(url?.absoluteString == "http://192.168.1.20:8787/api/v1/tracks/isrc%3AUS%2FTEST/audio")
     }
 
+    @Test func deletePlaylistEncodesOnlyThePlaylistIDAndPreservesHostAuth() async throws {
+        let transport = RecordingTransport()
+        transport.responses = [(Data(), httpResponse(url: base, status: 204))]
+        let client = CodecClient(baseURL: base, token: "host-secret", transport: transport)
+
+        try await client.deletePlaylist(id: "road / trip?#")
+
+        #expect(transport.requests.count == 1)
+        #expect(transport.requests[0].httpMethod == "DELETE")
+        #expect(transport.requests[0].url?.absoluteString == "http://192.168.1.20:8787/api/v1/playlists/road%20%2F%20trip%3F%23")
+        #expect(transport.requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer host-secret")
+        #expect(transport.requests[0].httpBody == nil)
+    }
+
     @Test func createAuxSessionUsesHostAuth() async throws {
         let transport = RecordingTransport()
         transport.responses = [(

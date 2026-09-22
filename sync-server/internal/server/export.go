@@ -5,30 +5,38 @@ package server
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"image"
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 	"time"
 )
 
 type exportManifestTrack struct {
-	File        string            `json:"file"`
-	Title       string            `json:"title"`
-	Artist      string            `json:"artist"`
-	Album       string            `json:"album"`
-	AlbumArtist *string           `json:"album_artist,omitempty"`
-	Genre       *string           `json:"genre,omitempty"`
-	Year        *int              `json:"year,omitempty"`
-	TrackNumber *int              `json:"track_number,omitempty"`
-	DurationMs  *int64            `json:"duration_ms,omitempty"`
-	Liked       bool              `json:"liked,omitempty"`
-	Fingerprint string            `json:"fingerprint"`
-	Identifiers map[string]string `json:"identifiers,omitempty"`
-	SourceURLs  map[string]string `json:"source_urls,omitempty"`
+	File            string            `json:"file"`
+	Title           string            `json:"title"`
+	Artist          string            `json:"artist"`
+	Album           string            `json:"album"`
+	AlbumArtist     *string           `json:"album_artist,omitempty"`
+	Genre           *string           `json:"genre,omitempty"`
+	Year            *int              `json:"year,omitempty"`
+	TrackNumber     *int              `json:"track_number,omitempty"`
+	DiscNumber      *int              `json:"disc_number,omitempty"`
+	Explicit        *bool             `json:"explicit,omitempty"`
+	DurationSeconds *float64          `json:"duration_seconds,omitempty"`
+	Artwork         *bundleArtwork    `json:"artwork,omitempty"`
+	DurationMs      *int64            `json:"duration_ms,omitempty"`
+	Liked           bool              `json:"liked,omitempty"`
+	Fingerprint     string            `json:"fingerprint"`
+	Identifiers     map[string]string `json:"identifiers,omitempty"`
+	SourceURLs      map[string]string `json:"source_urls,omitempty"`
 }
 
 type exportManifestPlaylistRef struct {
@@ -36,9 +44,10 @@ type exportManifestPlaylistRef struct {
 }
 
 type exportManifestPlaylist struct {
-	Name   string                      `json:"name"`
-	Mode   string                      `json:"mode"`
-	Tracks []exportManifestPlaylistRef `json:"tracks"`
+	Name    string                      `json:"name"`
+	Mode    string                      `json:"mode"`
+	Tracks  []exportManifestPlaylistRef `json:"tracks"`
+	Artwork *bundleArtwork              `json:"artwork,omitempty"`
 }
 
 func (s *Server) handleExportLibrary(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +73,7 @@ func (s *Server) handleExportLibrary(w http.ResponseWriter, r *http.Request) {
 	manifestTracks := make([]exportManifestTrack, 0, len(snapshot.Library.Tracks))
 	zipPathFor := make(map[string]string, len(snapshot.Library.Tracks))
 	usedPaths := make(map[string]bool)
+	writtenArtwork := make(map[string]bool)
 
 	for _, track := range snapshot.Library.Tracks {
 		if audioPaths[track.Fingerprint] == "" {
@@ -73,18 +83,27 @@ func (s *Server) handleExportLibrary(w http.ResponseWriter, r *http.Request) {
 		zipPathFor[track.Fingerprint] = zipPath
 
 		entry := exportManifestTrack{
-			File:        zipPath,
-			Title:       track.Title,
-			Artist:      track.Artist,
-			Album:       track.Album,
-			AlbumArtist: track.AlbumArtist,
-			Genre:       track.Genre,
-			Year:        track.Year,
-			TrackNumber: track.TrackNumber,
-			Liked:       track.IsLiked,
-			Fingerprint: track.Fingerprint,
-			Identifiers: track.Identifiers,
-			SourceURLs:  track.SourceURLs,
+			File:            zipPath,
+			Title:           track.Title,
+			Artist:          track.Artist,
+			Album:           track.Album,
+			AlbumArtist:     track.AlbumArtist,
+			Genre:           track.Genre,
+			Year:            track.Year,
+			TrackNumber:     track.TrackNumber,
+			DiscNumber:      track.DiscNumber,
+			Explicit:        track.Explicit,
+			DurationSeconds: track.DurationSeconds,
+			Liked:           track.IsLiked,
+			Fingerprint:     track.Fingerprint,
+			Identifiers:     track.Identifiers,
+			SourceURLs:      track.SourceURLs,
+		}
+		if artworkPath, err := s.mediaPath(r.Context(), track.Fingerprint, "artwork_path"); err == nil {
+			entry.Artwork, err = exportBundleArtwork(archive, artworkPath, writtenArtwork)
+			if err != nil {
+				return
+			}
 		}
 		if track.DurationSeconds != nil {
 			ms := int64(*track.DurationSeconds * 1000)
@@ -108,13 +127,16 @@ func (s *Server) handleExportLibrary(w http.ResponseWriter, r *http.Request) {
 				refs = append(refs, exportManifestPlaylistRef{Fingerprint: track.Fingerprint})
 			}
 		}
-		if len(refs) > 0 {
-			manifestPlaylists = append(manifestPlaylists, exportManifestPlaylist{
-				Name:   playlist.Name,
-				Mode:   "append",
-				Tracks: refs,
-			})
+		entry := exportManifestPlaylist{
+			Name:   playlist.Name,
+			Mode:   "append",
+			Tracks: refs,
 		}
+		entry.Artwork, err = exportBundleArtwork(archive, s.playlistArtworkPath(playlist.ID), writtenArtwork)
+		if err != nil {
+			return
+		}
+		manifestPlaylists = append(manifestPlaylists, entry)
 	}
 
 	manifest := map[string]any{
@@ -122,7 +144,7 @@ func (s *Server) handleExportLibrary(w http.ResponseWriter, r *http.Request) {
 		"source": map[string]any{
 			"name":         "codec-sync-server",
 			"generated_at": s.now().UTC().Format(time.RFC3339),
-			"base_path":    "files",
+			"base_path":    ".",
 		},
 		"tracks":    manifestTracks,
 		"playlists": manifestPlaylists,
@@ -173,7 +195,13 @@ func (s *Server) audioPathsByFingerprint(ctx context.Context) (map[string]string
 		if err := rows.Scan(&fingerprint, &path); err != nil {
 			return nil, err
 		}
-		paths[fingerprint] = path
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+			paths[fingerprint] = path
+		} else if canonical := s.audioPath(fingerprint); canonical != path {
+			if info, err := os.Stat(canonical); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+				paths[fingerprint] = canonical
+			}
+		}
 	}
 	return paths, rows.Err()
 }
@@ -192,10 +220,55 @@ func exportZipPath(track Track, used map[string]bool) string {
 		component(track.Album, "Unknown Album"),
 		component(track.Title, "Untitled"),
 	)
-	path := base + ".mp3"
-	if used[path] {
-		path = fmt.Sprintf("%s-%s.mp3", base, safeFileName(track.Fingerprint))
+	ext := strings.ToLower(path.Ext(track.FileName))
+	if ext != ".mp3" && ext != ".m4a" && ext != ".mp4" && ext != ".wav" && ext != ".flac" {
+		ext = ".mp3"
 	}
-	used[path] = true
-	return path
+	zipPath := base + ext
+	if used[strings.ToLower(zipPath)] {
+		fallback := fmt.Sprintf("%s-%s", base, safeFileName(track.Fingerprint))
+		zipPath = fallback + ext
+		// The fingerprint suffix may itself be another song's title. Check
+		// every candidate so sanitized names stay unique on all clients.
+		for suffix := 2; used[strings.ToLower(zipPath)]; suffix++ {
+			zipPath = fmt.Sprintf("%s-%d%s", fallback, suffix, ext)
+		}
+	}
+	used[strings.ToLower(zipPath)] = true
+	return zipPath
+}
+
+// The manifest carries portable descriptors for original managed images.
+// Provenance URLs are never fetched; legacy non-JPEG/PNG images remain served
+// by their existing API route but are not advertised as supported new inputs.
+func exportBundleArtwork(archive *zip.Writer, filename string, written map[string]bool) (*bundleArtwork, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, nil
+	}
+	data, err := readArtwork(&http.Request{Header: make(http.Header), Body: file})
+	if err != nil {
+		return nil, nil
+	}
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, nil
+	}
+	digest := fmt.Sprintf("%x", sha256.Sum256(data))
+	ext := ".jpg"
+	if format == "png" {
+		ext = ".png"
+	}
+	name := "artwork/" + digest + ext
+	if !written[name] {
+		writer, err := archive.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
+		if err != nil {
+			return nil, err
+		}
+		if _, err := writer.Write(data); err != nil {
+			return nil, err
+		}
+		written[name] = true
+	}
+	return &bundleArtwork{File: name, SHA256: digest, MIME: "image/" + format, Width: config.Width, Height: config.Height}, nil
 }

@@ -78,9 +78,6 @@ public struct CodecLibrary: Codable, Equatable, Sendable {
         self.tracks = tracks
     }
 
-    /// A copy of the library with every copy of the identified song
-    /// (un)liked and the Liked Songs playlist kept in step — the optimistic
-    /// local mirror of `PUT /api/v1/tracks/{fingerprint}/liked`.
     /// A copy with one playlist's track list replaced - the local half of an
     /// optimistic playlist edit.
     public func settingPlaylistTracks(playlistID: String, trackIDs: [String]) -> CodecLibrary {
@@ -101,6 +98,37 @@ public struct CodecLibrary: Codable, Equatable, Sendable {
         )
     }
 
+    /// Changes only a collection and its membership references, never songs
+    /// or media. The original index is used when restoring a rejected delete.
+    public func replacingPlaylist(id: String, with playlist: CodecPlaylist?, at index: Int? = nil) -> CodecLibrary {
+        var next = playlists
+        let oldIndex = next.firstIndex { $0.id == id }
+        next.removeAll { $0.id == id }
+        if let playlist {
+            next.insert(playlist, at: min(oldIndex ?? index ?? next.count, next.count))
+        }
+        let members = Set(playlist?.trackIDs ?? [])
+        let nextTracks = tracks.map { track in
+            var memberships = track.playlistIDs
+            if members.contains(track.id) {
+                if !memberships.contains(id) { memberships.append(id) }
+            } else {
+                memberships.removeAll { $0 == id }
+            }
+            return memberships == track.playlistIDs ? track : track.withPlaylistIDs(memberships)
+        }
+        return CodecLibrary(
+            rootPath: rootPath, scannedAt: scannedAt,
+            stats: CodecLibraryStats(
+                trackCount: stats.trackCount, playlistCount: next.filter { !$0.isLiked }.count,
+                likedCount: stats.likedCount, artistCount: stats.artistCount,
+                albumCount: stats.albumCount, durationSeconds: stats.durationSeconds
+            ),
+            artists: artists, albums: albums, playlists: next, tracks: nextTracks
+        )
+    }
+
+    /// A copy with the identified song's like state and Liked Songs in step.
     public func settingLiked(fingerprint: String, liked: Bool) -> CodecLibrary {
         var changedIDs = Set<String>()
         let nextTracks = tracks.map { track -> CodecTrack in
@@ -324,6 +352,15 @@ public struct CodecTrack: Codable, Equatable, Sendable, Identifiable, Hashable {
             addedAt: addedAt,
             isLiked: liked,
             fingerprint: fingerprint
+        )
+    }
+
+    public func withPlaylistIDs(_ ids: [String]) -> CodecTrack {
+        CodecTrack(
+            id: id, title: title, artist: artist, album: album,
+            albumArtist: albumArtist, trackNumber: trackNumber, durationSeconds: durationSeconds,
+            artworkURL: artworkURL, audioURL: audioURL, playlistIDs: ids,
+            addedAt: addedAt, isLiked: isLiked, fingerprint: fingerprint
         )
     }
 }

@@ -1,0 +1,53 @@
+{
+  "content": "Licensed demonstration collection; actual native screenshots",
+  "images": [
+    {
+      "source": "iphone-6.9/01-home.png",
+      "source_sha256": "51f8999f054f21046cfa6ad99d78bd0b69021e56c0ad731bf7460c3aa630e914",
+      "asset": "iphone-home.webp",
+      "bytes": 115202
+    },
+    {
+      "source": "iphone-6.9/02-library.png",
+      "source_sha256": "ea42757d321248aa8882ecbe25610d63fc22dd325c3a6851c785907e70a97056",
+      "asset": "iphone-library.webp",
+      "bytes": 46332
+    },
+    {
+      "source": "iphone-6.9/07-search.png",
+      "source_sha256": "79474f7908ba3230db1b0d26248a0aae584229b04ee62381e95c713073fb4887",
+      "asset": "iphone-search.webp",
+      "bytes": 48508
+    },
+    {
+      "source": "iphone-6.9/04-now-playing.png",
+      "source_sha256": "192a85483f2701f1185c4e275727026f7710c2954a031c1bc19567d4b29dd999",
+      "asset": "iphone-now-playing.webp",
+      "bytes": 71802
+    },
+    {
+      "source": "iphone-6.9/05-visualizer.png",
+      "source_sha256": "982faa8ee0136f4e1f27bca925e6384ad74f40f1107ec302ab6af59ef98705dc",
+      "asset": "iphone-visualizer.webp",
+      "bytes": 41602
+    },
+    {
+      "source": "iphone-6.9/03-downloaded.png",
+      "source_sha256": "42d9607db2ece2e6c63ba17b77c83a132e38d90dc23b68660f49a9f9761cf946",
+      "asset": "iphone-downloaded.webp",
+      "bytes": 44268
+    },
+    {
+      "source": "iphone-6.9/06-palettes.png",
+      "source_sha256": "13b5632e4abbac641b74f2f167c467ea8e9954b3aba7aa1d04984306d60fdf80",
+      "asset": "iphone-palettes.webp",
+      "bytes": 30988
+    },
+    {
+      "source": "ipad-13/01-home.png",
+      "source_sha256": "f7895b839ff1818813359a5af4691c0fd5a2183b9d1c9ab457ea49016018fa92",
+      "asset": "ipad-home.webp",
+      "bytes": 181846
+    }
+  ]
+}

@@ -28,7 +28,7 @@ struct CodecTheme: Identifiable, Equatable {
     let swatch: [Color]
     let isLight: Bool
 
-    static let fallback = codecThemes[0]
+    static let fallback = codecThemes.first { $0.id == "graphite" } ?? codecThemes[0]
 }
 
 @MainActor

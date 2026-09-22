@@ -1,0 +1,26 @@
+{
+  "schema": "loud.import.v1",
+  "source": {
+    "base_path": "."
+  },
+  "tracks": [
+    {
+      "file": "audio/song.mp3",
+      "fingerprint": "example:song-1",
+      "title": "Example Song",
+      "artist": "Example Artist",
+      "liked": true
+    }
+  ],
+  "playlists": [
+    {
+      "name": "My Mix",
+      "mode": "append",
+      "tracks": [
+        {
+          "fingerprint": "example:song-1"
+        }
+      ]
+    }
+  ]
+}

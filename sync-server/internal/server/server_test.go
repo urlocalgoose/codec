@@ -319,6 +319,7 @@ func TestPlaybackSessionLatest(t *testing.T) {
 		Session: map[string]any{
 			"schema":       "loud.playback.v1",
 			"current_time": 42,
+			"playlist_id":  "playlist-destination",
 		},
 	}
 	raw, _ := json.Marshal(payload)
@@ -337,7 +338,7 @@ func TestPlaybackSessionLatest(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&latest); err != nil {
 		t.Fatal(err)
 	}
-	if latest.DeviceID != "phone" || latest.Session["schema"] != "loud.playback.v1" {
+	if latest.DeviceID != "phone" || latest.Session["schema"] != "loud.playback.v1" || latest.Session["playlist_id"] != "playlist-destination" {
 		t.Fatalf("bad latest session: %+v", latest)
 	}
 }
@@ -1165,7 +1166,7 @@ func TestPlaylistArtworkUploadServeAndDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cover := []byte("fake-jpeg-bytes")
+	cover := artworkFixture(t, "jpeg", 120)
 	put, err := http.NewRequest(http.MethodPut, httpServer.URL+"/api/v1/playlists/pl_art/artwork", bytes.NewReader(cover))
 	if err != nil {
 		t.Fatal(err)

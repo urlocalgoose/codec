@@ -4,8 +4,8 @@ package server
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,7 +53,7 @@ func (s *Server) snapshot(ctx context.Context, baseURL string) (SyncSnapshot, er
 }
 
 func (s *Server) upsertTrack(ctx context.Context, track Track) error {
-	defer s.libraryVersion.Add(1)
+	defer s.libraryChanged()
 	track.Fingerprint = cleanFingerprint(track.Fingerprint)
 	if track.Fingerprint == "" {
 		return errors.New("track fingerprint is required")
@@ -103,7 +103,7 @@ func (s *Server) upsertTrack(ctx context.Context, track Track) error {
 }
 
 func (s *Server) upsertPlaylist(ctx context.Context, playlist Playlist) error {
-	defer s.libraryVersion.Add(1)
+	defer s.libraryChanged()
 	playlist.ID = strings.TrimSpace(playlist.ID)
 	if playlist.ID == "" {
 		return errors.New("playlist id is required")
@@ -128,6 +128,27 @@ func (s *Server) upsertPlaylist(ctx context.Context, playlist Playlist) error {
 			updated_at = excluded.updated_at
 	`, playlist.ID, playlist.Name, boolInt(playlist.IsLiked), string(trackIDs), s.now().Unix())
 	return err
+}
+
+// Renames update only the name so concurrent membership/artwork edits survive.
+func (s *Server) renamePlaylist(ctx context.Context, id, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("playlist name is required")
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE playlists SET name = ?, updated_at = ? WHERE id = ?`, name, s.now().Unix(), id)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return sql.ErrNoRows
+	}
+	s.libraryChanged()
+	return nil
 }
 
 func (s *Server) createPlaylist(ctx context.Context, name string) (Playlist, error) {
@@ -155,14 +176,35 @@ func (s *Server) createPlaylist(ctx context.Context, name string) (Playlist, err
 // back deduped - the partial-update shape, so callers never replay a whole
 // playlist row and clobber concurrent edits.
 func (s *Server) modifyPlaylistTracks(ctx context.Context, id string, mutate func([]string) []string) (Playlist, error) {
-	playlist, err := s.playlistByID(ctx, id)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Playlist{}, err
 	}
-	playlist.TrackIDs = dedupeStrings(mutate(playlist.TrackIDs))
-	if err := s.upsertPlaylist(ctx, playlist); err != nil {
+	defer tx.Rollback()
+	var playlist Playlist
+	var raw string
+	var liked int
+	if err := tx.QueryRowContext(ctx, `SELECT id, name, is_liked, track_ids_json FROM playlists WHERE id = ?`, id).
+		Scan(&playlist.ID, &playlist.Name, &liked, &raw); err != nil {
 		return Playlist{}, err
 	}
+	playlist.IsLiked = liked != 0
+	playlist.Path = "loud://playlist/" + playlist.ID
+	if err := json.Unmarshal([]byte(raw), &playlist.TrackIDs); err != nil {
+		return Playlist{}, err
+	}
+	playlist.TrackIDs = dedupeStrings(mutate(playlist.TrackIDs))
+	encoded, err := json.Marshal(playlist.TrackIDs)
+	if err != nil {
+		return Playlist{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE playlists SET track_ids_json = ?, updated_at = ? WHERE id = ?`, string(encoded), s.now().Unix(), id); err != nil {
+		return Playlist{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Playlist{}, err
+	}
+	s.libraryChanged()
 	return playlist, nil
 }
 
@@ -174,7 +216,7 @@ func (s *Server) deletePlaylist(ctx context.Context, id string) error {
 	if playlist.IsLiked {
 		return errors.New("the liked playlist cannot be deleted")
 	}
-	defer s.libraryVersion.Add(1)
+	defer s.libraryChanged()
 	_, err = s.db.ExecContext(ctx, `DELETE FROM playlists WHERE id = ?`, id)
 	return err
 }
@@ -254,6 +296,15 @@ func (s *Server) tracks(ctx context.Context, baseURL string) ([]Track, error) {
 		}
 		if artworkPath.Valid {
 			url := fmt.Sprintf("%s/api/v1/tracks/%s/artwork", baseURL, pathEscape(track.Fingerprint))
+			info, err := os.Stat(artworkPath.String)
+			if err != nil {
+				// Match mediaPath's fallback after a data-directory move without
+				// issuing another query while these rows hold the DB connection.
+				info, err = os.Stat(s.artworkPath(track.Fingerprint))
+			}
+			if err == nil {
+				url += fmt.Sprintf("?v=%d", info.ModTime().UnixNano())
+			}
 			track.ArtworkURL = &url
 		}
 		tracks = append(tracks, track)
@@ -289,7 +340,7 @@ func (s *Server) playlists(ctx context.Context) ([]Playlist, error) {
 // setTrackLiked flips only the is_liked column, which is authoritative over
 // the metadata JSON when the library is read back.
 func (s *Server) setTrackLiked(ctx context.Context, fingerprint string, liked bool) error {
-	defer s.libraryVersion.Add(1)
+	defer s.libraryChanged()
 	result, err := s.db.ExecContext(
 		ctx,
 		`UPDATE tracks SET is_liked = ?, updated_at = ? WHERE fingerprint = ?`,
@@ -309,7 +360,7 @@ func (s *Server) setTrackLiked(ctx context.Context, fingerprint string, liked bo
 }
 
 func (s *Server) attachMediaPath(ctx context.Context, fingerprint, column, path string, size int64) error {
-	defer s.libraryVersion.Add(1)
+	defer s.libraryChanged()
 	if column != "audio_path" && column != "artwork_path" {
 		return errors.New("invalid media column")
 	}
@@ -400,8 +451,13 @@ func (s *Server) attachPlaylistArtwork(playlists []Playlist, baseURL string) {
 			"%s/api/v1/playlists/%s/artwork?v=%d",
 			baseURL,
 			pathEscape(playlists[i].ID),
-			info.ModTime().Unix(),
+			info.ModTime().UnixNano(),
 		)
 		playlists[i].ArtworkURL = &url
 	}
+}
+
+func (s *Server) libraryChanged() {
+	s.libraryVersion.Add(1)
+	s.playbackEvents.broadcast(PlaybackEvent{Type: "library"})
 }

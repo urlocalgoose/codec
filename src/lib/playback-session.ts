@@ -10,6 +10,7 @@ export interface PersistedPlaybackSession {
   current_track: TrackReference | null;
   queued_tracks: TrackReference[];
   playback_source: TrackReference[];
+  playlist_id?: string | null;
   playback_index: number;
   play_history: TrackReference[];
   current_time: number;
@@ -62,6 +63,7 @@ export function parsePlaybackSession(raw: string | null, activeRootPath: string)
       current_track: validTrackReference(session.current_track) ? session.current_track : null,
       queued_tracks: validTrackReferences(session.queued_tracks),
       playback_source: validTrackReferences(session.playback_source),
+      playlist_id: typeof session.playlist_id === "string" ? session.playlist_id.trim() || null : null,
       playback_index: Number(session.playback_index) || 0,
       play_history: validTrackReferences(session.play_history),
       current_time: Number(session.current_time) || 0,

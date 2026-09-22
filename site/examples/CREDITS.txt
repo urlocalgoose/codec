@@ -1,0 +1,28 @@
+Loud format example files
+
+The JSON files are templates. Supply your own audio/song.mp3 and replace the
+example song details and identity consistently. No audio is included.
+Put all three JSON files beside one another and keep the cover at
+artwork/cover.jpg relative to them. The supplied hash and dimensions match
+this exact cover file; replacing it requires updating those values.
+
+Artwork credit
+Autumn Landscape with a Flock of Turkeys, 1872-73
+Jean-François Millet
+The Metropolitan Museum of Art, object 437094 (17.120.209)
+Mr. and Mrs. Isaac D. Fletcher Collection, Bequest of Isaac D. Fletcher, 1917
+
+Public-domain artwork; digital image supplied under CC0 1.0 by The Met.
+The original downloaded JPEG bytes are unchanged. Only the filename changed.
+No association with the example song, or endorsement of Codec, is implied.
+
+Object: https://www.metmuseum.org/art/collection/search/437094
+Original image: https://images.metmuseum.org/CRDImages/ep/web-large/DT1982.jpg
+Open Access policy: https://www.metmuseum.org/hubs/open-access
+License: https://creativecommons.org/publicdomain/zero/1.0/
+
+File: artwork/cover.jpg
+MIME: image/jpeg
+Dimensions: 600 x 489 pixels
+Bytes: 98487
+SHA-256: 94f349d7962f0472d0f8318af881c6426f12321966e97892894951f4519cc0d8

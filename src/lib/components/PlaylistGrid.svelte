@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ArtworkImage from "./ArtworkImage.svelte";
   import { ListMusic } from "lucide-svelte";
   import { formatCount } from "$lib/library";
   import type { Playlist, Track } from "$lib/types";
@@ -19,9 +20,9 @@
     {@const cover = playlistCovers.get(playlist.id)}
     <button class="summary-card" type="button" onclick={() => onOpen(playlist.id)}>
       {#if playlist.artwork_url}
-        <img class="summary-art" src={playlist.artwork_url} alt="" loading="lazy" decoding="async" />
+        <ArtworkImage class="summary-art" src={playlist.artwork_url} alt="" loading="lazy" decoding="async" />
       {:else if cover?.artwork_url}
-        <img class="summary-art" src={cover.artwork_url} alt="" loading="lazy" decoding="async" />
+        <ArtworkImage class="summary-art" src={cover.artwork_url} alt="" loading="lazy" decoding="async" />
       {:else}
         <span class="summary-icon"><ListMusic size={48} /></span>
       {/if}

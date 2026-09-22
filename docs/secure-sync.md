@@ -34,8 +34,8 @@ When a token is set:
 - The static app shell is public so join links can load; API data, artwork,
   and audio media are protected by the same server.
 
-The desktop app and iOS app both have an optional auth-token field next to
-the server URL; set it to the same value as `CODEC_AUTH_TOKEN`.
+The web interface and native iPhone/iPad app accept a server URL and auth token
+on their connection screens; use the same value as the server’s `CODEC_AUTH_TOKEN`.
 
 For public use, this must sit behind HTTPS. Cloudflare can provide DNS, HTTPS,
 Tunnel, and Access in front of the Go server, but Cloudflare is not a second
@@ -61,7 +61,7 @@ path is:
 Svelte UI -> Go server -> SQLite + media directory
 ```
 
-Desktop, mobile PWA, and any later native app should speak to that same server
+The web interface, mobile PWA, and native iPhone/iPad app use the same server
 contract.
 
 

@@ -28,6 +28,8 @@ pub fn scan_library_path(root_path: impl AsRef<Path>) -> Result<Library, String>
         playlists_by_id.insert(
             id.clone(),
             Playlist {
+                artwork_url: None,
+                artwork: None,
                 id: id.clone(),
                 name,
                 path: path_to_string(playlist_path),
@@ -40,6 +42,8 @@ pub fn scan_library_path(root_path: impl AsRef<Path>) -> Result<Library, String>
     playlists_by_id
         .entry(liked_playlist_id.clone())
         .or_insert(Playlist {
+            artwork_url: None,
+            artwork: None,
             id: liked_playlist_id.clone(),
             name: LIKED_FOLDER_NAME.to_string(),
             path: path_to_string(&root.join(LIKED_FOLDER_NAME)),
@@ -56,6 +60,8 @@ pub fn scan_library_path(root_path: impl AsRef<Path>) -> Result<Library, String>
         playlists_by_id
             .entry(state_playlist.id.clone())
             .or_insert(Playlist {
+                artwork_url: None,
+                artwork: None,
                 id: state_playlist.id.clone(),
                 name: state_playlist.name.clone(),
                 path: path_to_string(&state_file_path(&root)),
@@ -74,6 +80,7 @@ pub fn scan_library_path(root_path: impl AsRef<Path>) -> Result<Library, String>
     for entry in WalkDir::new(&root)
         .follow_links(false)
         .into_iter()
+        .filter_entry(|entry| is_library_scan_entry(&root, entry.path()))
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file())
     {
@@ -170,6 +177,16 @@ pub fn scan_library_path(root_path: impl AsRef<Path>) -> Result<Library, String>
         }
     }
 
+    for track in tracks_by_fingerprint.values_mut() {
+        if let Some(art) = state
+            .track_artwork
+            .get(&track.fingerprint)
+            .and_then(|art| stored_artwork_ref(&root, art))
+        {
+            track.artwork = Some(art);
+        }
+    }
+
     apply_state_playlists(
         &mut tracks_by_fingerprint,
         &mut playlists_by_id,
@@ -205,14 +222,48 @@ pub fn scan_library_path(root_path: impl AsRef<Path>) -> Result<Library, String>
             .then(a.title.to_lowercase().cmp(&b.title.to_lowercase()))
     });
 
+    let default_order = tracks
+        .iter()
+        .enumerate()
+        .map(|(index, track)| (track.id.clone(), index))
+        .collect::<BTreeMap<_, _>>();
+    let ids_by_fingerprint = tracks
+        .iter()
+        .map(|track| (track.fingerprint.as_str(), track.id.as_str()))
+        .collect::<BTreeMap<_, _>>();
     for playlist in playlists_by_id.values_mut() {
+        // State-backed playlists carry intentional import/user order. Folder
+        // tracks without managed positions follow in their usual deterministic order.
+        let managed_order = state
+            .playlists
+            .iter()
+            .find(|entry| entry.id == playlist.id)
+            .or_else(|| {
+                state
+                    .playlists
+                    .iter()
+                    .find(|entry| normalize(&entry.name) == normalize(&playlist.name))
+            })
+            .map(|entry| {
+                entry
+                    .track_fingerprints
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, fingerprint)| {
+                        ids_by_fingerprint
+                            .get(fingerprint.as_str())
+                            .map(|id| ((*id).to_string(), index))
+                    })
+                    .collect::<BTreeMap<_, _>>()
+            })
+            .unwrap_or_default();
         playlist.track_ids.dedup();
-        playlist.track_ids.sort_by_key(|id| {
-            tracks
-                .iter()
-                .position(|track| &track.id == id)
-                .unwrap_or(usize::MAX)
-        });
+        playlist
+            .track_ids
+            .sort_by_key(|id| match managed_order.get(id) {
+                Some(index) => (0, *index),
+                None => (1, default_order.get(id).copied().unwrap_or(usize::MAX)),
+            });
     }
 
     let mut playlists = playlists_by_id.into_values().collect::<Vec<_>>();
@@ -239,7 +290,6 @@ pub fn scan_library_path(root_path: impl AsRef<Path>) -> Result<Library, String>
         tracks,
     })
 }
-
 
 pub(super) fn direct_child_folder_name(root: &Path, path: &Path) -> Option<String> {
     let relative = path.strip_prefix(root).ok()?;
@@ -280,6 +330,37 @@ pub(super) fn canonical_source_score(root: &Path, path: &Path, is_liked_source: 
     2
 }
 
+// Import downloads are staged under .loud/cache. They are not library media until
+// the importer copies them into .loud/audio and records their explicit identity.
+// Prune metadata directories before traversal so staging files cannot become
+// false existing matches or additional tracks, and large caches cost no scan IO.
+fn is_library_scan_entry(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    let mut components = relative.components();
+    let Some(first) = components.next() else {
+        return true;
+    };
+    if !first
+        .as_os_str()
+        .to_str()
+        .map(|name| name.eq_ignore_ascii_case(STATE_DIR_NAME))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    components
+        .next()
+        .map(|second| {
+            second
+                .as_os_str()
+                .to_str()
+                .map(|name| name.eq_ignore_ascii_case(MANAGED_AUDIO_DIR_NAME))
+                .unwrap_or(false)
+        })
+        .unwrap_or(true)
+}
 
 pub(super) fn discover_playlist_dirs(root: &Path) -> Result<Vec<(PathBuf, bool)>, String> {
     let mut dirs = Vec::new();
@@ -297,7 +378,7 @@ pub(super) fn discover_playlist_dirs(root: &Path) -> Result<Vec<(PathBuf, bool)>
         if path
             .file_name()
             .and_then(|name| name.to_str())
-            .map(|name| name == STATE_DIR_NAME)
+            .map(|name| name.eq_ignore_ascii_case(STATE_DIR_NAME))
             .unwrap_or(false)
         {
             continue;
@@ -328,7 +409,7 @@ pub(super) fn read_track_with_state(
     state: &LibraryState,
 ) -> Result<Track, String> {
     let mut track = read_track(root, path, playlist_ids, playlist_is_liked, true)?;
-    if let Some(metadata) = state.managed_tracks.get(&relative_path_key(root, path)) {
+    if let Some(metadata) = managed_metadata_for_track(root, path, state)? {
         apply_state_track_metadata(&mut track, metadata);
     }
     Ok(track)
@@ -356,16 +437,25 @@ pub(super) fn read_track_cached(
     let size = metadata.len();
     let key = relative_path_key(root, path);
 
-    let mut track = if let Some(cached) = cache
-        .get(&key)
-        .filter(|cached| cached.mtime == mtime && cached.size == size)
-    {
-        track_from_cache(root, path, &metadata, cached, playlist_ids, playlist_is_liked)
+    let mut track = if let Some(cached) = cache.get(&key).filter(|cached| {
+        cached.metadata_version == SCAN_TAG_CACHE_VERSION
+            && cached.mtime == mtime
+            && cached.size == size
+    }) {
+        track_from_cache(
+            root,
+            path,
+            &metadata,
+            cached,
+            playlist_ids,
+            playlist_is_liked,
+        )
     } else {
         let track = read_track(root, path, playlist_ids, playlist_is_liked, true)?;
         cache.insert(
             key,
             ScanTagCache {
+                metadata_version: SCAN_TAG_CACHE_VERSION,
                 mtime,
                 size,
                 title: track.title.clone(),
@@ -375,6 +465,10 @@ pub(super) fn read_track_cached(
                 genre: track.genre.clone(),
                 year: track.year,
                 track_number: track.track_number,
+                disc_number: track.disc_number,
+                explicit: track.explicit,
+                identifiers: track.identifiers.clone(),
+                source_urls: track.source_urls.clone(),
                 duration_seconds: track.duration_seconds,
                 artwork_cache_path: track
                     .artwork
@@ -386,7 +480,7 @@ pub(super) fn read_track_cached(
         track
     };
 
-    if let Some(metadata) = state.managed_tracks.get(&relative_path_key(root, path)) {
+    if let Some(metadata) = managed_metadata_for_track(root, path, state)? {
         apply_state_track_metadata(&mut track, metadata);
     }
     Ok(track)
@@ -417,12 +511,20 @@ fn track_from_cache(
         genre: cached.genre.clone(),
         year: cached.year,
         track_number: cached.track_number,
+        disc_number: cached.disc_number,
+        explicit: cached.explicit,
+        identifiers: cached.identifiers.clone(),
+        source_urls: cached.source_urls.clone(),
         duration_seconds: cached.duration_seconds,
         artwork_url: None,
-        artwork: cached.artwork_cache_path.as_ref().map(|cache_path| CachedArtwork {
-            source_path: path.to_path_buf(),
-            cache_path: PathBuf::from(cache_path),
-        }),
+        artwork: cached
+            .artwork_cache_path
+            .as_ref()
+            .map(|cache_path| CachedArtwork {
+                original_mime_type: None,
+                source_path: path.to_path_buf(),
+                cache_path: PathBuf::from(cache_path),
+            }),
         playlist_ids,
         added_at: metadata.modified().ok().and_then(system_time_to_unix),
         size_bytes: metadata.len(),
@@ -458,6 +560,9 @@ pub(super) fn read_track(
     let mut genre = None;
     let mut year = None;
     let mut track_number = None;
+    let mut disc_number = None;
+    let mut explicit = None;
+    let mut identifiers = BTreeMap::new();
     let mut duration_seconds = None;
     let mut artwork = None;
 
@@ -479,6 +584,22 @@ pub(super) fn read_track(
             genre = clean_text(tag.genre());
             year = tag.date().map(|date| date.year);
             track_number = tag.track();
+            disc_number = tag.disk();
+            explicit = tag
+                .get_string(ItemKey::ParentalAdvisory)
+                .and_then(|rating| match rating.trim() {
+                    "1" | "4" => Some(true),
+                    "0" | "2" => Some(false),
+                    _ => None,
+                });
+            for (name, key) in [
+                ("isrc", ItemKey::Isrc),
+                ("musicbrainz_recording_id", ItemKey::MusicBrainzRecordingId),
+            ] {
+                if let Some(value) = clean_plain_text(tag.get_string(key)) {
+                    identifiers.insert(name.to_string(), value);
+                }
+            }
             if cache_artwork {
                 artwork = tag
                     .pictures()
@@ -504,6 +625,10 @@ pub(super) fn read_track(
         genre,
         year,
         track_number,
+        disc_number,
+        explicit,
+        identifiers,
+        source_urls: BTreeMap::new(),
         duration_seconds,
         artwork_url: None,
         artwork,
@@ -514,4 +639,3 @@ pub(super) fn read_track(
         fingerprint,
     })
 }
-

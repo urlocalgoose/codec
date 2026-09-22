@@ -1,0 +1,16 @@
+{
+  "schema": "s2y.track-artwork.v1",
+  "base_path": ".",
+  "tracks": [
+    {
+      "fingerprint": "example:song-1",
+      "artwork": {
+        "file": "artwork/cover.jpg",
+        "sha256": "94f349d7962f0472d0f8318af881c6426f12321966e97892894951f4519cc0d8",
+        "mime_type": "image/jpeg",
+        "width": 600,
+        "height": 489
+      }
+    }
+  ]
+}

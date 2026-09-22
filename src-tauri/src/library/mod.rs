@@ -18,6 +18,7 @@ const CACHE_DIR_NAME: &str = "cache";
 const ARTWORK_DIR_NAME: &str = "artwork";
 const ARTWORK_THUMBNAIL_SIZE: u32 = 640;
 const IMPORT_SCHEMA: &str = "loud.import.v1";
+const SCAN_TAG_CACHE_VERSION: u8 = 1;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Library {
@@ -32,6 +33,9 @@ pub struct Library {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Playlist {
+    pub artwork_url: Option<String>,
+    #[serde(skip_serializing)]
+    pub artwork: Option<CachedArtwork>,
     pub id: String,
     pub name: String,
     pub path: String,
@@ -51,6 +55,12 @@ pub struct Track {
     pub genre: Option<String>,
     pub year: Option<u16>,
     pub track_number: Option<u32>,
+    pub disc_number: Option<u32>,
+    pub explicit: Option<bool>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub identifiers: BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub source_urls: BTreeMap<String, String>,
     pub duration_seconds: Option<f64>,
     pub artwork_url: Option<String>,
     #[serde(skip_serializing)]
@@ -97,6 +107,8 @@ pub struct AlbumSummary {
 
 #[derive(Clone, Debug)]
 pub struct CachedArtwork {
+    /// Set only for validated original image files; None denotes embedded audio artwork.
+    pub original_mime_type: Option<String>,
     pub source_path: PathBuf,
     pub cache_path: PathBuf,
 }
@@ -121,14 +133,27 @@ struct LibraryState {
     removed_playlist_memberships: Vec<StatePlaylistMembership>,
     #[serde(default)]
     managed_tracks: BTreeMap<String, StateTrackMetadata>,
+    /// Runtime index reconciles stored path spelling with case-insensitive filesystems.
+    #[serde(skip)]
+    managed_tracks_by_identity: BTreeMap<ManagedFileIdentity, Option<StateTrackMetadata>>,
+    #[serde(default)]
+    track_artwork: BTreeMap<String, StoredArtwork>,
     /// Tag-read cache keyed by relative path: while a file's mtime+size are
     /// unchanged, rescans skip the (expensive) tag parse entirely.
     #[serde(default)]
     scan_cache: BTreeMap<String, ScanTagCache>,
 }
 
+#[cfg(unix)]
+type ManagedFileIdentity = (u64, u64);
+#[cfg(not(unix))]
+type ManagedFileIdentity = PathBuf;
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 struct ScanTagCache {
+    // Old entries lack the expanded tag metadata and must be read once again.
+    #[serde(default)]
+    metadata_version: u8,
     #[serde(default)]
     mtime: u64,
     #[serde(default)]
@@ -148,6 +173,14 @@ struct ScanTagCache {
     #[serde(default)]
     track_number: Option<u32>,
     #[serde(default)]
+    disc_number: Option<u32>,
+    #[serde(default)]
+    explicit: Option<bool>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    identifiers: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    source_urls: BTreeMap<String, String>,
+    #[serde(default)]
     duration_seconds: Option<f64>,
     #[serde(default)]
     artwork_cache_path: Option<String>,
@@ -155,6 +188,8 @@ struct ScanTagCache {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct StatePlaylist {
+    #[serde(default)]
+    artwork: Option<StoredArtwork>,
     id: String,
     name: String,
     #[serde(default)]
@@ -209,6 +244,35 @@ struct TrackIdentifiers {
     extra: BTreeMap<String, String>,
 }
 
+impl TrackIdentifiers {
+    pub(super) fn from_map(mut identifiers: BTreeMap<String, String>) -> Self {
+        Self {
+            isrc: identifiers.remove("isrc"),
+            spotify_track_id: identifiers.remove("spotify_track_id"),
+            spotify_album_id: identifiers.remove("spotify_album_id"),
+            youtube_video_id: identifiers.remove("youtube_video_id"),
+            musicbrainz_recording_id: identifiers.remove("musicbrainz_recording_id"),
+            extra: identifiers,
+        }
+    }
+
+    pub(super) fn to_map(&self) -> BTreeMap<String, String> {
+        let mut identifiers = self.extra.clone();
+        for (name, value) in [
+            ("isrc", &self.isrc),
+            ("spotify_track_id", &self.spotify_track_id),
+            ("spotify_album_id", &self.spotify_album_id),
+            ("youtube_video_id", &self.youtube_video_id),
+            ("musicbrainz_recording_id", &self.musicbrainz_recording_id),
+        ] {
+            if let Some(value) = value {
+                identifiers.insert(name.to_string(), value.clone());
+            }
+        }
+        identifiers
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 struct ImportManifest {
     #[serde(default)]
@@ -229,6 +293,8 @@ struct ImportSource {
 
 #[derive(Clone, Debug, Deserialize)]
 struct ImportTrack {
+    #[serde(default)]
+    artwork: Option<ImportArtwork>,
     file: String,
     #[serde(default)]
     title: Option<String>,
@@ -266,12 +332,36 @@ struct ImportTrack {
 
 #[derive(Clone, Debug, Deserialize)]
 struct ImportPlaylist {
+    #[serde(default)]
+    artwork: Option<ImportArtwork>,
     name: String,
     #[serde(default)]
     tracks: Vec<PlaylistTrackRef>,
     #[serde(default = "default_playlist_mode")]
     mode: String,
 }
+
+/// Images are validated before being persisted, and originals are never rewritten.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct ImportArtwork {
+    file: String,
+    sha256: String,
+    mime_type: String,
+    width: u32,
+    height: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    spotify_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    license_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attribution_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provenance: Option<serde_json::Value>,
+}
+
+type StoredArtwork = ImportArtwork;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(untagged)]
@@ -289,6 +379,13 @@ enum PlaylistTrackRef {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ImportReport {
+    pub playlist_artwork_imported: usize,
+    pub track_artwork_imported: usize,
+    pub artwork_already_present: usize,
+    pub artwork_missing: usize,
+    pub artwork_failed: usize,
+    pub artwork_failures: Vec<ImportFailure>,
+    pub track_fingerprints: Vec<String>,
     pub new_tracks: usize,
     pub existing_tracks: usize,
     pub skipped_tracks: usize,
@@ -330,15 +427,19 @@ pub struct SyncPlaylistState {
     pub is_liked: bool,
 }
 
-
 mod artwork;
 mod import;
+mod import_artwork;
 mod ops;
 mod scan;
 mod state;
 mod summaries;
 mod util;
 
+#[cfg(test)]
+mod import_artwork_tests;
+#[cfg(test)]
+mod import_collision_tests;
 #[cfg(test)]
 mod tests;
 
@@ -350,8 +451,13 @@ pub use ops::{
 };
 pub use scan::scan_library_path;
 
+pub(crate) fn is_supported_audio_path(path: &Path) -> bool {
+    util::is_supported_audio(path)
+}
+
 use artwork::*;
 use import::*;
+use import_artwork::*;
 use scan::*;
 use state::*;
 use summaries::*;

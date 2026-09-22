@@ -10,6 +10,10 @@ import (
 	"strings"
 )
 
+type playbackRevisionKey struct{}
+
+var errPlaybackConflict = errors.New("playback changed; refresh before replacing the queue")
+
 func (s *Server) playbackStateV2(ctx context.Context) (*PlaybackStateV2, error) {
 	var raw string
 	if err := s.db.QueryRowContext(ctx, `SELECT state_json FROM playback_state WHERE key = 'global'`).Scan(&raw); err != nil {
@@ -82,6 +86,15 @@ func (s *Server) applyPlaybackCommandV2(ctx context.Context, req PlaybackCommand
 	current, err := playbackStateV2InTx(ctx, tx)
 	if err != nil {
 		return PlaybackStateV2{}, false, err
+	}
+	if expected, ok := ctx.Value(playbackRevisionKey{}).(int64); ok {
+		var revision int64
+		if current != nil {
+			revision = current.Revision
+		}
+		if revision != expected {
+			return PlaybackStateV2{}, false, errPlaybackConflict
+		}
 	}
 	var next PlaybackStateV2
 	if current == nil {
@@ -165,7 +178,10 @@ func applyPlaybackCommandMutationV2(state *PlaybackStateV2, req PlaybackCommandV
 	currentPosition := playbackStatePositionAtV2(*state, nowMS)
 
 	if req.Context != nil {
-		state.Context = cleanPlaybackContextV2(*req.Context)
+		switch req.Kind {
+		case "load", "play", "set_queue", "set_shuffle":
+			state.Context = cleanPlaybackContextV2(*req.Context)
+		}
 	}
 	if req.Volume != nil {
 		state.Volume = cleanPlaybackVolume(*req.Volume)
@@ -364,6 +380,13 @@ func normalizePlaybackStateV2(state *PlaybackStateV2) {
 }
 
 func cleanPlaybackContextV2(context PlaybackContextV2) PlaybackContextV2 {
+	if context.PlaylistID != nil {
+		id := strings.TrimSpace(*context.PlaylistID)
+		context.PlaylistID = nil
+		if id != "" {
+			context.PlaylistID = &id
+		}
+	}
 	context.PlaybackSource = cleanTrackReferences(context.PlaybackSource)
 	context.QueuedTracks = cleanTrackReferences(context.QueuedTracks)
 	context.PlayHistory = cleanTrackReferences(context.PlayHistory)

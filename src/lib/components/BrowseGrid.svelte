@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ArtworkImage from "./ArtworkImage.svelte";
   import { Disc3, Users } from "lucide-svelte";
   import { formatCount } from "$lib/library";
   import type { AlbumSummary, ArtistSummary } from "$lib/types";
@@ -23,7 +24,7 @@
     {#each artists as artist (artist.name)}
       <button class="summary-card" type="button" onclick={() => onOpen(artist.name)}>
         {#if artistArt.get(artist.name)}
-          <img class="summary-art" src={artistArt.get(artist.name)} alt="" loading="lazy" decoding="async" />
+          <ArtworkImage class="summary-art" src={artistArt.get(artist.name)} alt="" loading="lazy" decoding="async" />
         {:else}
           <span class="summary-icon"><Users size={48} /></span>
         {/if}
@@ -37,7 +38,7 @@
     {#each albums as album (`${album.artist}-${album.name}`)}
       <button class="summary-card album-card" type="button" onclick={() => onOpen(album.name)}>
         {#if album.artwork_url}
-          <img class="summary-art" src={album.artwork_url} alt="" loading="lazy" decoding="async" />
+          <ArtworkImage class="summary-art" src={album.artwork_url} alt="" loading="lazy" decoding="async" />
         {:else}
           <span class="summary-icon"><Disc3 size={48} /></span>
         {/if}

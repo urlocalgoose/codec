@@ -2,14 +2,14 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"io"
-	"mime"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -27,41 +27,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
-	if s.writeLibraryPreamble(w, r) {
-		return
-	}
-	snapshot, err := s.snapshot(r.Context(), publicBaseURL(r))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, snapshot.Library)
+	s.serveLibraryResponse(w, r, false)
 }
 
 func (s *Server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
-	if s.writeLibraryPreamble(w, r) {
-		return
-	}
-	snapshot, err := s.snapshot(r.Context(), publicBaseURL(r))
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, snapshot)
-}
-
-// writeLibraryPreamble sets the validator headers and answers 304 when the
-// client already holds the current library version. Most refreshes change
-// nothing, so most refreshes become free.
-func (s *Server) writeLibraryPreamble(w http.ResponseWriter, r *http.Request) bool {
-	etag := fmt.Sprintf(`"v%d-%x"`, s.libraryVersion.Load(), crc32.ChecksumIEEE([]byte(publicBaseURL(r))))
-	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "no-cache")
-	if r.Header.Get("If-None-Match") == etag {
-		w.WriteHeader(http.StatusNotModified)
-		return true
-	}
-	return false
+	s.serveLibraryResponse(w, r, true)
 }
 
 func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
@@ -166,6 +136,25 @@ func (s *Server) handlePlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.upsertPlaylist(r.Context(), playlist); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRenamePlaylist(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.renamePlaylist(r.Context(), r.PathValue("id"), req.Name); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, errors.New("unknown playlist"))
+			return
+		}
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -317,14 +306,29 @@ func (s *Server) handlePutArtwork(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("missing fingerprint"))
 		return
 	}
-	path := s.artworkPath(fingerprint)
-	if _, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil && r.Header.Get("Content-Type") != "" {
-		writeError(w, http.StatusBadRequest, err)
+	createOnly, err := artworkCreateOnly(r)
+	if err != nil {
+		writeArtworkError(w, err)
 		return
 	}
-	_, err := writeRequestBody(path, r.Body, maxImageBytes)
+	if createOnly {
+		// A data-dir move can leave a valid cover at the stored legacy path.
+		if _, err := s.mediaPath(r.Context(), fingerprint, "artwork_path"); err == nil {
+			writeArtworkError(w, errArtworkExists)
+			return
+		} else if !errors.Is(err, sql.ErrNoRows) && !os.IsNotExist(err) {
+			writeArtworkError(w, err)
+			return
+		}
+	}
+	data, err := readArtwork(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeArtworkError(w, err)
+		return
+	}
+	path := s.artworkPath(fingerprint)
+	if err := writeArtwork(path, data, createOnly); err != nil {
+		writeArtworkError(w, err)
 		return
 	}
 	if err := s.attachMediaPath(r.Context(), fingerprint, "artwork_path", path, 0); err != nil {
@@ -341,7 +345,7 @@ func (s *Server) handleGetArtwork(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	serveMedia(w, r, path, "image/jpeg")
+	serveArtwork(w, r, path)
 }
 
 func (s *Server) handlePutPlaylistArtwork(w http.ResponseWriter, r *http.Request) {
@@ -354,15 +358,22 @@ func (s *Server) handlePutPlaylistArtwork(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	if _, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil && r.Header.Get("Content-Type") != "" {
-		writeError(w, http.StatusBadRequest, err)
+	createOnly, err := artworkCreateOnly(r)
+	if err != nil {
+		writeArtworkError(w, err)
 		return
 	}
-	if _, err := writeRequestBody(s.playlistArtworkPath(id), r.Body, maxImageBytes); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+	data, err := readArtwork(r)
+	if err != nil {
+		writeArtworkError(w, err)
 		return
 	}
-	s.libraryVersion.Add(1)
+	if err := writeArtwork(s.playlistArtworkPath(id), data, createOnly); err != nil {
+		writeArtworkError(w, err)
+		return
+	}
+
+	s.libraryChanged()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -373,7 +384,7 @@ func (s *Server) handleGetPlaylistArtwork(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, errors.New("no playlist artwork"))
 		return
 	}
-	serveMedia(w, r, path, "image/jpeg")
+	serveArtwork(w, r, path)
 }
 
 func (s *Server) handleDeletePlaylistArtwork(w http.ResponseWriter, r *http.Request) {
@@ -382,7 +393,7 @@ func (s *Server) handleDeletePlaylistArtwork(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	s.libraryVersion.Add(1)
+	s.libraryChanged()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -487,6 +498,9 @@ func (s *Server) handlePlaybackEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	events, unsubscribe := s.playbackEvents.subscribe()
+	defer unsubscribe()
+
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
@@ -500,9 +514,6 @@ func (s *Server) handlePlaybackEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	flusher.Flush()
 
-	events, unsubscribe := s.playbackEvents.subscribe()
-	defer unsubscribe()
-
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 
@@ -511,9 +522,18 @@ func (s *Server) handlePlaybackEvents(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-heartbeat.C:
+			if !streamAuthorized(r) {
+				return
+			}
 			_, _ = io.WriteString(w, ": heartbeat\n\n")
 			flusher.Flush()
-		case event := <-events:
+		case event, ok := <-events:
+			if !ok || !streamAuthorized(r) {
+				return
+			}
+			if event.Type == "authorization_changed" {
+				continue
+			}
 			writeSSE(w, event.Type, event)
 			flusher.Flush()
 		}
@@ -542,7 +562,20 @@ func (s *Server) handlePlaybackCommandV2(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	state, duplicate, err := s.applyPlaybackCommandV2(r.Context(), req)
+	ctx := r.Context()
+	if validator := r.Header.Get("If-Match"); validator != "" {
+		revision, err := strconv.ParseInt(strings.Trim(validator, `"`), 10, 64)
+		if err != nil || revision < 0 {
+			writeError(w, http.StatusBadRequest, errors.New("invalid playback revision"))
+			return
+		}
+		ctx = context.WithValue(ctx, playbackRevisionKey{}, revision)
+	}
+	state, duplicate, err := s.applyPlaybackCommandV2(ctx, req)
+	if errors.Is(err, errPlaybackConflict) {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -560,6 +593,9 @@ func (s *Server) handlePlaybackEventsV2(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	events, unsubscribe := s.playbackEvents.subscribe()
+	defer unsubscribe()
+
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
@@ -574,9 +610,6 @@ func (s *Server) handlePlaybackEventsV2(w http.ResponseWriter, r *http.Request) 
 	}
 	flusher.Flush()
 
-	events, unsubscribe := s.playbackEvents.subscribe()
-	defer unsubscribe()
-
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 
@@ -585,10 +618,19 @@ func (s *Server) handlePlaybackEventsV2(w http.ResponseWriter, r *http.Request) 
 		case <-r.Context().Done():
 			return
 		case <-heartbeat.C:
+			if !streamAuthorized(r) {
+				return
+			}
 			_, _ = io.WriteString(w, ": heartbeat\n\n")
 			flusher.Flush()
-		case event := <-events:
-			if event.Type != "devices" && event.Type != "device" && event.Type != "playback_state" {
+		case event, ok := <-events:
+			if !ok || !streamAuthorized(r) {
+				return
+			}
+			if event.Type == "authorization_changed" {
+				continue
+			}
+			if event.Type != "devices" && event.Type != "device" && event.Type != "playback_state" && event.Type != "library" {
 				continue
 			}
 			writeSSE(w, event.Type, event)

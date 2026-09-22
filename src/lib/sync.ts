@@ -1,3 +1,5 @@
+import { withSyncReadTimeout } from "./sync-read";
+import { artworkCache } from "./artwork-cache";
 import type {
   AlbumSummary,
   ArtistSummary,
@@ -18,27 +20,58 @@ export const SYNC_SCHEMA = "loud.sync.v1";
 let syncAuthToken = "";
 let syncStreamToken = "";
 let syncStreamTokenExpiresAtMs = 0;
+let streamTokenServer = "";
+let streamTokenRetryAtMs = 0;
+let authGeneration = 0;
+let streamTokenRequest: Promise<void> | null = null;
+interface PlaybackCommandQueue {
+  server: string;
+  device: string;
+  tail: Promise<unknown>;
+  pending: number;
+  acknowledgedRevisions: Set<number>;
+}
+let playbackCommandGeneration = 0;
+let playbackCommandQueue: PlaybackCommandQueue | null = null;
+const remoteLibraries = new Map<string, { etag: string; raw: Partial<MusicLibrary>; library: MusicLibrary; urlToken: string }>();
 
 const STREAM_TOKEN_REFRESH_MARGIN_MS = 60_000;
 
 export function setSyncAuthToken(token: string): void {
-  syncAuthToken = token.trim();
+  const nextToken = token.trim();
+  if (syncAuthToken === nextToken) {
+    return;
+  }
+  syncAuthToken = nextToken;
+  artworkCache.clear();
+  authGeneration++;
+  resetPlaybackCommandQueue();
   syncStreamToken = "";
   syncStreamTokenExpiresAtMs = 0;
+  streamTokenServer = "";
+  streamTokenRetryAtMs = 0;
+  streamTokenRequest = null;
+  remoteLibraries.clear();
 }
 
-function authorizedFetch(
+async function authorizedFetch(
   fetcher: typeof fetch,
   url: string,
   init?: RequestInit
 ): ReturnType<typeof fetch> {
-  if (!syncAuthToken) {
-    return fetcher(url, init);
-  }
-
   const headers = new Headers(init?.headers);
-  headers.set("Authorization", `Bearer ${syncAuthToken}`);
-  return fetcher(url, { ...init, headers });
+  if (syncAuthToken) headers.set("Authorization", `Bearer ${syncAuthToken}`);
+  try {
+    return await fetcher(url, { ...init, headers });
+  } catch (error) {
+    if (error instanceof TypeError || (error instanceof Error && error.name === "NetworkError")) {
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      throw new Error(offline
+        ? "You're offline. Reconnect to reach your Codec server. Downloaded music is still available."
+        : "Could not reach your Codec server. Check the server address or try again.");
+    }
+    throw error;
+  }
 }
 
 function withAccessToken(url: string): string {
@@ -47,8 +80,26 @@ function withAccessToken(url: string): string {
     return url;
   }
 
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}access_token=${encodeURIComponent(token)}`;
+  const parsed = new URL(url);
+  parsed.searchParams.set("access_token", token);
+  return parsed.toString();
+}
+
+function withArtworkAccessToken(url: string, serverUrl?: string): string {
+  if (!serverUrl) return url;
+  try {
+    const server = new URL(`${normalizeServerUrl(serverUrl)}/`);
+    const artwork = new URL(url, server);
+    const prefix = server.pathname.replace(/\/$/, "");
+    if (artwork.origin !== server.origin || !artwork.pathname.startsWith(`${prefix}/`)) return url;
+    const endpoint = artwork.pathname.slice(prefix.length);
+    // Library metadata may contain external/signed images. Only Codec's
+    // own protected artwork endpoints receive Codec credentials.
+    if (!/^\/api\/v1\/(tracks|playlists)\/[^/]+\/artwork$/.test(endpoint)) return url;
+    return withAccessToken(artwork.href);
+  } catch {
+    return url;
+  }
 }
 
 function urlAccessToken(): string {
@@ -145,6 +196,8 @@ export interface PlaybackClockV2 {
 }
 
 export interface PlaybackContextV2 {
+  /** Explicit source playlist; never inferred from track membership. */
+  playlist_id?: string | null;
   playback_source: TrackReference[];
   playback_index: number;
   queued_tracks: TrackReference[];
@@ -166,6 +219,7 @@ export interface PlaybackStateV2 {
 }
 
 export interface PlaybackCommandV2 {
+  expectedRevision?: number;
   command_id: string;
   kind: PlaybackCommandKindV2;
   device_id: string;
@@ -179,7 +233,7 @@ export interface PlaybackCommandV2 {
 }
 
 export interface PlaybackEventV2 {
-  type: "playback_state" | "device" | "devices";
+  type: "playback_state" | "device" | "devices" | "library";
   playback_state?: PlaybackStateV2;
   device?: PlaybackDevice;
   devices?: PlaybackDevice[];
@@ -258,52 +312,100 @@ function syncApiError(action: string, serverUrl: string, response: Response): Er
 }
 
 export async function validateSyncServer(serverUrl: string, fetcher: typeof fetch = fetch): Promise<void> {
-  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/health`);
-  if (!response.ok) {
-    throw syncApiError("Could not reach Codec sync server", serverUrl, response);
-  }
+  return withSyncReadTimeout(async (signal) => {
+    const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/health`, { signal });
+    if (!response.ok) {
+      throw syncApiError("Could not reach Codec sync server", serverUrl, response);
+    }
+  });
 }
 
 export async function refreshSyncStreamToken(serverUrl: string, fetcher: typeof fetch = fetch): Promise<void> {
-  syncStreamToken = "";
-  syncStreamTokenExpiresAtMs = 0;
   if (!syncAuthToken) {
     return;
   }
-
-  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/auth/stream-token`, {
-    method: "POST"
-  });
-  if (!response.ok) {
+  const server = normalizeServerUrl(serverUrl);
+  if (streamTokenServer !== server) {
+    streamTokenServer = server;
+    syncStreamToken = "";
+    syncStreamTokenExpiresAtMs = 0;
+    streamTokenRetryAtMs = 0;
+    streamTokenRequest = null;
+  }
+  if (Date.now() + STREAM_TOKEN_REFRESH_MARGIN_MS < syncStreamTokenExpiresAtMs || Date.now() < streamTokenRetryAtMs) {
     return;
   }
+  if (streamTokenRequest) {
+    return streamTokenRequest;
+  }
 
-  const streamToken = (await response.json()) as Partial<StreamToken>;
-  if (typeof streamToken.token === "string" && Number(streamToken.expires_at) > 0) {
-    syncStreamToken = streamToken.token;
-    syncStreamTokenExpiresAtMs = Number(streamToken.expires_at) * 1000;
+  const generation = authGeneration;
+  const request = withSyncReadTimeout(async (signal) => {
+    const response = await authorizedFetch(fetcher, `${server}/api/v1/auth/stream-token`, { method: "POST", signal });
+    if (generation !== authGeneration || server !== streamTokenServer) {
+      return;
+    }
+    if (!response.ok) {
+      streamTokenRetryAtMs = Date.now() + STREAM_TOKEN_REFRESH_MARGIN_MS;
+      return;
+    }
+    const streamToken = (await response.json()) as Partial<StreamToken>;
+    if (generation === authGeneration && server === streamTokenServer && typeof streamToken.token === "string" && Number(streamToken.expires_at) > 0) {
+      syncStreamToken = streamToken.token;
+      syncStreamTokenExpiresAtMs = Number(streamToken.expires_at) * 1000;
+    }
+  });
+  streamTokenRequest = request;
+  try {
+    await request;
+  } finally {
+    if (streamTokenRequest === request) {
+      streamTokenRequest = null;
+    }
   }
 }
 
 export async function fetchRemoteLibrary(serverUrl: string, fetcher: typeof fetch = fetch): Promise<MusicLibrary> {
-  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/library`);
+  const server = normalizeServerUrl(serverUrl);
+  const generation = authGeneration;
+  const cached = remoteLibraries.get(server);
+  const response = await authorizedFetch(fetcher, `${server}/api/v1/library`, {
+    headers: cached?.etag ? { "If-None-Match": cached.etag } : {}
+  });
+  if (generation !== authGeneration) {
+    throw new Error("The server connection changed while loading the library.");
+  }
+  if (response.status === 304 && cached) {
+    if (cached.urlToken !== urlAccessToken()) {
+      cached.library = normalizeLibrary(cached.raw, server);
+      cached.urlToken = urlAccessToken();
+    }
+    return cached.library;
+  }
   if (!response.ok) {
     throw syncApiError("Could not load sync library", serverUrl, response);
   }
-  const library = (await response.json()) as Partial<MusicLibrary>;
-  return normalizeLibrary(library);
+  const raw = (await response.json()) as Partial<MusicLibrary>;
+  if (generation !== authGeneration) {
+    throw new Error("The server connection changed while loading the library.");
+  }
+  const library = normalizeLibrary(raw, server);
+  if (generation === authGeneration) {
+    remoteLibraries.set(server, { etag: response.headers.get("ETag") ?? "", raw, library, urlToken: urlAccessToken() });
+  }
+  return library;
 }
 
-export function normalizeLibrary(library: Partial<MusicLibrary>): MusicLibrary {
+export function normalizeLibrary(library: Partial<MusicLibrary>, serverUrl?: string): MusicLibrary {
   const tracks = safeArray<Track>(library.tracks).map((track) => ({
     ...track,
     playlist_ids: safeArray(track.playlist_ids),
-    artwork_url: track.artwork_url ? withAccessToken(track.artwork_url) : track.artwork_url
+    artwork_url: track.artwork_url ? withArtworkAccessToken(track.artwork_url, serverUrl) : track.artwork_url
   }));
   const playlists = safeArray<Playlist>(library.playlists).map((playlist) => ({
     ...playlist,
     track_ids: safeArray(playlist.track_ids),
-    artwork_url: playlist.artwork_url ? withAccessToken(playlist.artwork_url) : playlist.artwork_url
+    artwork_url: playlist.artwork_url ? withArtworkAccessToken(playlist.artwork_url, serverUrl) : playlist.artwork_url
   }));
   const durationSeconds = tracks.reduce((sum, track) => sum + (track.duration_seconds ?? 0), 0);
 
@@ -461,6 +563,47 @@ export async function addTrackToRemotePlaylist(
 
   if (!response.ok) {
     throw syncApiError("Could not add to playlist", serverUrl, response);
+  }
+}
+
+export async function removeTrackFromRemotePlaylist(
+  serverUrl: string,
+  playlistId: string,
+  fingerprint: string,
+  fetcher: typeof fetch = fetch
+): Promise<void> {
+  const response = await authorizedFetch(fetcher,
+    `${normalizeServerUrl(serverUrl)}/api/v1/playlists/${encodeURIComponent(playlistId)}/tracks/${encodeURIComponent(fingerprint)}`,
+    { method: "DELETE" }
+  );
+  if (!response.ok) {
+    throw syncApiError("Could not remove from playlist", serverUrl, response);
+  }
+}
+
+export async function setRemotePlaylistTracks(serverUrl: string, playlistId: string, trackIds: string[], fetcher: typeof fetch = fetch): Promise<void> {
+  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/playlists/${encodeURIComponent(playlistId)}/tracks`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ track_ids: trackIds })
+  });
+  if (!response.ok) throw syncApiError("Could not reorder playlist", serverUrl, response);
+}
+
+export async function renameRemotePlaylist(
+  serverUrl: string,
+  playlistId: string,
+  name: string,
+  fetcher: typeof fetch = fetch
+): Promise<void> {
+  const response = await authorizedFetch(fetcher,
+    `${normalizeServerUrl(serverUrl)}/api/v1/playlists/${encodeURIComponent(playlistId)}/name`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name })
+    }
+  );
+  if (!response.ok) {
+    throw syncApiError("Could not rename playlist", serverUrl, response);
   }
 }
 
@@ -629,13 +772,14 @@ export async function fetchPlaybackDevices(
   serverUrl: string,
   fetcher: typeof fetch = fetch
 ): Promise<PlaybackDevice[]> {
-  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/playback/devices`);
-  if (!response.ok) {
-    throw syncApiError("Could not load playback devices", serverUrl, response);
-  }
-
-  const devices = (await response.json()) as PlaybackDevice[] | null;
-  return Array.isArray(devices) ? devices : [];
+  return withSyncReadTimeout(async (signal) => {
+    const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/playback/devices`, { signal });
+    if (!response.ok) {
+      throw syncApiError("Could not load playback devices", serverUrl, response);
+    }
+    const devices = (await response.json()) as PlaybackDevice[] | null;
+    return Array.isArray(devices) ? devices : [];
+  });
 }
 
 export async function fetchActivePlayback(
@@ -655,14 +799,17 @@ export async function fetchActivePlayback(
 
 export async function fetchPlaybackStateV2(
   serverUrl: string,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal
 ): Promise<PlaybackStateV2 | null> {
-  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v2/playback`);
-  if (!response.ok) {
-    throw syncApiError("Could not load playback state", serverUrl, response);
-  }
-  const state = (await response.json()) as Partial<PlaybackStateV2> | null;
-  return state ? normalizePlaybackStateV2(state) : null;
+  return withSyncReadTimeout(async (readSignal) => {
+    const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v2/playback`, { signal: readSignal });
+    if (!response.ok) {
+      throw syncApiError("Could not load playback state", serverUrl, response);
+    }
+    const state = (await response.json()) as Partial<PlaybackStateV2> | null;
+    return state ? normalizePlaybackStateV2(state) : null;
+  }, signal);
 }
 
 export async function sendPlaybackCommandV2(
@@ -670,18 +817,65 @@ export async function sendPlaybackCommandV2(
   command: PlaybackCommandV2,
   fetcher: typeof fetch = fetch
 ): Promise<PlaybackStateV2> {
-  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v2/playback/commands`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(command)
-  });
-
-  if (!response.ok) {
-    throw syncApiError("Could not update playback", serverUrl, response);
+  const server = normalizeServerUrl(serverUrl);
+  if (playbackCommandQueue && (playbackCommandQueue.server !== server || playbackCommandQueue.device !== command.device_id)) {
+    resetPlaybackCommandQueue();
   }
-  return normalizePlaybackStateV2((await response.json()) as Partial<PlaybackStateV2>);
+  if (!playbackCommandQueue || playbackCommandQueue.pending === 0) {
+    playbackCommandQueue = {
+      server, device: command.device_id, tail: Promise.resolve(), pending: 0,
+      acknowledgedRevisions: new Set()
+    };
+  }
+  const queue = playbackCommandQueue;
+  const generation = playbackCommandGeneration;
+  const { expectedRevision, ...payload } = command;
+  const body = JSON.stringify(payload);
+  queue.pending++;
+  const pending = queue.tail.then(async () => {
+    if (generation !== playbackCommandGeneration) {
+      throw new Error("The server connection changed before the command was sent.");
+    }
+    // Optimistic actions queued together share the last displayed revision.
+    // Advance only over revisions produced by our own earlier commands in
+    // this burst. Any revision from another device leaves a gap and still
+    // conflicts at the server instead of overwriting that device's changes.
+    let revision = expectedRevision;
+    while (revision !== undefined && queue.acknowledgedRevisions.has(revision + 1)) revision++;
+    const response = await authorizedFetch(fetcher, `${server}/api/v2/playback/commands`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(revision === undefined ? {} : { "If-Match": `"${revision}"` })
+      },
+      body
+    });
+    if (response.status === 409) {
+      throw new Error("Playback changed on another device. Try the action again.");
+    }
+    if (!response.ok) {
+      throw syncApiError("Could not update playback", serverUrl, response);
+    }
+    const state = normalizePlaybackStateV2((await response.json()) as Partial<PlaybackStateV2>);
+    if (generation !== playbackCommandGeneration) {
+      throw new Error("The playback connection changed.");
+    }
+    // Bare next/previous mutate the queue on the server, outside the local
+    // optimistic snapshot. Do not let a queued snapshot undo that mutation.
+    if (payload.kind !== "next" && payload.kind !== "previous" && Number.isSafeInteger(state.revision) && state.revision > 0) {
+      queue.acknowledgedRevisions.add(state.revision);
+    }
+    return state;
+  }).finally(() => {
+    queue.pending--;
+  });
+  queue.tail = pending.catch(() => undefined);
+  return pending;
+}
+
+export function resetPlaybackCommandQueue(): void {
+  playbackCommandGeneration++;
+  playbackCommandQueue = null;
 }
 
 export function derivedPlaybackPosition(state: PlaybackStateV2, nowMs = Date.now(), clockOffsetMs = 0): number {
@@ -722,6 +916,7 @@ export function normalizePlaybackStateV2(state: Partial<PlaybackStateV2>): Playb
 export function normalizePlaybackContextV2(context: Partial<PlaybackContextV2> | null | undefined): PlaybackContextV2 {
   const playbackSource = safeArray<TrackReference>(context?.playback_source).filter(validTrackReference);
   return {
+    playlist_id: typeof context?.playlist_id === "string" ? context.playlist_id.trim() || null : null,
     playback_source: playbackSource,
     playback_index: clampIndex(Number(context?.playback_index) || 0, playbackSource.length),
     queued_tracks: safeArray<TrackReference>(context?.queued_tracks).filter(validTrackReference),
@@ -789,9 +984,17 @@ export interface ImportJobStatus {
   current?: string;
   added: number;
   existing: number;
+  audio_restored?: number;
   skipped: number;
   playlist_adds: number;
   liked: number;
+  track_artwork_imported?: number;
+  playlist_artwork_imported?: number;
+  artwork_imported?: number;
+  artwork_already_present?: number;
+  artwork_missing?: number;
+  artwork_failed?: number;
+  artwork_warnings?: string[];
 }
 
 /** Uploads a bundle with real upload progress (XHR — fetch can't report it)
@@ -815,11 +1018,15 @@ export function uploadBundle(
     };
     request.onload = () => {
       if (request.status < 200 || request.status >= 300) {
-        reject(new Error(`Could not upload bundle (${request.status})`));
+        reject(new Error(request.status === 413
+          ? "This bundle exceeds the server or proxy upload limit. Use a smaller bundle, or import through the desktop app or codec_import CLI."
+          : `Could not upload bundle (${request.status})`));
         return;
       }
       try {
-        resolve((JSON.parse(request.responseText) as { id: string }).id);
+        const result = JSON.parse(request.responseText) as { id?: unknown };
+        if (typeof result.id !== "string" || !result.id) throw new Error("Missing import job ID");
+        resolve(result.id);
       } catch {
         reject(new Error("Could not upload bundle (bad response)"));
       }

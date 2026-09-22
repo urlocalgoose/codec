@@ -1,0 +1,37 @@
+[Unit]
+Description=Codec music server
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=codec
+Group=codec
+WorkingDirectory=/var/lib/codec
+EnvironmentFile=/etc/codec/codec.env
+ExecStart=/opt/codec/current/codec-sync-server --addr 127.0.0.1:8787 --data /var/lib/codec --web /opt/codec/web/current/web
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0027
+StateDirectory=codec
+StateDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/codec
+
+[Install]
+WantedBy=multi-user.target

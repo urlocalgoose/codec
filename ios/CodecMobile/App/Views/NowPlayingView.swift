@@ -6,11 +6,9 @@ struct NowPlayingView: View {
     @Environment(\.codecTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
-    @Environment(DownloadStore.self) private var downloads
 
     @State private var showQueue = false
     @State private var showAddToPlaylist = false
-    @State private var scrubTime: Double?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,34 +66,7 @@ struct NowPlayingView: View {
             }
             .padding(.horizontal, 26)
 
-            VStack(spacing: 4) {
-                Slider(
-                    value: Binding(
-                        get: { scrubTime ?? player.currentTime },
-                        set: { scrubTime = $0 }
-                    ),
-                    in: 0...max(player.duration, 1)
-                ) { editing in
-                    if !editing, let target = scrubTime {
-                        player.seek(to: target)
-                        scrubTime = nil
-                    }
-                }
-                .tint(theme.accent)
-                .disabled(player.currentTrack == nil)
-
-                HStack {
-                    // Tape-counter digits.
-                    Text(formatDuration(scrubTime ?? player.currentTime))
-                        .contentTransition(.numericText(countsDown: false))
-                        .animation(.snappy(duration: 0.2), value: Int(scrubTime ?? player.currentTime))
-                    Spacer()
-                    Text(formatDuration(player.duration))
-                }
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(theme.subtle)
-            }
+            PlaybackProgressView()
             .padding(.horizontal, 26)
             .padding(.top, 12)
 
@@ -212,7 +183,7 @@ struct NowPlayingView: View {
                     .frame(width: 40, height: 40)
 
                 if let track = player.currentTrack {
-                    downloadButton(track)
+                    NowPlayingDownloadButton(track: track)
                 }
 
                 Button {
@@ -228,7 +199,11 @@ struct NowPlayingView: View {
             .padding(.horizontal, 26)
             .padding(.bottom, 22)
         }
-        .background(theme.bg.ignoresSafeArea())
+        .background {
+            NowPlayingBackground(track: player.currentTrack, client: app.client,
+                                 isVisible: !showQueue && !showAddToPlaylist)
+                .ignoresSafeArea()
+        }
         .presentationDragIndicator(.visible)
         .sheet(isPresented: $showQueue) {
             QueueView()
@@ -240,8 +215,16 @@ struct NowPlayingView: View {
         }
     }
 
-    @ViewBuilder
-    private func downloadButton(_ track: CodecTrack) -> some View {
+}
+
+/// Progress belongs to this control, not the full-screen artwork composition.
+private struct NowPlayingDownloadButton: View {
+    @Environment(\.codecTheme) private var theme
+    @Environment(AppModel.self) private var app
+    @Environment(DownloadStore.self) private var downloads
+    let track: CodecTrack
+
+    var body: some View {
         switch downloads.state(for: track) {
         case .downloaded:
             Button {
@@ -270,6 +253,44 @@ struct NowPlayingView: View {
                     .frame(width: 40, height: 40)
             }
             .buttonStyle(.plain)
+        }
+    }
+}
+
+/// The clock changes frequently; the artwork, atmosphere, and transport do
+/// not need another body/layout pass for each elapsed-time update.
+private struct PlaybackProgressView: View {
+    @Environment(\.codecTheme) private var theme
+    @Environment(PlayerController.self) private var player
+    @State private var scrubTime: Double?
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Slider(
+                value: Binding(
+                    get: { scrubTime ?? player.currentTime },
+                    set: { scrubTime = $0 }
+                ),
+                in: 0...max(player.duration, 1)
+            ) { editing in
+                if !editing, let target = scrubTime {
+                    player.seek(to: target)
+                    scrubTime = nil
+                }
+            }
+            .tint(theme.accent)
+            .disabled(player.currentTrack == nil)
+
+            HStack {
+                Text(formatDuration(scrubTime ?? player.currentTime))
+                    .contentTransition(.numericText(countsDown: false))
+                    .animation(.snappy(duration: 0.2), value: Int(scrubTime ?? player.currentTime))
+                Spacer()
+                Text(formatDuration(player.duration))
+            }
+            .font(.caption)
+            .monospacedDigit()
+            .foregroundStyle(theme.subtle)
         }
     }
 }

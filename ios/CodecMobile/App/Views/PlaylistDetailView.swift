@@ -8,43 +8,56 @@ struct PlaylistDetailView: View {
     @Environment(\.codecTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
+    @Environment(\.dismiss) private var dismiss
 
     let playlistID: String
 
     @State private var showAddSongs = false
     @State private var coverItem: PhotosPickerItem?
+    @State private var showCoverPicker = false
+    @State private var showDeleteConfirmation = false
+    @State private var editMode: EditMode = .inactive
 
     private var playlist: CodecPlaylist? {
         app.playlist(withID: playlistID)
     }
 
-    private var tracks: [CodecTrack] {
-        playlist.map { app.tracks(in: $0) } ?? []
+    private var canEdit: Bool {
+        !app.activeAuxIsGuest && playlist?.isLiked == false
     }
 
     var body: some View {
+        // Resolve playlist membership once for this render; each row shares
+        // its ordered playback collection instead of rebuilding it on scroll.
+        let displayedPlaylist = playlist
+        let displayedTracks = displayedPlaylist.map { app.tracks(in: $0) } ?? []
+        let allowsEditing = !app.activeAuxIsGuest && displayedPlaylist?.isLiked == false
         List {
-            CollectionActionHeader(tracks: tracks)
+            CollectionActionHeader(tracks: displayedTracks, playlistID: playlistID)
 
-            ForEach(tracks) { track in
-                PlayableTrackRow(track: track, collection: tracks)
+            ForEach(displayedTracks) { track in
+                PlayableTrackRow(track: track, collection: displayedTracks, playlistID: playlistID,
+                    onRemoveFromPlaylist: allowsEditing ? {
+                        guard canEdit, let current = playlist else { return }
+                        app.removeTracks([track], from: current)
+                    } : nil)
+                    .deleteDisabled(!allowsEditing)
+                    .moveDisabled(!allowsEditing)
             }
             .onMove { offsets, destination in
-                if let playlist {
+                if canEdit, let playlist {
                     app.movePlaylistTracks(playlist, from: offsets, to: destination)
                 }
             }
             .onDelete { offsets in
-                guard let playlist else {
+                guard canEdit, let playlist else {
                     return
                 }
-                let current = tracks
-                for index in offsets where index < current.count {
-                    app.removeTrack(current[index], from: playlist)
-                }
+                let removed = offsets.compactMap { displayedTracks.indices.contains($0) ? displayedTracks[$0] : nil }
+                app.removeTracks(removed, from: playlist)
             }
 
-            if tracks.isEmpty {
+            if displayedTracks.isEmpty {
                 ContentUnavailableView(
                     "No Songs",
                     systemImage: "music.note.list",
@@ -57,31 +70,49 @@ struct PlaylistDetailView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(theme.bg)
-        .navigationTitle(playlist?.name ?? "Playlist")
+        .modifier(MiniPlayerInset())
+        .navigationTitle(displayedPlaylist?.name ?? "Playlist")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                EditButton()
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                PhotosPicker(selection: $coverItem, matching: .images) {
-                    Image(systemName: "photo")
+            if allowsEditing {
+                ToolbarItem(placement: .topBarTrailing) {
+                    EditButton()
                 }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showAddSongs = true
-                } label: {
-                    Image(systemName: "plus")
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            showCoverPicker = true
+                        } label: {
+                            Label("Change Artwork", systemImage: "photo")
+                        }
+                        Button(role: .destructive) {
+                            showDeleteConfirmation = true
+                        } label: {
+                            Label("Delete Playlist", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                    }
+                    .accessibilityLabel("Playlist options")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showAddSongs = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Add Songs")
                 }
             }
         }
+        .photosPicker(isPresented: $showCoverPicker, selection: $coverItem, matching: .images)
         .onChange(of: coverItem) { _, item in
-            guard let item else {
+            guard canEdit, let item else {
                 return
             }
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self) {
+                    guard canEdit, !Task.isCancelled else { return }
                     await app.setPlaylistCover(playlistID: playlistID, imageData: data)
                 }
                 coverItem = nil
@@ -90,6 +121,29 @@ struct PlaylistDetailView: View {
         .sheet(isPresented: $showAddSongs) {
             AddSongsSheet(playlistID: playlistID)
         }
+        .confirmationDialog("Delete Playlist?", isPresented: $showDeleteConfirmation,
+                            titleVisibility: .visible, presenting: playlist) { playlist in
+            Button("Delete Playlist", role: .destructive) {
+                guard canEdit, let current = app.playlist(withID: playlist.id) else { return }
+                app.deletePlaylist(current)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { playlist in
+            Text("Delete “\(playlist.name)”? Its songs will stay in your library.")
+        }
+        .onChange(of: playlist == nil) { _, missing in
+            if missing { dismiss() }
+        }
+        .onChange(of: app.activeAuxIsGuest) { _, isGuest in
+            if isGuest {
+                editMode = .inactive
+                showAddSongs = false
+                showCoverPicker = false
+                showDeleteConfirmation = false
+                coverItem = nil
+            }
+        }
+        .environment(\.editMode, $editMode)
     }
 }
 
@@ -117,17 +171,21 @@ struct AddSongsSheet: View {
     }
 
     var body: some View {
+        let matchingTracks = results
+        let displayedPlaylist = playlist
+        let memberTrackIDs = Set(displayedPlaylist?.trackIDs ?? [])
+        let allowsAdding = !app.activeAuxIsGuest && displayedPlaylist != nil
         NavigationStack {
-            List(results) { track in
+            List(matchingTracks) { track in
                 HStack(spacing: 12) {
                     TrackRow(track: track, showsDownloadState: false)
 
-                    if playlist?.trackIDs.contains(track.id) == true {
+                    if memberTrackIDs.contains(track.id) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(theme.accent)
                     } else {
                         Button {
-                            if let playlist {
+                            if !app.activeAuxIsGuest, let playlist {
                                 app.addTrack(track, to: playlist)
                             }
                         } label: {
@@ -136,6 +194,7 @@ struct AddSongsSheet: View {
                                 .font(.title3)
                         }
                         .buttonStyle(.plain)
+                        .disabled(!allowsAdding)
                     }
                 }
                 .listRowBackground(Color.clear)
@@ -153,6 +212,12 @@ struct AddSongsSheet: View {
                         dismiss()
                     }
                 }
+            }
+            .onChange(of: app.activeAuxIsGuest) { _, isGuest in
+                if isGuest { dismiss() }
+            }
+            .onChange(of: playlist == nil) { _, missing in
+                if missing { dismiss() }
             }
         }
     }
@@ -185,10 +250,12 @@ struct AddToPlaylistSheet: View {
                 ForEach(app.userPlaylists) { playlist in
                     let isMember = playlist.trackIDs.contains(track.id)
                     Button {
-                        if isMember {
-                            app.removeTrack(track, from: playlist)
+                        guard !app.activeAuxIsGuest,
+                              let current = app.playlist(withID: playlist.id) else { return }
+                        if current.trackIDs.contains(track.id) {
+                            app.removeTrack(track, from: current)
                         } else {
-                            app.addTrack(track, to: playlist)
+                            app.addTrack(track, to: current)
                         }
                     } label: {
                         HStack {
@@ -218,6 +285,7 @@ struct AddToPlaylistSheet: View {
                         .listRowBackground(Color.clear)
                 }
             }
+            .disabled(app.activeAuxIsGuest)
             .scrollContentBackground(.hidden)
             .background(theme.bg)
             .navigationTitle("Add to Playlist")
@@ -232,11 +300,19 @@ struct AddToPlaylistSheet: View {
             .alert("New Playlist", isPresented: $showNewPlaylist) {
                 TextField("Name", text: $newPlaylistName)
                 Button("Create") {
+                    guard !app.activeAuxIsGuest else { return }
                     app.createPlaylist(named: newPlaylistName, adding: track)
                     newPlaylistName = ""
                 }
+                .disabled(app.activeAuxIsGuest || newPlaylistName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("Cancel", role: .cancel) {
                     newPlaylistName = ""
+                }
+            }
+            .onChange(of: app.activeAuxIsGuest) { _, isGuest in
+                if isGuest {
+                    showNewPlaylist = false
+                    dismiss()
                 }
             }
         }

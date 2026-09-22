@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101312">
+  <meta name="description" content="How Codec handles music, playback information, server connections and local storage.">
+  <title>Privacy Policy · Codec</title>
+  <link rel="icon" href="assets/codec-mark.webp">
+  <link rel="stylesheet" href="legal.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header>
+    <a class="brand" href="index.html"><img src="assets/codec-mark.webp" alt="" width="46" height="46">Codec</a>
+    <nav aria-label="Information"><a href="docs.html">Docs</a><a href="privacy.html" aria-current="page">Privacy</a><a href="support.html">Support</a></nav>
+  </header>
+  <main id="main">
+    <h1>Privacy Policy</h1>
+    <p class="date">Updated September 22, 2026</p>
+    <p>Codec is a music player that connects to a Codec server you choose. This policy covers the Codec app, its web player, the project website at codec.codie.sh, and demonstration or review servers operated by the Codec developer.</p>
+
+    <h2>Your server and who can access it</h2>
+    <p>When you connect to your own server, music and synchronization information are sent to that server. The Codec developer does not automatically receive a copy. The operator of your chosen server controls its storage, access and backups.</p>
+    <p>If you use a developer-operated demonstration or review server, the developer operates that server and can access the information it receives. A server can be shared: other authorized clients and participants in an Aux session can see shared library and playback information. Codec does not make a separate private library for each device connected to the same server.</p>
+
+    <h2>Information used to run Codec</h2>
+    <ul>
+      <li><strong>Device and connection information:</strong> an app-generated device identifier, a device name, the server address, and authentication or session credentials. These allow the server to recognize connected players and authorize requests.</li>
+      <li><strong>Playback and interactions:</strong> the current song, playback position and state, queue, recent playback history, playlist source, shuffle and repeat settings, volume state, and synchronization timestamps. These support playback controls and continuity between devices.</li>
+      <li><strong>Library content:</strong> song metadata, likes, playlists and their order, and audio or cover images you import or upload. A photo selected as playlist artwork is sent to the connected server.</li>
+      <li><strong>Operational information:</strong> the server records request times, methods, paths, response status, transferred bytes and request duration. Paths can contain song or playlist identifiers. The server and its hosting or network providers also receive the connection information needed to deliver requests, such as an IP address, and may keep their own operational logs.</li>
+    </ul>
+    <p>This information is used for app functionality, access control and troubleshooting. Codec does not include advertising or third-party analytics SDKs, sell personal information, or track you across other companies’ apps and websites.</p>
+
+    <h2>The project website</h2>
+    <p>The website at codec.codie.sh provides screenshots, documentation and download links. It does not connect to your music server or ask for your server token. It has no analytics scripts or advertising. Its hosting provider receives the connection information needed to serve pages, including IP addresses, and may retain operational logs. Following a download or source link takes you to GitHub.</p>
+
+    <h2>Information stored on your device</h2>
+    <p>Codec saves connection credentials, preferences, its device identifier, library and artwork caches, and playback state in app or browser storage. The app also stores songs you choose to download so they can play offline. Browser storage includes local storage, IndexedDB and application caches.</p>
+    <p>Local network permission lets the app reach a server on your network. The system photo picker lets you select a playlist cover; it does not give Codec unrestricted access to your photo library. The visualizer analyzes the music being played and does not record your microphone.</p>
+
+    <h2>Transport and sharing</h2>
+    <p>HTTPS encrypts the connection to a server that supports it. Codec also supports plain HTTP connections, including local network servers; HTTP does not encrypt credentials or music in transit. Use HTTPS for a server reached over the internet.</p>
+    <p>Using Aux shares playback controls with participants in that session. A server operator may use hosting, storage or network providers to deliver the service. Opening an external support or source link is subject to that website’s privacy policy.</p>
+
+    <h2>Retention and deletion</h2>
+    <p>Library content and saved playback information remain on the connected server until they are changed or removed by the server operator or an authorized client. A device disappearing from the active-player list does not erase its saved device information or previous playback commands. There is no single automatic deletion period covering all Codec servers. Log and backup retention depends on the operator and hosting configuration.</p>
+    <p>In the app, <strong>Settings → Disconnect</strong> removes the saved server connection and cached library. Downloaded files and other local preferences may remain. Use a song’s <strong>Remove Download</strong> action to remove its offline copy; deleting the app removes its local app data. For the web interface, your browser’s site-data controls remove locally saved credentials and caches.</p>
+    <p>Disconnecting, clearing browser storage or removing the app does not delete server data. Deleting a playlist removes that playlist, not the underlying music. Contact the operator of your server about removing server-side content or backups.</p>
+
+    <h2>Questions and privacy requests</h2>
+    <p>For Codec support or a request relating to a developer-operated demonstration or review server, use the <a href="https://github.com/urlocalgoose/codec/issues">Codec support tracker</a>. GitHub issues are public: do not include authentication tokens, private server addresses, personal music files or other sensitive information. You can request a private follow-up before providing details.</p>
+    <p>Changes to this policy will be published here with an updated date.</p>
+  </main>
+  <footer>Codec · <a href="support.html">Support</a> · <a href="https://github.com/urlocalgoose/codec">Source code</a></footer>
+</body>
+</html>

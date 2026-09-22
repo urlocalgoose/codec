@@ -25,6 +25,7 @@ pub(super) fn cached_artwork_ref(
     ));
 
     CachedArtwork {
+        original_mime_type: None,
         source_path: path.to_path_buf(),
         cache_path: artwork_cache_dir(root).join(format!("{cache_key}.jpg")),
     }
@@ -35,31 +36,36 @@ pub fn ensure_cached_artwork_thumbnail(artwork: &CachedArtwork) -> Result<PathBu
         return Ok(artwork.cache_path.clone());
     }
 
-    let tagged_file = Probe::open(&artwork.source_path)
-        .and_then(|probe| probe.read())
-        .map_err(|err| format!("Could not read artwork source: {err}"))?;
-    let tag = tagged_file
-        .primary_tag()
-        .or_else(|| tagged_file.first_tag())
-        .ok_or_else(|| "Artwork source has no tags.".to_string())?;
-    let picture = tag
-        .pictures()
-        .iter()
-        .find(|picture| picture.pic_type() == PictureType::CoverFront)
-        .or_else(|| tag.pictures().first())
-        .ok_or_else(|| "Artwork source has no embedded image.".to_string())?;
-    let image = image::load_from_memory(picture.data())
-        .map_err(|err| format!("Could not decode artwork: {err}"))?;
-    // Lanczos for quality; never upscale a source smaller than the target.
-    let thumbnail = if image.width() > ARTWORK_THUMBNAIL_SIZE || image.height() > ARTWORK_THUMBNAIL_SIZE {
-        image.resize(
-            ARTWORK_THUMBNAIL_SIZE,
-            ARTWORK_THUMBNAIL_SIZE,
-            image::imageops::FilterType::Lanczos3,
-        )
+    let image = if artwork.original_mime_type.is_some() {
+        let bytes = read_bounded(&artwork.source_path, MAX_ARTWORK_BYTES)?;
+        decode_artwork_bytes(&bytes)?.0
     } else {
-        image
+        let tagged_file = Probe::open(&artwork.source_path)
+            .and_then(|probe| probe.read())
+            .map_err(|err| format!("Could not read artwork source: {err}"))?;
+        let tag = tagged_file
+            .primary_tag()
+            .or_else(|| tagged_file.first_tag())
+            .ok_or_else(|| "Artwork source has no tags.".to_string())?;
+        let picture = tag
+            .pictures()
+            .iter()
+            .find(|picture| picture.pic_type() == PictureType::CoverFront)
+            .or_else(|| tag.pictures().first())
+            .ok_or_else(|| "Artwork source has no embedded image.".to_string())?;
+        decode_artwork_bytes(picture.data())?.0
     };
+    // Lanczos for quality; never upscale a source smaller than the target.
+    let thumbnail =
+        if image.width() > ARTWORK_THUMBNAIL_SIZE || image.height() > ARTWORK_THUMBNAIL_SIZE {
+            image.resize(
+                ARTWORK_THUMBNAIL_SIZE,
+                ARTWORK_THUMBNAIL_SIZE,
+                image::imageops::FilterType::Lanczos3,
+            )
+        } else {
+            image
+        };
     let rgb = thumbnail.to_rgb8();
     let mut bytes = Vec::new();
     let mut encoder = JpegEncoder::new_with_quality(&mut bytes, 85);
@@ -89,4 +95,3 @@ pub fn ensure_cached_artwork_thumbnail(artwork: &CachedArtwork) -> Result<PathBu
     }
     Ok(artwork.cache_path.clone())
 }
-

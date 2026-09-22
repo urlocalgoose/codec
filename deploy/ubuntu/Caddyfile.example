@@ -1,0 +1,22 @@
+# Replace this hostname; point its DNS to the Lightsail instance first.
+# Allow inbound TCP 80/443 (and your restricted SSH rule), not port 8787.
+music.example.com {
+	encode zstd gzip {
+		match {
+			header Content-Type text/html*
+			header Content-Type text/css*
+			header Content-Type text/javascript*
+			header Content-Type application/javascript*
+			header Content-Type application/json*
+			header Content-Type application/manifest+json*
+			header Content-Type image/svg+xml*
+		}
+	}
+	reverse_proxy 127.0.0.1:8787
+
+	# No access-log directive: media/SSE query strings can contain stream tokens.
+	# Caddy forwards Range/If-Range and streams text/event-stream immediately.
+	# Do not add response buffering, a short stream timeout, or a cache here.
+	# Compress text assets; exclude audio, artwork, ZIP uploads/downloads, and SSE.
+	# Codec's existing JSON Content-Encoding is respected (no double compression).
+}

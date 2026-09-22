@@ -24,17 +24,47 @@ export function libraryStats(library: Library | null): LibraryStats {
   };
 }
 
+const trackIndexes = new WeakMap<Track[], { ids: Map<string, Track>; paths: Map<string, Track>; fingerprints: Map<string, Track> }>();
+
+function indexTracks(tracks: Track[]) {
+  let index = trackIndexes.get(tracks);
+  if (!index) {
+    index = { ids: new Map(), paths: new Map(), fingerprints: new Map() };
+    for (const track of tracks) {
+      if (!index.ids.has(track.id)) index.ids.set(track.id, track);
+      if (!index.paths.has(track.path)) index.paths.set(track.path, track);
+      if (!index.fingerprints.has(track.fingerprint)) index.fingerprints.set(track.fingerprint, track);
+    }
+    trackIndexes.set(tracks, index);
+  }
+  return index;
+}
+
 export function playlistTracks(library: Library, playlist: Playlist | null): Track[] {
   if (!playlist) {
     return library.tracks;
   }
 
-  const ids = new Set(playlist.track_ids);
-  return library.tracks.filter((track) => ids.has(track.id));
+  const { ids } = indexTracks(library.tracks);
+  return playlist.track_ids.map((id) => ids.get(id)).filter((track): track is Track => Boolean(track));
 }
 
 export function likedTracks(library: Library): Track[] {
   return library.tracks.filter((track) => track.is_liked);
+}
+
+export function tracksForMobileCollection(
+  library: Library | null,
+  collection: { kind: "album" | "artist"; title: string; artist?: string }
+): Track[] {
+  const tracks = library?.tracks ?? [];
+  if (collection.kind === "artist") return tracks.filter((track) => track.artist === collection.title);
+  // Match the server's album buckets and native album order, including
+  // compilations whose individual tracks have different artists.
+  const album = collection.title.toLowerCase();
+  const artist = (collection.artist ?? "").toLowerCase();
+  return tracks.filter((track) => track.album.toLowerCase() === album && (track.album_artist || track.artist).toLowerCase() === artist)
+    .sort((left, right) => (left.track_number ?? Number.MAX_SAFE_INTEGER) - (right.track_number ?? Number.MAX_SAFE_INTEGER));
 }
 
 export function trackReference(track: Track): TrackReference {
@@ -64,10 +94,11 @@ export function findTrackByReference(
     return null;
   }
 
+  const index = indexTracks(library.tracks);
   return (
-    library.tracks.find((track) => track.path === reference.path) ??
-    library.tracks.find((track) => track.id === reference.id) ??
-    library.tracks.find((track) => track.fingerprint === reference.fingerprint) ??
+    index.paths.get(reference.path) ??
+    index.ids.get(reference.id) ??
+    index.fingerprints.get(reference.fingerprint) ??
     foreignTrackFromReference(reference)
   );
 }

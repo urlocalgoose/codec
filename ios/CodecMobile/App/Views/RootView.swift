@@ -2,9 +2,6 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AppModel.self) private var app
-    @Environment(PlayerController.self) private var player
-
-    @State private var showNowPlaying = false
     @State private var newPlaylistName = ""
     @State private var toastDismissal: Task<Void, Never>?
 
@@ -38,8 +35,9 @@ struct RootView: View {
 
     var body: some View {
         content
+            .background { SpectrumAppearanceObserver() }
             .overlay(alignment: .top) {
-                if !app.errorMessage.isEmpty {
+                if app.hasLibrary, !app.errorMessage.isEmpty {
                     ErrorToast(message: app.errorMessage)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
@@ -123,31 +121,8 @@ struct RootView: View {
         if !app.hasLibrary {
             ConnectView()
         } else {
-            TabView {
-                HomeView()
-                    .modifier(MiniPlayerInset(onOpen: openNowPlaying))
-                    .tabItem {
-                        Label("Home", systemImage: "house.fill")
-                    }
-                SearchView()
-                    .modifier(MiniPlayerInset(onOpen: openNowPlaying))
-                    .tabItem {
-                        Label("Search", systemImage: "magnifyingglass")
-                    }
-                LibraryView()
-                    .modifier(MiniPlayerInset(onOpen: openNowPlaying))
-                    .tabItem {
-                        Label("Library", systemImage: "square.stack.fill")
-                    }
-            }
-            .sheet(isPresented: $showNowPlaying) {
-                NowPlayingView()
-            }
+            AppTabsView()
         }
-    }
-
-    private func openNowPlaying() {
-        showNowPlaying = true
     }
 
     #if DEBUG
@@ -159,12 +134,104 @@ struct RootView: View {
     #endif
 }
 
+/// Shared by the app and screenshot harness, so previews include the actual
+/// navigation and mini player rather than an isolated content screen.
+private struct AppTabsView: View {
+    @Environment(PlayerController.self) private var player
+    @State private var selectedTab: String
+    @State private var showNowPlaying = false
+    @State private var visualizerFullscreen = false
+    #if DEBUG
+    @State private var showCapturePalettes = false
+    @Environment(DownloadStore.self) private var captureDownloads
+    #endif
+
+    init(initialTab: String = "home", opensPlayer: Bool = false) {
+        _selectedTab = State(initialValue: initialTab)
+        _showNowPlaying = State(initialValue: opensPlayer)
+    }
+
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            HomeView()
+                .tabItem { Label("Home", systemImage: "house.fill") }
+                .tag("home")
+            SearchView()
+                .tabItem { Label("Search", systemImage: "magnifyingglass") }
+                .tag("search")
+            LibraryView()
+                .tabItem { Label("Library", systemImage: "square.stack.fill") }
+                .tag("library")
+            VisualizerView(isFullscreen: $visualizerFullscreen,
+                           isActive: selectedTab == "visualizer" && !showNowPlaying)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if !visualizerFullscreen, player.currentTrack != nil {
+                        MiniPlayerBar(onOpen: openNowPlaying)
+                    }
+                }
+                .tabItem { Label("Visualizer", systemImage: "waveform") }
+                .tag("visualizer")
+        }
+        .environment(\.openNowPlaying, openNowPlaying)
+        .sheet(isPresented: $showNowPlaying) { NowPlayingView() }
+        #if DEBUG
+        .sheet(isPresented: $showCapturePalettes) { ThemePickerView() }
+        .task { await followCaptureNavigation() }
+        #endif
+    }
+
+    private func openNowPlaying() { showNowPlaying = true }
+
+    #if DEBUG
+    /// Simulator capture tooling drives the same tabs, sheets and library
+    /// destination as taps, without restarting playback between video scenes.
+    private func followCaptureNavigation() async {
+        guard let name = ProcessInfo.processInfo.environment["CODEC_CAPTURE_CONTROL"],
+              name == URL(fileURLWithPath: name).lastPathComponent else { return }
+        let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let control = directory.appendingPathComponent(name)
+        let status = directory.appendingPathComponent(name + ".status.json")
+        var lastData: Data?
+        while !Task.isCancelled {
+            if let data = try? Data(contentsOf: control), data != lastData,
+               let request = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               let screen = request["screen"] as? String {
+                lastData = data
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showNowPlaying = screen == "player"
+                    showCapturePalettes = screen == "themes"
+                    switch screen {
+                    case "home", "library", "search", "visualizer": selectedTab = screen
+                    case "downloaded": selectedTab = "library"
+                    default: break
+                    }
+                }
+                NotificationCenter.default.post(name: .init("CodecCaptureDownloads"), object: screen == "downloaded")
+                let response: [String: Any] = [
+                    "sequence": request["sequence"] ?? 0,
+                    "screen": screen,
+                    "positionSeconds": player.currentTime,
+                    "playing": player.isPlaying,
+                    "downloadedCount": captureDownloads.downloadedCount,
+                    "timestamp": Date().timeIntervalSince1970
+                ]
+                if let bytes = try? JSONSerialization.data(withJSONObject: response, options: .sortedKeys) {
+                    try? bytes.write(to: status, options: .atomic)
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+    #endif
+}
+
 #if DEBUG
 private struct ScreenshotScenarioHost: View {
     @Environment(\.codecTheme) private var theme
     @Environment(AppModel.self) private var app
     @Environment(PlayerController.self) private var player
     @Environment(ThemeStore.self) private var themeStore
+    @Environment(DownloadStore.self) private var downloads
 
     let scenario: String
 
@@ -183,6 +250,28 @@ private struct ScreenshotScenarioHost: View {
         }
         .task {
             await prepare()
+            if ProcessInfo.processInfo.environment["CODEC_SCREENSHOT_SCROLL"] == "bottom" {
+                // Exercise the real scroll container, including its actual
+                // adjusted safe-area insets, for native screenshot checks.
+                for _ in 0..<3 {
+                    try? await Task.sleep(for: .milliseconds(700))
+                    guard !Task.isCancelled else { return }
+                    scrollToBottom()
+                }
+            }
+        }
+    }
+
+    private func scrollToBottom() {
+        func scrollViews(in view: UIView) -> [UIScrollView] {
+            (view as? UIScrollView).map { [$0] } ?? view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        for scroll in windows.flatMap({ scrollViews(in: $0) }) where scroll.bounds.height > 200 {
+            let bottom = max(-scroll.adjustedContentInset.top,
+                             scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height)
+            scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: bottom), animated: false)
         }
     }
 
@@ -190,18 +279,17 @@ private struct ScreenshotScenarioHost: View {
     private var scenarioView: some View {
         switch scenario {
         case "library":
-            LibraryView()
-                .modifier(MiniPlayerInset(onOpen: {}))
+            AppTabsView(initialTab: "library")
         case "liked":
             NavigationStack {
                 TrackListView(title: "Liked Songs", tracks: app.likedTracks)
             }
-            .modifier(MiniPlayerInset(onOpen: {}))
+            .environment(\.openNowPlaying, {})
         case "songs":
             NavigationStack {
                 TrackListView(title: "Songs", tracks: app.tracks)
             }
-            .modifier(MiniPlayerInset(onOpen: {}))
+            .environment(\.openNowPlaying, {})
         case "playlist":
             NavigationStack {
                 if let playlist = app.userPlaylists.first {
@@ -210,12 +298,13 @@ private struct ScreenshotScenarioHost: View {
                     LibraryView()
                 }
             }
-            .modifier(MiniPlayerInset(onOpen: {}))
+            .environment(\.openNowPlaying, {})
         case "search":
-            ScreenshotSearchView(query: "warm", results: app.searchTracks("warm"))
-                .modifier(MiniPlayerInset(onOpen: {}))
+            AppTabsView(initialTab: "search")
+        case "visualizer":
+            AppTabsView(initialTab: "visualizer")
         case "player":
-            NowPlayingView()
+            AppTabsView(opensPlayer: true)
         case "queue":
             QueueView()
         case "add-to-playlist":
@@ -231,8 +320,7 @@ private struct ScreenshotScenarioHost: View {
         case "aux":
             AuxSessionSheet()
         default:
-            HomeView()
-                .modifier(MiniPlayerInset(onOpen: {}))
+            AppTabsView(initialTab: "home")
         }
     }
 
@@ -262,13 +350,40 @@ private struct ScreenshotScenarioHost: View {
         player.client = app.client
         app.syncPlayer(player)
 
-        if app.activeAuxCode.isEmpty {
+        let usesRealPlayback = environment["CODEC_SCREENSHOT_PLAYBACK"] == "1"
+        if !usesRealPlayback, app.activeAuxCode.isEmpty {
             app.activeAuxCode = "8K2F"
             app.activeAuxIsGuest = false
         }
 
+        guard environment["CODEC_SCREENSHOT_PLAYER"] != "none" else { return }
+        if usesRealPlayback, environment["CODEC_CAPTURE_CONTROL"] != nil {
+            // Read the library only after startup has replaced a previous
+            // fixture's cached media URLs with this capture server's URLs.
+            try? await Task.sleep(for: .seconds(2))
+            if app.connection != .connected { await app.connect() }
+            player.client = app.client
+            app.syncPlayer(player)
+            _ = await player.reconcilePlayback(force: true)
+        }
         let tracks = app.tracks
-        guard let current = tracks.first(where: { $0.title == "Headroom" }) ?? tracks.first else {
+        let requestedTitle = environment["CODEC_SCREENSHOT_TRACK"] ?? "Headroom"
+        guard let current = tracks.first(where: { $0.title == requestedTitle }) ?? tracks.first else {
+            return
+        }
+        if usesRealPlayback {
+            if environment["CODEC_CAPTURE_CONTROL"] != nil {
+                if let client = app.client {
+                    var albums: Set<String> = []
+                    let selection = tracks.filter { albums.insert($0.album ?? "").inserted }.prefix(8)
+                    for track in selection { downloads.remove(track) }
+                    downloads.downloadAll(Array(selection), using: client)
+                }
+            }
+            let playlist = app.userPlaylists.first { app.tracks(in: $0).contains(where: { $0.id == current.id }) }
+            let source = playlist.map { app.tracks(in: $0) } ?? tracks
+            player.play(current, from: source, playlistID: playlist?.id)
+            player.transferPlayback(to: player.deviceID)
             return
         }
         let source = tracks.isEmpty ? [current] : tracks
@@ -304,16 +419,27 @@ private struct ScreenshotSearchView: View {
 }
 #endif
 
-/// Insets each tab's content with the mini player so it floats above the tab
-/// bar instead of covering it.
-private struct MiniPlayerInset: ViewModifier {
-    @Environment(PlayerController.self) private var player
+private struct OpenNowPlayingKey: EnvironmentKey {
+    static let defaultValue: (@MainActor () -> Void)? = nil
+}
 
-    let onOpen: () -> Void
+extension EnvironmentValues {
+    var openNowPlaying: (@MainActor () -> Void)? {
+        get { self[OpenNowPlayingKey.self] }
+        set { self[OpenNowPlayingKey.self] = newValue }
+    }
+}
+
+/// Attach to the actual List/ScrollView inside the navigation stack. This
+/// reserves the measured player height in the scrollable area, including on
+/// pushed collections, while TabView supplies the system tab-bar safe area.
+struct MiniPlayerInset: ViewModifier {
+    @Environment(PlayerController.self) private var player
+    @Environment(\.openNowPlaying) private var onOpen
 
     func body(content: Content) -> some View {
-        content.safeAreaInset(edge: .bottom, spacing: 0) {
-            if player.currentTrack != nil {
+        content.safeAreaInset(edge: .bottom, spacing: player.currentTrack != nil && onOpen != nil ? 12 : 0) {
+            if player.currentTrack != nil, let onOpen {
                 MiniPlayerBar(onOpen: onOpen)
             }
         }
@@ -377,12 +503,7 @@ struct MiniPlayerBar: View {
                 .stroke(theme.border, lineWidth: 1)
         }
         .overlay(alignment: .bottom) {
-            GeometryReader { proxy in
-                Rectangle()
-                    .fill(theme.accent)
-                    .frame(width: max(proxy.size.width * progress, 0), height: 2)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-            }
+            MiniPlayerProgress()
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .allowsHitTesting(false)
         }
@@ -391,6 +512,22 @@ struct MiniPlayerBar: View {
         .padding(.bottom, 6)
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
+    }
+
+}
+
+/// Clock updates redraw just the thin progress strip while Library scrolls.
+private struct MiniPlayerProgress: View {
+    @Environment(\.codecTheme) private var theme
+    @Environment(PlayerController.self) private var player
+
+    var body: some View {
+        GeometryReader { proxy in
+            Rectangle()
+                .fill(theme.accent)
+                .frame(width: max(proxy.size.width * progress, 0), height: 2)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+        }
     }
 
     private var progress: Double {

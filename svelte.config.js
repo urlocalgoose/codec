@@ -9,6 +9,11 @@ import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 const config = {
   preprocess: vitePreprocess(),
   kit: {
+    // Release builds provide a stable content-specific ID for app/SW caches.
+    // Local development keeps SvelteKit's normal version behavior.
+    ...(process.env.CODEC_BUILD_ID
+      ? { version: { name: process.env.CODEC_BUILD_ID } }
+      : {}),
     adapter: adapter({
       fallback: "index.html",
     }),

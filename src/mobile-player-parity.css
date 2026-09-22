@@ -1,0 +1,132 @@
+/* Current SwiftUI Now Playing and Queue geometry, isolated to the mobile shell. */
+@media (max-width: 980px) {
+  .mobile-mini-player { min-height: 56px; padding: 8px 12px; gap: 12px; border: 0; outline: 1px solid var(--color-border); outline-offset: -1px; }
+  .mobile-mini-summary { gap: 12px; }
+  .mobile-mini-player .mobile-icon-button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; }
+  .mobile-mini-player .mobile-player-art { box-shadow: 0 1px 3px rgb(0 0 0 / .2); }
+  .mobile-mini-player .mobile-track-copy { gap: 1px; }
+
+  .mobile-sheet { border-radius: 40px 40px 0 0; height: auto; max-height: calc(var(--app-viewport-height, 100dvh) - var(--app-safe-top, env(safe-area-inset-top))); }
+  .mobile-sheet.full-sheet { height: calc(var(--app-viewport-height, 100dvh) - var(--app-safe-top, env(safe-area-inset-top))); }
+  .mobile-sheet-panel { height: 100%; max-height: 100%; padding-block-end: var(--app-safe-bottom, env(safe-area-inset-bottom)); }
+  .mobile-sheet-body { flex: 1; }
+  .mobile-sheet:not(.native-player-sheet) .sheet-grabber { display: none; }
+  .mobile-sheet:not(.native-player-sheet) .mobile-sheet-header { flex-basis: 70px; padding-block-start: 16px; }
+  .mobile-sheet:not(.native-player-sheet) .mobile-sheet-header h2 { position: absolute; inset-inline-start: 50%; transform: translateX(-50%); font-size: 17px; font-weight: 600; }
+  .mobile-sheet:not(.native-player-sheet) .mobile-sheet-header .mobile-text-button { min-height: 44px; padding: 0 16px; border-radius: 24px; font-size: 17px; font-weight: 400; background: color-mix(in srgb, var(--color-surface) 50%, var(--color-panel)); box-shadow: inset 0 0 0 1px var(--color-border-strong); }
+  .mobile-sheet.compact-sheet { height: auto; }
+  .compact-sheet .mobile-sheet-panel { height: auto; }
+  .compact-sheet .mobile-sheet-header h2 { max-width: calc(100% - 110px); }
+  .mobile-sheet-panel { position: relative; isolation: isolate; }
+  .mobile-sheet-background { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+  .sheet-grabber { flex: 0 0 20px; display: grid; place-items: start center; width: 100%; height: 20px; min-height: 20px; padding: 5px 0 0; border: 0; background: transparent; touch-action: none; cursor: grab; }
+  .sheet-grabber .sheet-handle { display: block; width: 36px; height: 5px; margin: 0; background: var(--color-muted); opacity: .4; border-radius: 3px; }
+  .mobile-sheet.dragging { transition: none; }
+  .mobile-sheet-header { position: relative; flex: 0 0 54px; min-height: 54px; padding: 0 16px; }
+  .mobile-sheet-leading, .mobile-sheet-trailing { display: flex; align-items: center; gap: 12px; }
+  .mobile-sheet-trailing { margin-inline-start: auto; }
+  .native-player-sheet { max-height: calc(var(--app-viewport-height, 100dvh) - var(--app-safe-top, env(safe-area-inset-top))); height: calc(var(--app-viewport-height, 100dvh) - var(--app-safe-top, env(safe-area-inset-top))); }
+  .native-player-sheet .sheet-grabber { position: absolute; inset: 0 0 auto; z-index: 2; }
+  .native-player-sheet .mobile-sheet-body { display: flex; }
+  .native-player-sheet .mobile-now-playing { width: 100%; min-height: 100%; flex: 1; justify-content: flex-start; gap: 0; padding: 0 26px 22px; }
+  .mobile-now-spacer { flex: 1 0 auto; }
+  .mobile-now-spacer.before-art { min-height: 24px; }
+  .mobile-now-spacer.after-art { min-height: 26px; }
+  .mobile-now-spacer.before-footer { min-height: 12px; }
+  .native-player-sheet .mobile-now-art { flex: 0 0 auto; width: min(320px, 100%); margin: 0; }
+  .native-player-sheet .mobile-now-art.paused { transform: scale(.84); }
+  .native-player-sheet .mobile-player-art.large-art { display: block; box-shadow: 0 14px 26px rgb(0 0 0 / .35); border-radius: 10px; outline: 1px solid var(--color-border); outline-offset: -1px; }
+  .native-player-sheet .mobile-now-art,
+  .native-player-sheet .mobile-now-title .mobile-track-copy,
+  .native-player-sheet .mobile-now-spacer { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .native-player-sheet .mobile-now-art img { -webkit-user-drag: none; }
+  .native-player-sheet .mobile-now-title { flex: 0 0 auto; gap: 12px; }
+  .native-player-sheet .mobile-now-title .mobile-track-copy { gap: 3px; }
+  .native-player-sheet .mobile-now-title strong { font-size: 20px; font-weight: 800; line-height: 24px; }
+  .native-player-sheet .mobile-now-title .mobile-track-copy > span { font-size: 15px; font-weight: 600; line-height: 18px; }
+  .native-player-sheet .mobile-now-title .mobile-icon-button { width: 40px; min-width: 40px; min-height: 40px; height: 40px; }
+  .native-player-sheet .mobile-now-progress { flex: 0 0 auto; margin-block-start: 12px; gap: 4px; }
+  .native-player-sheet .mobile-now-progress > div { font-size: 12px; line-height: 14px; }
+  .native-player-sheet .mobile-now-progress input { appearance: none; -webkit-appearance: none; display: block; height: 24px; margin: 0; padding: 0; background: transparent; cursor: pointer; }
+  .native-player-sheet input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 4px; background: linear-gradient(to right, var(--color-accent) 0 var(--fill), transparent var(--fill)), color-mix(in srgb, var(--color-subtle) 22%, var(--color-bg)); }
+  .native-player-sheet input[type="range"]::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; width: 37px; height: 24px; margin-top: -9px; border: 0; border-radius: 14px; background: white; box-shadow: 0 1px 3px rgb(0 0 0 / .1); }
+  .native-player-sheet input[type="range"]::-moz-range-track { height: 6px; border-radius: 4px; background: color-mix(in srgb, var(--color-subtle) 22%, var(--color-bg)); }
+  .native-player-sheet input[type="range"]::-moz-range-progress { height: 6px; border-radius: 4px; background: var(--color-accent); }
+  .native-player-sheet input[type="range"]::-moz-range-thumb { width: 37px; height: 24px; border: 0; border-radius: 14px; background: white; box-shadow: 0 1px 3px rgb(0 0 0 / .1); }
+  .native-player-sheet .mobile-now-transport { flex: 0 0 72px; margin: 12px -2px 0; }
+  .native-player-sheet .mobile-now-transport .mobile-icon-button { flex: 0 0 56px; width: 56px; height: 56px; }
+  .native-player-sheet .mobile-now-transport .mobile-icon-button:first-child, .native-player-sheet .mobile-now-transport .mobile-icon-button:last-child { flex-basis: 44px; width: 44px; height: 44px; }
+  .native-player-sheet .mobile-now-transport .mobile-now-play { flex-basis: 72px; width: 72px; height: 72px; }
+  .native-player-sheet .mobile-now-footer { flex: 0 0 40px; gap: 20px; }
+  .native-player-sheet .mobile-now-device { position: relative; flex: 0 1 auto; min-height: 40px; gap: 8px; font-size: 12px; font-weight: 800; }
+  .native-player-sheet .mobile-now-device.remote { color: var(--color-accent); }
+  .native-player-sheet .mobile-now-device > svg { flex-shrink: 0; }
+  .native-player-sheet .mobile-now-device > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .native-player-sheet .mobile-now-device select { position: absolute; inset: 0; width: 100%; height: 100%; font-size: 16px; opacity: 0; cursor: pointer; }
+  :root:not([data-input-modality="pointer"]) .native-player-sheet .mobile-now-device:has(:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 8px; }
+  .mobile-now-footer-actions { display: flex; gap: 20px; margin-inline-start: auto; }
+  .native-player-sheet .mobile-now-footer-actions .mobile-icon-button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; color: var(--color-subtle); }
+  .native-player-sheet .mobile-now-footer-actions .mobile-icon-button.active { color: var(--color-accent); }
+  .native-player-sheet .mobile-now-footer-actions .active .lucide-circle-arrow-down { fill: var(--color-accent); stroke: var(--color-bg); }
+
+  .native-queue-sheet { height: calc(var(--app-viewport-height, 100dvh) - max(22px, calc(var(--app-safe-top, env(safe-area-inset-top)) + 10px))); }
+  .native-queue-sheet .sheet-grabber { position: absolute; inset: 0 0 auto; height: 12px; min-height: 12px; z-index: 1; opacity: 0; }
+  .native-queue-sheet .mobile-sheet-header { flex-basis: 70px; padding-block-start: 16px; padding-block-end: 0; }
+  .native-queue-sheet .mobile-sheet-header h2 { position: absolute; inset-inline-start: 50%; transform: translateX(-50%); font-size: 17px; font-weight: 600; }
+  .native-queue-sheet .mobile-sheet-header .mobile-text-button { min-height: 44px; min-width: 60px; padding: 0 16px; border-radius: 24px; font-size: 17px; font-weight: 400; background: color-mix(in srgb, var(--color-surface) 50%, var(--color-panel)); box-shadow: inset 0 0 0 1px var(--color-border-strong); }
+  .native-queue-sheet .mobile-sheet-trailing { gap: 12px; }
+  .native-queue-sheet .mobile-sheet-body { flex: 1; }
+  .mobile-queue-content { padding: 0 16px 32px; }
+  .native-queue-sheet .mobile-queue-section { margin: 0 0 16px; }
+  .native-queue-sheet .mobile-queue-section > h3 { padding: 10px 16px 10px; font-size: 17px; font-weight: 600; line-height: 22px; letter-spacing: 0; text-transform: none; color: var(--color-subtle); }
+  .native-queue-sheet .mobile-queue-section:first-child { margin-block-end: 20px; }
+  .mobile-queue-group { border-radius: 26px; overflow: hidden; background: var(--color-panel); }
+  .native-queue-sheet .mobile-queue-row { position: relative; height: 86px; padding: 12px 16px; border: 0; gap: 12px; }
+  .native-queue-sheet .mobile-queue-group .virtual-row:not(:last-child) .mobile-queue-row::after { position: absolute; content: ""; inset: auto 16px 0 76px; height: 1px; background: var(--color-line-strong); }
+  .native-queue-sheet .mobile-queue-row.current { background: var(--color-panel-2); border-radius: 0; }
+  .native-queue-sheet .mobile-player-art { width: 48px; height: 48px; flex-basis: 48px; border-radius: 6px; }
+  .native-queue-sheet .mobile-track-copy { flex: 1; gap: 2px; }
+  .native-queue-sheet .mobile-track-copy strong { font-size: 15px; font-weight: 600; line-height: 18px; }
+  .native-queue-sheet .mobile-queue-row.current strong { color: var(--color-accent); font-weight: 800; }
+  .native-queue-sheet .mobile-track-copy > span { font-size: 13px; font-weight: 400; line-height: 16px; }
+  .mobile-queue-duration { flex-shrink: 0; margin-inline-start: auto; font-size: 13px; font-variant-numeric: tabular-nums; color: var(--color-subtle); }
+  .mobile-queue-playing { flex: 0 0 auto; margin-inline-start: auto; color: var(--color-accent); }
+  .native-queue-sheet .mobile-queue-row .queue-remove-control { color: var(--color-danger); width: 28px; min-width: 28px; }
+  .native-queue-sheet .mobile-queue-row .queue-reorder-control { touch-action: none; cursor: grab; width: 28px; min-width: 28px; }
+  .queue-drop-target { background: var(--color-surface); }
+  .queue-swipe-remove { align-self: stretch; border: 0; border-radius: 8px; padding: 0 12px; background: var(--color-danger); color: var(--color-bg); font-size: 14px; font-weight: 600; }
+  .mobile-player-announcement { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+
+.artwork-atmosphere, .atmosphere-layers, .atmosphere-surface { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.artwork-atmosphere { container-type: size; background: var(--color-bg); --halo-warm: 70%; --halo-cool: 75%; --wash-strength: .66; --wash-mid: 72%; --wash-end: 70%; --immersive-strength: .84; --immersive-top: 16%; --immersive-mid: 62%; --immersive-end: 71%; }
+.artwork-atmosphere.light { --halo-warm: 58%; --halo-cool: 40%; --wash-strength: .46; --wash-mid: 88%; --wash-end: 63%; --immersive-strength: .64; --immersive-top: 6%; --immersive-mid: 88%; --immersive-end: 63%; }
+.atmosphere-surface { background: var(--color-bg); }
+.atmosphere-halo > div { position: absolute; inset: 0; background: radial-gradient(circle 85cqw at 90% 39%, color-mix(in srgb, var(--art-cool) var(--halo-cool), transparent) 8px, transparent 100%), radial-gradient(circle 95cqw at 12% 19%, color-mix(in srgb, var(--art-warm) var(--halo-warm), transparent) 12px, transparent 100%); mask-image: linear-gradient(to bottom, rgb(0 0 0 / .3), black 16%, black 42%, transparent 63%); }
+.atmosphere-wash > div { position: absolute; inset: 0; background: linear-gradient(to bottom right, var(--art-warm), var(--art-warm) 13%, var(--art-cool) 49%, var(--art-deep)); opacity: var(--wash-strength); }
+.atmosphere-wash > span { position: absolute; inset: 0; background: linear-gradient(to bottom, color-mix(in srgb, var(--color-bg) 3%, transparent), color-mix(in srgb, var(--color-bg) 12%, transparent) 32%, color-mix(in srgb, var(--color-bg) var(--wash-mid), transparent) 53%, var(--color-bg) var(--wash-end)); }
+.atmosphere-immersive > img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: var(--immersive-strength); }
+.atmosphere-immersive > span { position: absolute; inset: 0; background: linear-gradient(to bottom, color-mix(in srgb, var(--color-bg) var(--immersive-top), transparent), color-mix(in srgb, var(--color-bg) 10%, transparent) 29%, color-mix(in srgb, var(--color-bg) var(--immersive-mid), transparent) 53%, var(--color-bg) var(--immersive-end)); }
+.atmosphere-wash, .atmosphere-immersive { opacity: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .atmosphere-wash { animation: artwork-wash 24s ease-in-out infinite; }
+  .atmosphere-immersive { animation: artwork-immersive 24s ease-in-out infinite; }
+  .atmosphere-paused .atmosphere-surface { animation-play-state: paused; }
+  .native-player-sheet .mobile-now-art { transition: transform 450ms cubic-bezier(.2,.8,.3,1); }
+  .mobile-sheet { transition: transform 220ms cubic-bezier(.2,0,0,1); }
+  .mobile-sheet.dragging { transition: none; }
+  .mobile-sheet::backdrop, .native-alert::backdrop { opacity: 0; transition: opacity 180ms ease-out; }
+  .mobile-sheet.sheet-presented::backdrop, .native-alert.sheet-presented::backdrop { opacity: 1; }
+  .mobile-sheet.sheet-leaving::backdrop, .native-alert.sheet-leaving::backdrop { opacity: 0; }
+}
+@keyframes artwork-wash { 0%, 8.3333% { opacity: 0; } 33.3333%, 66.6666% { opacity: 1; } 66.6667%, 100% { opacity: 0; } }
+@keyframes artwork-immersive { 0%, 41.6667% { opacity: 0; } 66.6667%, 75% { opacity: 1; } 100% { opacity: 0; } }
+@media (max-width: 360px) {
+  .native-player-sheet .mobile-now-playing { padding-inline: 20px; }
+  .native-player-sheet .mobile-now-title { gap: 4px; }
+  .mobile-now-footer-actions { gap: 8px; }
+  .native-player-sheet .mobile-now-footer { gap: 8px; }
+  .native-queue-sheet .mobile-sheet-header { padding-inline: 12px; }
+  .mobile-sheet.native-queue-sheet .mobile-sheet-header .mobile-text-button { padding-inline: 8px; min-width: 44px; font-size: 16px; }
+  .native-queue-sheet .mobile-sheet-trailing { gap: 6px; }
+}

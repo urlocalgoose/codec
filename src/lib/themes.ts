@@ -36,7 +36,8 @@ export const themes = [
 
 export type ThemeId = (typeof themes)[number]["id"];
 export type ThemeOption = (typeof themes)[number];
+export const DEFAULT_THEME: ThemeId = "graphite";
 
 export function parseTheme(value: string | null): ThemeId {
-  return themes.some((option) => option.id === value) ? (value as ThemeId) : "oxide";
+  return themes.some((option) => option.id === value) ? (value as ThemeId) : DEFAULT_THEME;
 }

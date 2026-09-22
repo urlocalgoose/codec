@@ -35,3 +35,10 @@ DerivedData/
 .env
 .env.*
 !.env.example
+
+# Local release artifacts and Python tooling caches
+/dist/
+/dist-bin/
+/release-artifacts/
+__pycache__/
+*.pyc

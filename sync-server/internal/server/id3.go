@@ -4,6 +4,7 @@ package server
 
 import (
 	"encoding/binary"
+	"io"
 	"os"
 	"strings"
 	"unicode/utf16"
@@ -22,9 +23,12 @@ func parseID3File(path string) id3Tags {
 		return id3Tags{}
 	}
 	defer file.Close()
+	return parseID3Reader(file)
+}
 
+func parseID3Reader(reader io.Reader) id3Tags {
 	header := make([]byte, 10)
-	if _, err := file.Read(header); err != nil || string(header[:3]) != "ID3" {
+	if _, err := io.ReadFull(reader, header); err != nil || string(header[:3]) != "ID3" {
 		return id3Tags{}
 	}
 	version := header[3]
@@ -33,7 +37,7 @@ func parseID3File(path string) id3Tags {
 		return id3Tags{}
 	}
 	body := make([]byte, size)
-	read, err := file.Read(body)
+	read, err := io.ReadFull(reader, body)
 	if err != nil && read == 0 {
 		return id3Tags{}
 	}

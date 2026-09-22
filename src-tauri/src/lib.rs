@@ -19,8 +19,6 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager, State};
 
-const SYNC_SCHEMA: &str = "loud.sync.v1";
-
 #[derive(Default)]
 struct WatchState {
     watcher: Mutex<Option<RecommendedWatcher>>,
@@ -28,9 +26,11 @@ struct WatchState {
 
 mod media_server;
 mod sync_transfer;
+#[cfg(test)]
+mod sync_transfer_tests;
 
 // Exposed for the headless codec_import CLI (src/bin/codec_import.rs).
-pub use sync_transfer::{SyncFailure, SyncTransferReport};
+pub use sync_transfer::{SyncFailure, SyncPlaylistMapping, SyncTransferReport};
 
 use media_server::*;
 use sync_transfer::*;
@@ -93,14 +93,35 @@ fn rename_playlist(root_path: String, playlist_id: String, name: String) -> Resu
     rename_playlist_path(root_path, playlist_id, name)
 }
 
-/// Headless entry for the CLI: same body the Tauri command uses.
+/// Headless imports are additive: never replay a local snapshot over a server.
 pub fn sync_library_to_server_headless(
     root_path: String,
     server_url: String,
-    device_id: String,
+    _device_id: String,
     auth_token: String,
 ) -> Result<SyncTransferReport, String> {
-    sync_library_to_server(root_path, server_url, device_id, auth_token)
+    sync_library_to_server_headless_checked(root_path, server_url, auth_token, &[])
+}
+
+/// Verify identities produced by a completed local import against the exact
+/// upload scan before contacting the destination server.
+pub fn sync_library_to_server_headless_checked(
+    root_path: String,
+    server_url: String,
+    auth_token: String,
+    expected_fingerprints: &[String],
+) -> Result<SyncTransferReport, String> {
+    let server = normalize_server_url(&server_url)?;
+    let library = scan_library_path(root_path)?;
+    validate_import_fingerprints(&library, expected_fingerprints)?;
+    let client = sync_http_client(&auth_token)?;
+    merge_library_to_server(&library, &client, &server)
+}
+
+pub fn sync_library_from_server_headless(
+    root_path: String, server_url: String, auth_token: String,
+) -> Result<SyncTransferReport, String> {
+    sync_library_from_server(root_path, server_url, auth_token)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -110,65 +131,10 @@ fn sync_library_to_server(
     device_id: String,
     auth_token: String,
 ) -> Result<SyncTransferReport, String> {
-    let root = PathBuf::from(&root_path)
-        .canonicalize()
-        .map_err(|err| format!("Could not resolve folder: {err}"))?;
-    if !root.is_dir() {
-        return Err("Music folder must be a directory.".to_string());
-    }
-
-    let server_url = normalize_server_url(&server_url)?;
-    let device_id = clean_device_id(&device_id);
-    let client = sync_http_client(&auth_token)?;
-    let library = scan_library_path(&root)?;
-    let push_response = client
-        .post(format!("{server_url}/api/v1/sync/push"))
-        .json(&json!({
-            "schema": SYNC_SCHEMA,
-            "device_id": device_id,
-            "library": library,
-        }))
-        .send()
-        .map_err(|err| format!("Could not push sync metadata: {err}"))?;
-    ensure_success(push_response, "push sync metadata")?;
-
-    let mut report = SyncTransferReport::default();
-    for track in &library.tracks {
-        let audio_url = sync_track_media_url(&server_url, &track.fingerprint, "audio");
-        if sync_remote_exists(&client, &audio_url) {
-            report.tracks_skipped += 1;
-        } else if let Err(err) = upload_file(
-            &client,
-            &audio_url,
-            &track.path,
-            audio_content_type(std::path::Path::new(&track.path)),
-        ) {
-            report.failures.push(SyncFailure {
-                track: track.title.clone(),
-                reason: err,
-            });
-        } else {
-            report.tracks_uploaded += 1;
-        }
-
-        if let Some(artwork) = track.artwork.clone() {
-            // Artwork always re-uploads: it is small, and skipping would
-            // leave old low-resolution thumbnails on the server forever.
-            let artwork_url = sync_track_media_url(&server_url, &track.fingerprint, "artwork");
-            match ensure_cached_artwork_thumbnail(&artwork)
-                .map_err(|err| err.to_string())
-                .and_then(|path| upload_file(&client, &artwork_url, &path, "image/jpeg"))
-            {
-                Ok(()) => report.artwork_uploaded += 1,
-                Err(err) => report.failures.push(SyncFailure {
-                    track: track.title.clone(),
-                    reason: err,
-                }),
-            }
-        }
-    }
-
-    Ok(report)
+    // Desktop and CLI imports must share exact-fingerprint matching and actual
+    // destination playlist IDs. A wholesale snapshot push can replace existing
+    // memberships and send covers to source IDs that do not exist remotely.
+    sync_library_to_server_headless(root_path, server_url, device_id, auth_token)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -212,9 +178,14 @@ fn sync_library_from_server(
 
     let mut report = SyncTransferReport::default();
     let mut manifest_tracks = Vec::new();
+    let mut fresh_artwork_fingerprints = BTreeSet::new();
+    let inline_artwork_root = files_root.join("artwork");
+    fs::create_dir_all(&inline_artwork_root)
+        .map_err(|err| format!("Could not create track artwork download folder: {err}"))?;
 
     for track in &snapshot.library.tracks {
         if known_fingerprints.contains(&track.fingerprint) {
+            report.tracks_matched += 1;
             report.tracks_skipped += 1;
             continue;
         }
@@ -253,6 +224,21 @@ fn sync_library_from_server(
             .strip_prefix(&files_root)
             .map(path_to_sync_string)
             .unwrap_or_else(|_| path_to_sync_string(&destination));
+        // Import a fresh track's server cover with its audio. The importer then
+        // distinguishes a preexisting destination cover from the embedded
+        // fallback in audio that we just downloaded, without an overwrite mode.
+        let artwork_file = format!("track-{}.image", manifest_tracks.len());
+        let artwork = match download_artwork_descriptor(
+            &client,
+            &sync_track_media_url(&server_url, &track.fingerprint, "artwork"),
+            &inline_artwork_root.join(&artwork_file),
+            &format!("artwork/{artwork_file}"),
+        ) {
+            Ok(Some(artwork)) => Some(artwork),
+            Ok(None) => { report.artwork_missing(ArtworkKind::Track); None },
+            Err(reason) => { report.artwork_failure(ArtworkKind::Track, &track.title, reason); None },
+        };
+        fresh_artwork_fingerprints.insert(track.fingerprint.clone());
         manifest_tracks.push(json!({
             "file": relative_file,
             "title": track.title,
@@ -262,8 +248,13 @@ fn sync_library_from_server(
             "genre": track.genre,
             "year": track.year,
             "track_number": track.track_number,
+            "disc_number": track.disc_number,
+            "explicit": track.explicit,
+            "identifiers": track.identifiers,
+            "source_urls": track.source_urls,
             "duration_seconds": track.duration_seconds,
             "fingerprint": track.fingerprint,
+            "artwork": artwork,
             "liked": track.is_liked,
             "playlists": playlist_names_by_track_id.get(&track.id).cloned().unwrap_or_default()
         }));
@@ -288,8 +279,17 @@ fn sync_library_from_server(
         .map_err(|err| format!("Could not write sync import manifest: {err}"))?;
 
         let import_report = import_library_manifest_path(&root, &manifest_path)?;
+        report.tracks_added += import_report.new_tracks;
         report.playlist_updates += import_report.playlist_updates;
         report.liked_updates += import_report.liked_updates;
+        report.track_artwork_downloaded += import_report.track_artwork_imported;
+        report.artwork_downloaded += import_report.track_artwork_imported;
+        for _ in 0..import_report.artwork_already_present {
+            report.artwork_present(ArtworkKind::Track);
+        }
+        for failure in import_report.artwork_failures {
+            report.artwork_failure(ArtworkKind::Track, &failure.file, failure.reason);
+        }
         for failure in import_report.failures {
             report.failures.push(SyncFailure {
                 track: failure.file,
@@ -298,7 +298,9 @@ fn sync_library_from_server(
         }
     }
 
-    merge_sync_library_state_path(&root, sync_state_from_remote(snapshot.library))?;
+    merge_sync_library_state_path(&root, sync_state_from_remote(snapshot.library.clone()))?;
+    download_library_artwork(&root, &import_root, &snapshot.library, &client, &server_url,
+        &fresh_artwork_fingerprints, &mut report)?;
     Ok(report)
 }
 
@@ -307,6 +309,14 @@ fn prepare_track_playback(
     state: State<'_, MediaServer>,
     root_path: String,
     track_path: String,
+) -> Result<PlaybackSource, String> {
+    prepare_track_playback_source(&state, &root_path, &track_path)
+}
+
+fn prepare_track_playback_source(
+    server: &MediaServer,
+    root_path: &str,
+    track_path: &str,
 ) -> Result<PlaybackSource, String> {
     let root = PathBuf::from(&root_path)
         .canonicalize()
@@ -324,14 +334,19 @@ fn prepare_track_playback(
     if !track.starts_with(&root) {
         return Err("Track is outside the selected music folder.".to_string());
     }
-    if !is_mp3_path(&track) {
-        return Err("Only MP3 playback is supported right now.".to_string());
+    if !library::is_supported_audio_path(&track) {
+        return Err("Supported audio files are MP3, M4A, FLAC, and WAV.".to_string());
     }
 
-    state.register_audio(track)
+    server.register_audio(track)
 }
 
 fn attach_artwork_urls(server: &MediaServer, library: &mut Library) -> Result<(), String> {
+    for playlist in &mut library.playlists {
+        if let Some(artwork) = playlist.artwork.clone() {
+            playlist.artwork_url = Some(server.register_artwork(artwork)?);
+        }
+    }
     for track in &mut library.tracks {
         if let Some(artwork) = track.artwork.clone() {
             track.artwork_url = Some(server.register_artwork(artwork)?);
@@ -425,13 +440,6 @@ fn stop_library_watch(state: State<'_, WatchState>) -> Result<(), String> {
     Ok(())
 }
 
-fn is_mp3_path(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| extension.eq_ignore_ascii_case("mp3"))
-        .unwrap_or(false)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -458,7 +466,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_range_header, MediaServer};
+    use super::{parse_range_header, prepare_track_playback_source, MediaServer};
     use crate::library::CachedArtwork;
     use std::io::{Read, Write};
     use std::net::TcpStream;
@@ -505,6 +513,29 @@ mod tests {
     }
 
     #[test]
+    fn desktop_playback_accepts_each_import_audio_format_with_matching_mime() {
+        let temp = tempfile::tempdir().unwrap();
+        let server = MediaServer::default();
+        for (extension, mime) in [("mp3", "audio/mpeg"), ("M4A", "audio/mp4"), ("flac", "audio/flac"), ("wav", "audio/wav")] {
+            let path = temp.path().join(format!("song.{extension}"));
+            std::fs::write(&path, b"0123456789").unwrap();
+            let source = prepare_track_playback_source(&server, temp.path().to_str().unwrap(), path.to_str().unwrap()).unwrap();
+            let (address, route) = source.url.strip_prefix("http://").unwrap().split_once('/').unwrap();
+            let mut stream = TcpStream::connect(address).unwrap();
+            write!(stream, "GET /{route} HTTP/1.1\r\nHost: {address}\r\nRange: bytes=2-5\r\n\r\n").unwrap();
+            let mut response = Vec::new();
+            stream.read_to_end(&mut response).unwrap();
+            let headers = String::from_utf8_lossy(&response);
+            assert!(headers.starts_with("HTTP/1.1 206 Partial Content"));
+            assert!(headers.contains(&format!("Content-Type: {mime}")));
+            assert!(response.ends_with(b"2345"));
+        }
+        let unsupported = temp.path().join("not-audio.json");
+        std::fs::write(&unsupported, b"{}").unwrap();
+        assert!(prepare_track_playback_source(&server, temp.path().to_str().unwrap(), unsupported.to_str().unwrap()).is_err());
+    }
+
+    #[test]
     fn media_server_serves_registered_artwork_cache_file() {
         let temp = tempfile::tempdir().unwrap();
         let source_path = temp.path().join("track.mp3");
@@ -515,6 +546,7 @@ mod tests {
         let server = MediaServer::default();
         let url = server
             .register_artwork(CachedArtwork {
+                original_mime_type: None,
                 source_path,
                 cache_path,
             })

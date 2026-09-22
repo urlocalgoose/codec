@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ArtworkImage from "./ArtworkImage.svelte";
   import {
     Music2,
     Pause,
@@ -22,6 +23,7 @@
     currentTime,
     audioDuration,
     volume,
+    showVolumeControl = false,
     showDeviceControl,
     playbackDeviceOptions,
     activePlaybackDeviceId,
@@ -43,6 +45,7 @@
     currentTime: number;
     audioDuration: number;
     volume: number;
+    showVolumeControl?: boolean;
     showDeviceControl: boolean;
     playbackDeviceOptions: PlaybackDevice[];
     activePlaybackDeviceId: string;
@@ -67,7 +70,7 @@
   <div class="now-playing">
     {#if currentTrack}
       {#if currentTrack.artwork_url}
-        <img class="player-art" src={currentTrack.artwork_url} alt="" />
+        <ArtworkImage class="player-art" src={currentTrack.artwork_url} alt="" />
       {:else}
         <span class="player-art placeholder"><Music2 size={20} /></span>
       {/if}
@@ -129,10 +132,12 @@
   </div>
 
   <div class="player-side">
-    <label class="volume-control" aria-label="Volume">
-      <Volume2 size={18} />
-      <input max="1" min="0" step="0.01" type="range" style={`--fill: ${volumeFill}%`} value={volume} oninput={onVolumeInput} />
-    </label>
+    {#if showVolumeControl}
+      <label class="volume-control" aria-label="Volume">
+        <Volume2 size={18} />
+        <input max="1" min="0" step="0.01" type="range" style={`--fill: ${volumeFill}%`} value={volume} oninput={onVolumeInput} />
+      </label>
+    {/if}
 
     {#if showDeviceControl}
       <label class="device-control" aria-label={`Playback device. Playing on ${activePlaybackDeviceName}`}>

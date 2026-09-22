@@ -4,10 +4,24 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { AlertCircle, LoaderCircle } from "lucide-svelte";
+  import { AlertCircle, ChevronLeft, LoaderCircle, Palette, Radio, Search, X } from "lucide-svelte";
+  import MobileSymbol from "$lib/components/MobileSymbol.svelte";
+  import VirtualRows from "$lib/components/VirtualRows.svelte";
+  import MobileNewPlaylist from "$lib/components/MobileNewPlaylist.svelte";
+  import MobileSettings from "$lib/components/MobileSettings.svelte";
+  import MobilePalettes from "$lib/components/MobilePalettes.svelte";
+  import MobileAux from "$lib/components/MobileAux.svelte";
+  import MobilePlaylistMembership from "$lib/components/MobilePlaylistMembership.svelte";
+  import { listDownloaded, downloadTrack as cacheDownload, downloadedTrackURL, removeDownload as deleteDownload } from "$lib/web-downloads";
   import AuxModal from "$lib/components/AuxModal.svelte";
   import BrowseGrid from "$lib/components/BrowseGrid.svelte";
   import PlayerBar from "$lib/components/PlayerBar.svelte";
+  import MobileLibrary from "$lib/components/MobileLibrary.svelte";
+  import MobilePlayer from "$lib/components/MobilePlayer.svelte";
+  import ArtworkImage from "$lib/components/ArtworkImage.svelte";
+  import { boundedVolume } from "$lib/volume-control";
+  import MobileSheet from "$lib/components/MobileSheet.svelte";
+  import MobileTabs from "$lib/components/MobileTabs.svelte";
   import PlaylistModal from "$lib/components/PlaylistModal.svelte";
   import QueueRail from "$lib/components/QueueRail.svelte";
   import SettingsModal from "$lib/components/SettingsModal.svelte";
@@ -20,20 +34,22 @@
   import TrackList from "$lib/components/TrackList.svelte";
   import ViewHeader from "$lib/components/ViewHeader.svelte";
   import VisualizerView from "$lib/components/VisualizerView.svelte";
+  import SpectrumAppearance from "$lib/components/SpectrumAppearance.svelte";
   import { SpectroSampler } from "$lib/visualizer";
+  import { mobileViewMotion } from "$lib/mobile-view-motion";
   import { readCachedLibrary, writeCachedLibrary } from "$lib/library-cache";
   import {
-    baseName,
+    artworkImportSummary,
+    bundleImportSummary,
+    syncTransferSummary,
     fingerprintFor,
-    identityForImportTrack,
-    identityForPlaylistRef,
-    IMPORT_SCHEMA,
     parseId3,
-    type ImportManifest,
     type ImportManifestTrack
   } from "$lib/import";
+  import { buildImportBundle } from "$lib/import-bundle";
   import PlaylistGrid from "$lib/components/PlaylistGrid.svelte";
   import { mediaErrorMessage } from "$lib/audio-errors";
+  import { playbackPositionChanged } from "$lib/playback-continuity";
   import {
     createQueue,
     findTrackByReference,
@@ -45,7 +61,8 @@
     trackReference,
     tracksFromReferences,
     homeRecentItems,
-    artistCovers
+    artistCovers,
+    tracksForMobileCollection
   } from "$lib/library";
   import {
     clampIndex,
@@ -76,7 +93,6 @@
     normalizeServerUrl,
     normalizeLibrary,
     playbackEventsV2Url,
-    pushLibrarySnapshot,
     refreshSyncStreamToken,
     setSyncAuthToken,
     setTrackLiked,
@@ -86,6 +102,10 @@
     uploadTrackMetadata,
     createRemotePlaylist,
     addTrackToRemotePlaylist,
+    removeTrackFromRemotePlaylist,
+    renameRemotePlaylist,
+    setRemotePlaylistTracks,
+    resetPlaybackCommandQueue,
     libraryExportUrl,
     uploadBundle,
     fetchImportJob,
@@ -95,6 +115,7 @@
     updatePlaybackDevice,
     validateSyncServer
   } from "$lib/sync";
+  import { shouldReconcileSync, syncEventStreamExpired, SYNC_PRESENCE_INTERVAL_MS } from "$lib/sync-refresh";
   import type {
     PlaybackCommandKindV2,
     PlaybackContextV2,
@@ -102,7 +123,7 @@
     PlaybackEventV2,
     PlaybackStateV2
   } from "$lib/sync";
-  import { parseTheme, themes, type ThemeId, type ThemeOption } from "$lib/themes";
+  import { DEFAULT_THEME, parseTheme, themes, type ThemeId, type ThemeOption } from "$lib/themes";
   import {
     isKnownView,
     metaForTrackList,
@@ -115,6 +136,8 @@
     ArtistSummary,
     Library as MusicLibrary,
     LibraryStats,
+    ImportReport,
+    SyncTransferReport,
     Playlist,
     RepeatMode,
     SortKey,
@@ -152,7 +175,7 @@
   const DEFAULT_SYNC_SERVER_URL = "http://127.0.0.1:8787";
   const PLAYBACK_SAVE_DELAY_MS = 750;
   const PLAYBACK_DEVICE_SAVE_DELAY_MS = 220;
-  const PLAYBACK_DEVICE_POLL_MS = 30000;
+  const PLAYBACK_DEVICE_POLL_MS = SYNC_PRESENCE_INTERVAL_MS;
   const DEFAULT_STATS: LibraryStats = {
     trackCount: 0,
     playlistCount: 0,
@@ -163,15 +186,6 @@
   };
 
   type PlaybackSource = { url: string };
-  type SyncTransferReport = {
-    tracks_uploaded?: number;
-    tracks_downloaded?: number;
-    tracks_skipped?: number;
-    artwork_uploaded?: number;
-    playlist_updates?: number;
-    liked_updates?: number;
-    failures?: { track: string; reason: string }[];
-  };
 
   // ---------------------------------------------------------------------------
   // State
@@ -180,6 +194,31 @@
   let library: MusicLibrary | null = null;
   let rootPath = "";
   let selectedView = "home";
+  let mobileLayout = false;
+  let queueRailVisible = false;
+  let mobileTab = "home";
+  let downloadedFingerprints = new Set<string>();
+  let downloadingKeys = new Set<string>();
+  let downloadScope = "";
+  let playlistHistory: Record<string, Record<string, number>> = {};
+  let mobilePlaylistEditing = false;
+  let addingSongs = false;
+  let addSongQuery = "";
+  let addingSongIDs = new Set<string>();
+  let playlistWriteTail: Promise<void> = Promise.resolve();
+  let pendingPlaylistWrites = 0;
+  let playlistMutationEpoch = 0;
+  let mobileSearchInput: HTMLInputElement;
+  type MobileCollection = { title: string; artist?: string; kind: "album" | "artist" };
+  let mobileCollection: MobileCollection | null = null;
+  let contentEl: HTMLElement;
+  const mobileTabStates = new Map<string, { view: string; query: string; sort: SortKey; collection: MobileCollection | null; scroll: number }>();
+  const mobileRootScroll = new Map<string, number>();
+  let newPlaylistOpen = false;
+  let newPlaylistTitle = "";
+  let newPlaylistTrack: Track | null = null;
+  let creatingPlaylist = false;
+  let createPlaylistError = "";
   let guestMode = false;
   let auxCode = "";
   let auxBusy = false;
@@ -198,6 +237,7 @@
   let queue: Track[] = [];
   let queuedTracks: Track[] = [];
   let playbackSource: Track[] = [];
+  let sourcePlaylistID: string | null = null;
   let playbackIndex = 0;
   let playHistory: Track[] = [];
   let isPlaying = false;
@@ -206,7 +246,7 @@
   let volume = 0.86;
   let currentTime = 0;
   let audioDuration = 0;
-  let theme: ThemeId = "oxide";
+  let theme: ThemeId = DEFAULT_THEME;
   let syncServerUrl = "";
   let syncServerDraft = "";
   let syncTokenDraft = "";
@@ -215,9 +255,9 @@
   let deviceName = "";
   let selectedPlaybackDeviceId = "";
   let playbackDevices: PlaybackDevice[] = [];
-  let playbackDevicesEvaluatedRevision = -1;
   let playbackStateV2: PlaybackStateV2 | null = null;
   let playbackClockOffsetMs = 0;
+  let playbackPageVisible = true;
   // While in the future, the derived server clock may not overwrite
   // currentTime — prevents scrub rubber-banding until the server confirms.
   let playbackClockSuppressUntil = 0;
@@ -251,7 +291,20 @@
   let playbackClockTimer: number | null = null;
   let playbackEventSource: EventSource | null = null;
   let playbackEventSourceUrl = "";
+  let playbackEventActivityAt = 0;
+  let syncReadGeneration = 0;
+  let playbackRefresh: Promise<void> | null = null;
+  let playbackReadController: AbortController | null = null;
+  let playbackDeviceRefresh: Promise<void> | null = null;
+  let playbackReconnect: Promise<void> | null = null;
+  let lastPlaybackRefreshAt = 0;
+  let lastLibraryRefreshAt = 0;
   let unlistenLibrary: (() => void) | null = null;
+  // Media events are queued after play()/pause() return. Track our own
+  // transitions so they cannot echo as headphone commands after sync finishes.
+  let expectedAudioPlayEvents = 0;
+  let expectedAudioPauseEvents = 0;
+  let systemMediaTrackId = "";
   let loadedSource = "";
   // Which track the audio element actually holds — the UI's currentTrack can
   // move (session restore vs server state) without the element following.
@@ -268,6 +321,14 @@
   let lastAppliedPlaybackRevision = 0;
   let pendingSeekTime: number | null = null;
   let applyingRemotePlayback = false;
+  let playbackApplyGeneration = 0;
+  let playbackConnectionGeneration = 0;
+  let pendingPlaybackCommands = 0;
+  let deferredPlaybackState: PlaybackStateV2 | null = null;
+  let localPlaybackGeneration = 0;
+  let remoteLibraryRefresh: Promise<void> | null = null;
+  let remoteLibraryRefreshAgain = false;
+  let lastRemoteLibrary: MusicLibrary | null = null;
   let savingPlaylistMemberships = false;
 
   // ---------------------------------------------------------------------------
@@ -286,7 +347,7 @@
   let listDurationSeconds = 0;
   let listMeta = "";
   let isEditingSelectedPlaylist = false;
-  let activeTheme: ThemeOption = themes[0];
+  let activeTheme: ThemeOption = themes.find((option) => option.id === DEFAULT_THEME)!;
   let playbackDeviceOptions: PlaybackDevice[] = [];
   let activePlaybackDeviceId = "";
   let activePlaybackDeviceName = "";
@@ -301,17 +362,43 @@
     (selectedView === "home" ||
       selectedView === "artists" ||
       selectedView === "albums" ||
+      selectedView === "library" ||
+      selectedView === "search" ||
       selectedView === "playlists");
   $: userPlaylists = library?.playlists.filter((playlist) => !playlist.is_liked) ?? [];
+  $: recentPlaylists = [...userPlaylists].sort((a,b) => (playlistHistory[syncServerUrl]?.[b.id] ?? 0) - (playlistHistory[syncServerUrl]?.[a.id] ?? 0));
+  $: downloadedIDs = new Set((library?.tracks ?? []).filter(track => downloadedFingerprints.has(track.fingerprint)).map(track => track.id));
+  $: downloadingIDs = new Set((library?.tracks ?? []).filter(track => downloadingKeys.has(downloadKey(syncServerUrl, track.fingerprint))).map(track => track.id));
+  $: if (syncServerUrl !== downloadScope) { downloadScope = syncServerUrl; downloadedFingerprints = new Set(); void refreshDownloads(syncServerUrl); }
   $: homeItems = homeRecentItems(library);
+  $: mobileTrackIndex = new Map(library?.tracks.map((track) => [track.id, track]) ?? []);
+  $: playlistArtwork = new Map((library?.playlists ?? []).map((playlist) => {
+    const urls = new Set<string>();
+    const albums = new Set<string>();
+    for (const id of playlist.track_ids) {
+      const track = mobileTrackIndex.get(id);
+      const art = track?.artwork_url;
+      if (!art || !track) continue;
+      const identity = track.album ? `${track.album_artist || track.artist}\u0000${track.album}` : art;
+      if (albums.has(identity)) continue;
+      albums.add(identity);
+      urls.add(art);
+      if (urls.size === 4) break;
+    }
+    return [playlist.id, [...urls]] as const;
+  }));
   $: homePlaylistCovers = new Map(
     userPlaylists.map((playlist) => {
-      const trackIds = new Set(playlist.track_ids);
-      return [playlist.id, library?.tracks.find((track) => trackIds.has(track.id)) ?? null];
+      return [playlist.id, mobileTrackIndex.get(playlist.track_ids[0]) ?? null];
     })
   );
+  $: playingPlaylist = currentTrack && sourcePlaylistID
+    ? library?.playlists.find(playlist => playlist.id === sourcePlaylistID) ?? null : null;
+  $: playingPlaylistCovers = playingPlaylist ? playlistArtwork.get(playingPlaylist.id) ?? [] : [];
   $: queue = playbackQueue(currentTrack, queuedTracks, playbackSource, playbackIndex);
-  $: baseTracks = globalSearch
+  $: baseTracks = selectedView === "downloaded" ? (library?.tracks ?? []).filter(track => downloadedIDs.has(track.id)) : mobileCollection
+    ? tracksForMobileCollection(library, mobileCollection)
+    : selectedView === "search" && !searchActive ? [] : globalSearch
     ? (library?.tracks ?? [])
     : trackSourceForView(library, selectedView, selectedPlaylist, queue);
   $: visibleTracks = sortTracks(searchTracks(baseTracks, searchQuery), sortKey);
@@ -320,6 +407,7 @@
   $: artistArt = artistCovers(library);
   $: albums = library?.albums ?? [];
   $: viewTitle = titleForView(selectedView, selectedPlaylist);
+  $: mobileViewTitle = mobileCollection?.title ?? (selectedView === "all" ? "Songs" : selectedView === "downloaded" ? "Downloaded" : viewTitle);
   $: viewSubtitle = subtitleForView(library, selectedView, stats);
   $: listDurationSeconds = visibleTracks.reduce((sum, track) => sum + (track.duration_seconds ?? 0), 0);
   $: listMeta = metaForTrackList(selectedView, stats, visibleTracks, listDurationSeconds, queuedTracks);
@@ -327,20 +415,30 @@
     selectedPlaylist && editingPlaylistId === selectedPlaylist.id
   );
   $: activeTheme = themes.find((option) => option.id === theme) ?? themes[0];
-  $: playbackDeviceOptions = playbackDeviceChoices(playbackDevices, deviceId, deviceName);
+  $: if (typeof document !== "undefined") {
+    document.documentElement.dataset.theme = theme;
+    const background = getComputedStyle(document.documentElement).getPropertyValue("--color-bg").trim();
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", background);
+  }
+  $: playbackDeviceOptions = playbackDeviceChoices(playbackDevices, deviceId, deviceName, selectedPlaybackDeviceId);
   $: activePlaybackDeviceId =
     playbackStateV2?.active_device_id || selectedPlaybackDeviceId || deviceId;
   $: activePlaybackDeviceName =
     playbackDeviceOptions.find((device) => device.device_id === activePlaybackDeviceId)?.name ||
     deviceName ||
     "This device";
+  $: updateSystemMediaSession(currentTrack, isPlaying, !syncServerReady ||
+    (activePlaybackDeviceId === deviceId && (!selectedPlaybackDeviceId || selectedPlaybackDeviceId === deviceId)));
   $: if (audioEl) {
-    audioEl.volume = volume;
+    // Web volume belongs to the device/browser. Do not retain invisible
+    // attenuation from an old saved slider or another playback device.
+    audioEl.volume = hasNativeBridge() ? boundedVolume(volume) : 1;
   }
   $: if (playbackSessionRestored) {
     void currentTrack;
     void queuedTracks;
     void playbackSource;
+    void sourcePlaylistID;
     void playbackIndex;
     void playHistory;
     void audioDuration;
@@ -357,6 +455,33 @@
   // ---------------------------------------------------------------------------
 
   onMount(() => {
+    if (!("mediaSession" in navigator)) return;
+    const actions: MediaSessionAction[] = ["play", "pause"];
+    for (const action of actions) {
+      try {
+        navigator.mediaSession.setActionHandler(action, () => handleSystemPlayback(action === "play"));
+      } catch { /* Some browsers implement only part of MediaSession. */ }
+    }
+    return () => {
+      for (const action of actions) {
+        try { navigator.mediaSession.setActionHandler(action, null); } catch { /* Unsupported action. */ }
+      }
+      navigator.mediaSession.playbackState = "none";
+      navigator.mediaSession.metadata = null;
+    };
+  });
+
+  onMount(() => {
+    const query = window.matchMedia("(max-width: 980px)");
+    const railQuery = window.matchMedia("(max-width: 1140px)");
+    const update = () => { mobileLayout = query.matches; queueRailVisible = !railQuery.matches; };
+    update();
+    query.addEventListener("change", update);
+    railQuery.addEventListener("change", update);
+    return () => { query.removeEventListener("change", update); railQuery.removeEventListener("change", update); };
+  });
+
+  onMount(() => {
     // The version query makes every deploy a new service-worker URL, so
     // neither the browser nor a CDN can pin devices to a stale build.
     if ("serviceWorker" in navigator && !hasNativeBridge()) {
@@ -365,14 +490,16 @@
         .catch(() => undefined);
     }
 
+    theme = parseTheme(readStoredValue(THEME_STORAGE_KEY));
     const auxParam = new URLSearchParams(window.location.search).get("aux");
     if (auxParam && !hasNativeBridge()) {
       void joinAuxAsGuest(auxParam);
       return;
     }
 
+    try { const saved = JSON.parse(localStorage.getItem("codec.playlistHistory") ?? "{}"); if (saved && typeof saved === "object" && !Array.isArray(saved)) playlistHistory = saved; } catch { /* Fresh recency state. */ }
     rootPath = readStoredValue(ROOT_STORAGE_KEY) ?? "";
-    volume = Number(readStoredValue(VOLUME_STORAGE_KEY) ?? volume);
+    volume = boundedVolume(readStoredValue(VOLUME_STORAGE_KEY) ?? volume);
     shuffle = readStoredValue(SHUFFLE_STORAGE_KEY) === "true";
     repeatMode = (readStoredValue(REPEAT_STORAGE_KEY) as RepeatMode | null) ?? "off";
     theme = parseTheme(readStoredValue(THEME_STORAGE_KEY));
@@ -401,10 +528,13 @@
     selectedPlaybackDeviceId = readStoredValue(SYNC_SELECTED_DEVICE_STORAGE_KEY) ?? "";
     writeStoredValue(SYNC_DEVICE_ID_STORAGE_KEY, deviceId);
     writeStoredValue(SYNC_DEVICE_NAME_STORAGE_KEY, deviceName);
+    // A first visit is a connect form, not a failed anonymous login. Saved
+    // connections (including servers without auth) still reconnect at once.
+    const hasSavedConnection = Boolean(readStoredValue(SYNC_SERVER_STORAGE_KEY) || syncTokenDraft || rootPath);
 
     if (rootPath && hasNativeBridge() && !isRemoteRoot(rootPath)) {
       void loadLibrary(rootPath, true);
-    } else if (syncServerUrl && (!hasNativeBridge() || rootPath === REMOTE_ROOT_PATH)) {
+    } else if (hasSavedConnection && syncServerUrl && (!hasNativeBridge() || rootPath === REMOTE_ROOT_PATH)) {
       // Hydrate from the local cache immediately while the network load
       // runs; whichever lands first paints, the network result wins.
       bootstrapping = true;
@@ -412,11 +542,11 @@
       void loadRemoteLibrary(true);
     }
 
-    if (syncServerUrl && rootPath !== REMOTE_ROOT_PATH) {
+    if (hasSavedConnection && syncServerUrl && rootPath !== REMOTE_ROOT_PATH) {
       void validatePlaybackSyncServer(true);
     }
 
-    if (syncServerUrl) {
+    if (hasSavedConnection && syncServerUrl) {
       void refreshAuxState();
     }
 
@@ -440,7 +570,10 @@
 
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
-        topBar?.focusSearch();
+        if (mobileLayout) {
+          selectMobileTab("search");
+          void tick().then(() => mobileSearchInput?.focus());
+        } else topBar?.focusSearch();
         return;
       }
 
@@ -464,7 +597,7 @@
         }
       }
 
-      if (isTyping) {
+      if (isTyping || event.defaultPrevented || target?.closest("button, select, dialog, [role='dialog']")) {
         return;
       }
 
@@ -484,14 +617,20 @@
 
     document.addEventListener("keydown", keyHandler);
     const persistPlayback = () => savePlaybackSessionNow();
+    playbackPageVisible = document.visibilityState !== "hidden";
     const persistWhenHidden = () => {
-      if (document.visibilityState === "hidden") {
+      playbackPageVisible = document.visibilityState !== "hidden";
+      if (!playbackPageVisible) {
         savePlaybackSessionNow();
+      } else {
+        refreshPlaybackSyncOnForeground();
       }
     };
 
     window.addEventListener("pagehide", persistPlayback);
     window.addEventListener("beforeunload", persistPlayback);
+    window.addEventListener("pageshow", refreshPlaybackSyncOnForeground);
+    window.addEventListener("online", refreshPlaybackSyncOnForeground);
     document.addEventListener("visibilitychange", persistWhenHidden);
 
     return () => {
@@ -499,6 +638,8 @@
       document.removeEventListener("keydown", keyHandler);
       window.removeEventListener("pagehide", persistPlayback);
       window.removeEventListener("beforeunload", persistPlayback);
+      window.removeEventListener("pageshow", refreshPlaybackSyncOnForeground);
+      window.removeEventListener("online", refreshPlaybackSyncOnForeground);
       document.removeEventListener("visibilitychange", persistWhenHidden);
       unlistenLibrary?.();
       if (refreshTimer) {
@@ -517,6 +658,8 @@
         window.clearInterval(playbackClockTimer);
       }
       playbackEventSource?.close();
+      visualizerSampler?.stop();
+      void audioGraphContext?.close().catch(() => undefined);
       if (hasNativeBridge() && !isRemoteRoot(rootPath)) {
         void invoke("stop_library_watch").catch(() => undefined);
       }
@@ -549,20 +692,20 @@
   async function chooseImportManifest() {
     errorMessage = "";
     if (!hasNativeBridge()) {
-      errorMessage = "Open Codec in the Tauri app to import a playlist manifest.";
+      errorMessage = "Open the Codec desktop app to import a music bundle.";
       return;
     }
 
     if (!rootPath) {
-      errorMessage = "Choose a music folder before importing a playlist manifest.";
+      errorMessage = "Choose a music folder before importing a music bundle.";
       return;
     }
 
     const selected = await open({
       directory: false,
       multiple: false,
-      title: "Import Codec playlist manifest",
-      filters: [{ name: "Codec import manifest", extensions: ["json"] }]
+      title: "Choose loud-import.json or codec-import.json",
+      filters: [{ name: "Codec music bundle manifest", extensions: ["json"] }]
     });
 
     if (typeof selected !== "string") {
@@ -571,11 +714,19 @@
 
     importing = true;
     try {
-      await invoke("import_library_manifest", {
+      const report = await invoke<ImportReport>("import_library_manifest", {
         root_path: rootPath,
         manifest_path: selected
       });
       await loadLibrary(rootPath, true);
+      const bits = [`${report.new_tracks} new`, `${report.existing_tracks} existing`];
+      if (report.playlist_updates) bits.push(`${report.playlist_updates} playlist updates`);
+      if (report.liked_updates) bits.push(`${report.liked_updates} liked`);
+      if (report.skipped_tracks) bits.push(`${report.skipped_tracks} tracks skipped`);
+      bits.push(...artworkImportSummary(report));
+      syncMessage = `Import · ${bits.join(" · ")}`;
+      const diagnostics = [...(report.failures ?? []), ...(report.artwork_failures ?? [])];
+      if (diagnostics.length) errorMessage = diagnostics.slice(0, 3).map((item) => `${item.file}: ${item.reason}`).join(" · ");
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
     } finally {
@@ -650,13 +801,16 @@
       await validateSyncServer(serverUrl);
       await refreshSyncStreamToken(serverUrl);
       const nextLibrary = await fetchRemoteLibrary(serverUrl);
+      if (serverUrl !== syncServerUrl) return;
+      lastRemoteLibrary = nextLibrary;
+      lastLibraryRefreshAt = Date.now();
       syncServerReady = true;
       rootPath = nextLibrary.root_path || REMOTE_ROOT_PATH;
       writeStoredValue(ROOT_STORAGE_KEY, rootPath);
       syncLibrary(nextLibrary);
       void writeCachedLibrary(nextLibrary);
-      await restoreRemotePlaybackSession(nextLibrary);
       startPlaybackDevicePolling();
+      void restoreRemotePlaybackSession(nextLibrary);
       syncMessage = `Connected · ${formatCount(nextLibrary.tracks.length, "track")}`;
     } catch (error) {
       syncServerReady = false;
@@ -668,15 +822,62 @@
     }
   }
 
+  async function refreshRemoteLibraryState(forceApply = false, invalidated = true) {
+    if (!usePlaybackSync() || !isRemoteRoot(rootPath) || pendingPlaylistWrites > 0) return;
+    // Mutations may have optimistically changed or rolled back the UI while
+    // an SSE refresh cached this same server snapshot. Reapply it on demand.
+    if (forceApply) lastRemoteLibrary = null;
+    if (remoteLibraryRefresh) {
+      // A mutation/event during a read requires one more snapshot. Routine
+      // foreground/poll reads can share the request already in flight.
+      remoteLibraryRefreshAgain ||= invalidated;
+      return remoteLibraryRefresh.catch(() => undefined);
+    }
+    const server = syncServerUrl;
+    const token = syncTokenDraft;
+    const generation = syncReadGeneration;
+    const request = (async () => {
+      await refreshSyncStreamToken(server);
+      if (generation !== syncReadGeneration || server !== syncServerUrl || token !== syncTokenDraft) return;
+      do {
+        remoteLibraryRefreshAgain = false;
+        const playlistEpoch = playlistMutationEpoch;
+        const nextLibrary = await fetchRemoteLibrary(server);
+        if (generation !== syncReadGeneration || server !== syncServerUrl || token !== syncTokenDraft) return;
+        if (pendingPlaylistWrites > 0) return;
+        if (playlistEpoch !== playlistMutationEpoch) { remoteLibraryRefreshAgain = true; continue; }
+        lastLibraryRefreshAt = Date.now();
+        if (nextLibrary !== lastRemoteLibrary) {
+          lastRemoteLibrary = nextLibrary;
+          syncLibrary(nextLibrary);
+          void writeCachedLibrary(nextLibrary);
+        }
+      } while (remoteLibraryRefreshAgain);
+    })();
+    remoteLibraryRefresh = request;
+    try {
+      await request;
+    } catch {
+      // Keep the cached library readable; reconnect and the next poll retry.
+      if (generation === syncReadGeneration && server === syncServerUrl && token === syncTokenDraft) {
+        lastLibraryRefreshAt = 0;
+      }
+    } finally {
+      if (remoteLibraryRefresh === request) remoteLibraryRefresh = null;
+    }
+  }
+
   function syncLibrary(nextLibrary: MusicLibrary) {
     const previousCurrent = currentTrack;
-    nextLibrary = normalizeLibrary(nextLibrary);
+    nextLibrary = normalizeLibrary(nextLibrary, syncServerUrl);
     library = nextLibrary;
 
     // If shared playback state landed before the library did, its staleness
     // check couldn't see track durations — re-apply now that it can.
     if (playbackStateV2) {
+      playbackSessionRestored = true;
       void applyPlaybackStateV2(playbackStateV2, true);
+      return;
     }
 
     if (!playbackSessionRestored) {
@@ -777,6 +978,7 @@
     currentTrack = restoredCurrent;
     queuedTracks = tracksFromReferences(activeLibrary, session.queued_tracks);
     playbackSource = tracksFromReferences(activeLibrary, session.playback_source);
+    sourcePlaylistID = typeof session.playlist_id === "string" ? session.playlist_id.trim() || null : null;
     playHistory = tracksFromReferences(activeLibrary, session.play_history);
     playbackIndex = clampIndex(session.playback_index, playbackSource.length);
     currentTime = clampPlaybackTime(session.current_time, restoredCurrent);
@@ -805,13 +1007,17 @@
   }
 
   async function restoreRemotePlaybackSession(activeLibrary: MusicLibrary) {
-    if (!syncServerUrl) {
+    if (!syncServerUrl || playbackStateV2) {
       return;
     }
 
+    const server = syncServerUrl;
+    const generation = syncReadGeneration;
     try {
-      const remote = await fetchLatestPlaybackSession<PersistedPlaybackSession>(syncServerUrl);
-      if (!remote || !validPlaybackSession(remote.session)) {
+      const remote = await fetchLatestPlaybackSession<PersistedPlaybackSession>(server);
+      // This is a legacy fallback. Live state can arrive over SSE while the
+      // saved session is loading; never replace that state with an old pause.
+      if (playbackStateV2 || generation !== syncReadGeneration || server !== syncServerUrl || !remote || !validPlaybackSession(remote.session)) {
         return;
       }
 
@@ -866,6 +1072,7 @@
       current_track: currentTrack ? trackReference(currentTrack) : null,
       queued_tracks: queuedTracks.map(trackReference),
       playback_source: playbackSource.map(trackReference),
+      playlist_id: sourcePlaylistID,
       playback_index: playbackIndex,
       play_history: playHistory.map(trackReference),
       current_time: currentPlaybackTimeForSave(),
@@ -879,6 +1086,11 @@
   }
 
   function currentPlaybackTimeForSave(): number {
+    // The element can retain an old song/position after transferring audio to
+    // native. Remote pause/resume must use the owner's clock, not that buffer.
+    if (usePlaybackSync() && playbackStateV2?.active_device_id && playbackStateV2.active_device_id !== deviceId) {
+      return clampPlaybackTime(currentSyncedPlaybackPosition(), currentTrack);
+    }
     const mediaTime = audioEl?.currentTime;
     if (Number.isFinite(mediaTime) && mediaTime > 0) {
       return mediaTime;
@@ -897,6 +1109,7 @@
     syncServerDraft = nextUrl;
     syncServerUrl = nextUrl;
     if (previousUrl !== nextUrl) {
+      sourcePlaylistID = null;
       syncServerReady = false;
       stopPlaybackDevicePolling();
     }
@@ -920,8 +1133,8 @@
 
   async function syncToServer() {
     const serverUrl = saveSyncServerUrl();
-    if (!serverUrl || !library) {
-      errorMessage = "Choose a library and enter a sync server URL first.";
+    if (!serverUrl || !library || !hasNativeBridge() || isRemoteRoot(rootPath)) {
+      errorMessage = "Choose a local music folder in the desktop app to merge it into your server.";
       return;
     }
 
@@ -938,10 +1151,7 @@
           device_id: deviceId,
           auth_token: syncTokenDraft
         });
-        syncMessage = syncReportText("Uploaded", report);
-      } else {
-        const report = await pushLibrarySnapshot(serverUrl, deviceId, library);
-        syncMessage = `Uploaded metadata · ${formatCount(report.tracks_upserted, "track")}`;
+        syncMessage = syncTransferSummary("Merged", report);
       }
       syncServerReady = true;
       startPlaybackDevicePolling();
@@ -973,7 +1183,7 @@
           server_url: serverUrl,
           auth_token: syncTokenDraft
         });
-        syncMessage = syncReportText("Pulled", report);
+        syncMessage = syncTransferSummary("Downloaded", report);
         await loadLibrary(rootPath, true);
         syncServerReady = true;
         startPlaybackDevicePolling();
@@ -987,19 +1197,6 @@
     } finally {
       syncing = false;
     }
-  }
-
-  function syncReportText(action: string, report: SyncTransferReport): string {
-    const moved = (report.tracks_uploaded ?? 0) + (report.tracks_downloaded ?? 0);
-    const skipped = report.tracks_skipped ?? 0;
-    const failures = report.failures?.length ?? 0;
-    return `${action} · ${formatCount(moved, "track")} · ${formatCount(
-      skipped,
-      "already local",
-      "already local"
-    )}${
-      failures ? ` · ${formatCount(failures, "failure")}` : ""
-    }`;
   }
 
   async function validatePlaybackSyncServer(quiet = false) {
@@ -1059,6 +1256,14 @@
     removeStoredValue(SYNC_SELECTED_DEVICE_STORAGE_KEY);
     selectedPlaybackDeviceId = "";
     playbackStateV2 = null;
+    sourcePlaylistID = null;
+    playbackApplyGeneration++;
+    localPlaybackGeneration++;
+    playbackConnectionGeneration++;
+    pendingPlaybackCommands = 0;
+    deferredPlaybackState = null;
+    applyingRemotePlayback = false;
+    lastRemoteLibrary = null;
     stopPlaybackClock();
     stopPlaybackDevicePolling();
     closeSyncServerModal();
@@ -1121,7 +1326,7 @@
           });
 
     command
-      .then((state) => applyPlaybackStateV2(state, true))
+      .then((state) => applyPlaybackStateV2(state))
       .catch((error) => {
         errorMessage = error instanceof Error ? error.message : String(error);
       });
@@ -1130,21 +1335,50 @@
   function startPlaybackDevicePolling() {
     if (!syncServerUrl || !syncServerReady || playbackDevicePollTimer) {
       if (syncServerUrl && syncServerReady) {
-        startPlaybackEvents();
+        void startPlaybackEvents().catch(() => undefined);
       }
       return;
     }
 
     void publishPlaybackDeviceState(true);
     void refreshPlaybackDevices();
-    startPlaybackEvents();
+    void startPlaybackEvents().catch(() => undefined);
     playbackDevicePollTimer = window.setInterval(() => {
-      void publishPlaybackDeviceState();
-      void refreshPlaybackDevices();
+      void publishPlaybackDeviceState(true);
+      const now = Date.now();
+      const streamOpen = playbackEventSource?.readyState === 1 && !syncEventStreamExpired(playbackEventActivityAt, now);
+      if (shouldReconcileSync(streamOpen, lastPlaybackRefreshAt, now)) void refreshPlaybackDevices();
+      if (shouldReconcileSync(streamOpen, lastLibraryRefreshAt, now)) void refreshRemoteLibraryState(false, false);
+      void startPlaybackEvents().catch(() => undefined);
     }, PLAYBACK_DEVICE_POLL_MS);
   }
 
+  function refreshPlaybackSyncOnForeground() {
+    if (!syncServerReady) {
+      // An offline launch never reaches the polling loop. Returning online
+      // must reconnect the saved server before ordinary state reads can run.
+      if (!syncServerUrl || !deviceId || loading || bootstrapping || playbackReconnect ||
+          !(readStoredValue(SYNC_SERVER_STORAGE_KEY) || syncTokenDraft || rootPath)) return;
+      const reconnect = hasNativeBridge() && !isRemoteRoot(rootPath)
+        ? validatePlaybackSyncServer(true) : loadRemoteLibrary(true);
+      const pending = reconnect.finally(() => {
+        if (playbackReconnect === pending) playbackReconnect = null;
+      });
+      playbackReconnect = pending;
+      return;
+    }
+    // Mobile browsers suspend sockets while backgrounded. Reconcile even an
+    // unchanged revision and reopen SSE so buffered events cannot leave the
+    // remote timeline behind after switching from the native player.
+    void refreshPlaybackDevices(true);
+    void publishPlaybackDeviceState(true);
+    void refreshRemoteLibraryState(false, false);
+    void startPlaybackEvents(true).catch(() => undefined);
+  }
+
   function stopPlaybackDevicePolling() {
+    syncReadGeneration++;
+    resetPlaybackCommandQueue();
     if (playbackDevicePollTimer) {
       window.clearInterval(playbackDevicePollTimer);
       playbackDevicePollTimer = null;
@@ -1160,26 +1394,63 @@
     playbackEventSource?.close();
     playbackEventSource = null;
     playbackEventSourceUrl = "";
+    playbackEventActivityAt = 0;
+    playbackReadController?.abort();
+    playbackReadController = null;
+    playbackRefresh = null;
+    playbackDeviceRefresh = null;
+    remoteLibraryRefresh = null;
+    remoteLibraryRefreshAgain = false;
+    lastPlaybackRefreshAt = 0;
+    lastLibraryRefreshAt = 0;
   }
 
-  async function startPlaybackEvents() {
+  async function startPlaybackEvents(forceReconnect = false) {
     if (!syncServerUrl || !syncServerReady || typeof EventSource === "undefined") {
       return;
     }
 
-    await refreshSyncStreamToken(syncServerUrl);
-    const nextUrl = playbackEventsV2Url(syncServerUrl);
+    const server = syncServerUrl;
+    const token = syncTokenDraft;
+    const generation = syncReadGeneration;
+    if (playbackEventSource && (forceReconnect || playbackEventSource.readyState === 2 || syncEventStreamExpired(playbackEventActivityAt, Date.now()))) {
+      // An OPEN socket can silently stop delivering. A connection that never
+      // received headers can also stall without an error callback.
+      playbackEventSource.close();
+      playbackEventSource = null;
+      playbackEventSourceUrl = "";
+    }
+    await refreshSyncStreamToken(server);
+    if (generation !== syncReadGeneration || server !== syncServerUrl || token !== syncTokenDraft || !syncServerReady) return;
+    const nextUrl = playbackEventsV2Url(server);
     if (playbackEventSource && playbackEventSourceUrl === nextUrl) {
       return;
     }
 
     playbackEventSource?.close();
     playbackEventSourceUrl = nextUrl;
-    playbackEventSource = new EventSource(nextUrl);
-    playbackEventSource.addEventListener("devices", handlePlaybackEvent);
-    playbackEventSource.addEventListener("device", handlePlaybackEvent);
-    playbackEventSource.addEventListener("playback_state", handlePlaybackEvent);
-    playbackEventSource.onerror = () => {
+    const source = new EventSource(nextUrl);
+    playbackEventSource = source;
+    playbackEventActivityAt = Date.now();
+    const stillConnected = () => playbackEventSource === source && server === syncServerUrl && token === syncTokenDraft;
+    const handleCurrentEvent = (event: MessageEvent<string>) => {
+      if (!stillConnected()) return;
+      playbackEventActivityAt = Date.now();
+      handlePlaybackEvent(event);
+    };
+    source.addEventListener("devices", handleCurrentEvent);
+    source.addEventListener("device", handleCurrentEvent);
+    source.addEventListener("playback_state", handleCurrentEvent);
+    source.addEventListener("library", handleCurrentEvent);
+    source.onopen = () => {
+      if (!stillConnected()) return;
+      playbackEventActivityAt = Date.now();
+      // Reconcile missed changes on every reconnect, independent of cadence.
+      void refreshPlaybackDevices();
+      void refreshRemoteLibraryState();
+    };
+    source.onerror = () => {
+      if (!stillConnected()) return;
       void refreshPlaybackDevices();
     };
   }
@@ -1187,6 +1458,7 @@
   function handlePlaybackEvent(event: MessageEvent<string>) {
     try {
       const payload = JSON.parse(event.data) as PlaybackEventV2;
+      if (payload.type === "library") void refreshRemoteLibraryState();
       if (payload.devices) {
         playbackDevices = payload.devices;
       }
@@ -1203,8 +1475,13 @@
 
   function mergePlaybackDevice(devices: PlaybackDevice[], nextDevice: PlaybackDevice): PlaybackDevice[] {
     const byId = new Map(devices.map((device) => [device.device_id, device]));
-    byId.set(nextDevice.device_id, nextDevice);
-    return [...byId.values()].sort((a, b) => b.updated_at - a.updated_at);
+    const previous = byId.get(nextDevice.device_id);
+    if (!previous || nextDevice.updated_at >= previous.updated_at) byId.set(nextDevice.device_id, nextDevice);
+    const sorted = [...byId.values()].sort((a, b) => b.updated_at - a.updated_at);
+    // Presence events use server timestamps. Expire offline devices without
+    // another GET, matching the server TTL even when the client clock differs.
+    const cutoff = (sorted[0]?.updated_at ?? 0) - 2 * 60_000;
+    return sorted.filter((device) => device.updated_at >= cutoff);
   }
 
   function schedulePlaybackDeviceUpdate(force = false) {
@@ -1251,37 +1528,68 @@
     }
   }
 
-  async function refreshPlaybackDevices() {
-    if (!syncServerUrl || !syncServerReady) {
-      return;
+  async function refreshPlaybackDeviceList() {
+    if (!syncServerUrl || !syncServerReady) return;
+    if (playbackDeviceRefresh) return playbackDeviceRefresh;
+    const server = syncServerUrl;
+    const token = syncTokenDraft;
+    const generation = syncReadGeneration;
+    const request = (async () => {
+      try {
+        const devices = await fetchPlaybackDevices(server);
+        if (generation === syncReadGeneration && server === syncServerUrl && token === syncTokenDraft && syncServerReady) {
+          playbackDevices = devices;
+        }
+      } catch {
+        // Discovery is advisory. A slow/offline presence endpoint must never
+        // delay the current song, timeline or transport ownership.
+      }
+    })();
+    playbackDeviceRefresh = request;
+    try { await request; }
+    finally { if (playbackDeviceRefresh === request) playbackDeviceRefresh = null; }
+  }
+
+  async function refreshPlaybackDevices(force = false) {
+    if (!syncServerUrl || !syncServerReady) return;
+    if (playbackRefresh) {
+      if (!force) return playbackRefresh;
+      // A fetch started before suspension can retain a dead connection.
+      // Foreground/command recovery needs a new request, not a place in line.
+      playbackReadController?.abort();
     }
 
     const serverUrl = syncServerUrl;
-    try {
-      const [devices, state] = await Promise.all([
-        fetchPlaybackDevices(serverUrl),
-        fetchPlaybackStateV2(serverUrl)
-      ]);
-      if (serverUrl !== syncServerUrl) {
-        return;
+    const token = syncTokenDraft;
+    const generation = syncReadGeneration;
+    const controller = new AbortController();
+    playbackReadController = controller;
+    const current = () => !controller.signal.aborted && playbackReadController === controller &&
+      generation === syncReadGeneration && serverUrl === syncServerUrl && token === syncTokenDraft && syncServerReady;
+    const request = (async () => {
+      try {
+        void refreshPlaybackDeviceList();
+        const state = await fetchPlaybackStateV2(serverUrl, undefined, controller.signal);
+        if (!current()) return;
+        if (state) {
+          await applyPlaybackStateV2(state, force);
+          if (!current()) return;
+        } else {
+          playbackStateV2 = null;
+          stopPlaybackClock();
+        }
+        lastPlaybackRefreshAt = Date.now();
+      } catch {
+        // Superseding a stale read is expected. Its cancellation must not
+        // erase the new connection's freshness or surface an offline error.
+        if (current()) lastPlaybackRefreshAt = 0;
       }
-
-      playbackDevices = devices;
-      if (state) {
-        // Re-evaluate once per revision after the devices list lands: the
-        // ghost-device check inside apply can only judge with devices known.
-        const reevaluate =
-          playbackStateV2 !== null &&
-          state.revision === playbackStateV2.revision &&
-          playbackDevicesEvaluatedRevision !== state.revision;
-        await applyPlaybackStateV2(state, reevaluate);
-        playbackDevicesEvaluatedRevision = state.revision;
-      } else {
-        playbackStateV2 = null;
-        stopPlaybackClock();
-      }
-    } catch {
-      // Polling should stay quiet; the connect/sync actions surface user-facing failures.
+    })();
+    playbackRefresh = request;
+    try { await request; }
+    finally {
+      if (playbackRefresh === request) playbackRefresh = null;
+      if (playbackReadController === controller) playbackReadController = null;
     }
   }
 
@@ -1302,7 +1610,8 @@
   function playbackDeviceChoices(
     devices: PlaybackDevice[],
     currentDeviceId: string,
-    currentDeviceName: string
+    currentDeviceName: string,
+    selectedDeviceId: string
   ): PlaybackDevice[] {
     if (!currentDeviceId) {
       return devices;
@@ -1314,11 +1623,11 @@
         byId.set(device.device_id, device);
       }
     }
-    if (selectedPlaybackDeviceId && !byId.has(selectedPlaybackDeviceId)) {
-      byId.set(selectedPlaybackDeviceId, {
+    if (selectedDeviceId && !byId.has(selectedDeviceId)) {
+      byId.set(selectedDeviceId, {
         ...playbackDeviceState(),
-        device_id: selectedPlaybackDeviceId,
-        name: "Selected device"
+        device_id: selectedDeviceId,
+        name: "Other device"
       });
     }
 
@@ -1345,7 +1654,7 @@
         target_device_id: targetDeviceId,
         position_seconds: currentSyncedPlaybackPosition()
       });
-      await applyPlaybackStateV2(state, true);
+      await applyPlaybackStateV2(state);
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
     }
@@ -1366,7 +1675,7 @@
         target_device_id: deviceId,
         position_seconds: currentSyncedPlaybackPosition()
       });
-      await applyPlaybackStateV2(state, true);
+      await applyPlaybackStateV2(state);
       schedulePlaybackDeviceUpdate(true);
     } catch {
       // Local controls should remain responsive if device sync drops.
@@ -1374,11 +1683,23 @@
   }
 
   async function applyPlaybackStateV2(nextState: PlaybackStateV2, force = false) {
-    if (!force && playbackStateV2 && nextState.revision <= playbackStateV2.revision) {
+    if (pendingPlaybackCommands > 0) {
+      if (!deferredPlaybackState || nextState.revision > deferredPlaybackState.revision) deferredPlaybackState = nextState;
+      return;
+    }
+    if (playbackStateV2 && (nextState.revision < playbackStateV2.revision || (!force && nextState.revision === playbackStateV2.revision))) {
       return;
     }
 
-    playbackClockOffsetMs = nextState.server_time_ms - Date.now();
+    const previousState = playbackStateV2;
+    const generation = ++playbackApplyGeneration;
+    localPlaybackGeneration++;
+    if (!playbackStateV2 || nextState.server_time_ms !== playbackStateV2.server_time_ms) {
+      // Transport events can wait in Safari's suspended socket or behind a
+      // pending command. That delay is not a change in the server clock.
+      const offsetSample = nextState.server_time_ms - Date.now();
+      playbackClockOffsetMs = playbackStateV2 ? Math.max(playbackClockOffsetMs, offsetSample) : offsetSample;
+    }
     playbackStateV2 = nextState;
     lastAppliedPlaybackRevision = nextState.revision;
 
@@ -1399,16 +1720,10 @@
       nextState.clock.updated_at_ms || 0
     );
     const clockAbandoned =
-      clockTouchedMs > 0 && nextState.server_time_ms - clockTouchedMs > 30 * 60 * 1000;
-    // "Playing" on a device that isn't registered anymore is a ghost — the
-    // phone closed the app without pausing. (Only judged once the devices
-    // list has actually loaded.)
-    const remoteGhost =
-      nextState.state === "playing" &&
-      Boolean(nextState.active_device_id) &&
-      nextState.active_device_id !== deviceId &&
-      playbackDevices.length > 0 &&
-      !playbackDevices.some((device) => device.device_id === nextState.active_device_id);
+      trackDuration <= 0 && clockTouchedMs > 0 && nextState.server_time_ms - clockTouchedMs > 30 * 60 * 1000;
+    // Presence expires after two minutes and may be absent while iOS keeps
+    // audio playing in the background. It is discovery data, not ownership.
+    // Only the shared playback clock can identify an abandoned session.
     // Never call it stale while OUR audio element is audibly playing — a
     // long local listening session only refreshes the clock on track
     // changes, and the element is the truth here.
@@ -1416,7 +1731,7 @@
       nextState.active_device_id === deviceId && Boolean(audioEl) && !audioEl!.paused;
     const stalePlayback =
       nextState.state === "playing" &&
-      (positionOverrun || clockAbandoned || remoteGhost) &&
+      (positionOverrun || clockAbandoned) &&
       !locallyAudible;
 
     if (stalePlayback) {
@@ -1435,6 +1750,7 @@
     isPlaying = nextState.state === "playing" && !stalePlayback;
     volume = Math.max(0, Math.min(nextState.volume, 1));
     writeStoredValue(VOLUME_STORAGE_KEY, String(volume));
+    currentTrack = targetTrack;
     if (stalePlayback) {
       stopPlaybackClock();
     } else {
@@ -1442,22 +1758,34 @@
     }
 
     if (targetTrack) {
-      currentTrack = targetTrack;
       audioDuration = targetTrack.duration_seconds || audioDuration;
+    } else if (nextState.track) {
+      void refreshRemoteLibraryState();
     }
 
     applyingRemotePlayback = true;
     try {
       if (nextState.active_device_id === deviceId && targetTrack && !stalePlayback) {
-        await syncLocalAudioToPlaybackState(nextState, targetTrack);
+        await syncLocalAudioToPlaybackState(nextState, targetTrack, generation, previousState);
       } else {
-        audioEl?.pause();
+        pauseLocalAudio();
+        // Even silent Web Audio can keep a browser audio session active.
+        // Release it when native owns playback; opening the remote visualizer
+        // must not compete with the phone app for audio focus.
+        if (audioGraphContext?.state === "running") {
+          const context = audioGraphContext;
+          void context.suspend().then(() => {
+            // A quick transfer back may have started local audio while the
+            // asynchronous suspension was finishing. Do not leave it silent.
+            if (context === audioGraphContext && isActiveSyncDevice() && audioEl && !audioEl.paused) return context.resume();
+          }).catch(() => undefined);
+        }
       }
     } finally {
-      applyingRemotePlayback = false;
+      if (generation === playbackApplyGeneration) applyingRemotePlayback = false;
     }
 
-    schedulePlaybackDeviceUpdate(true);
+    if (generation === playbackApplyGeneration) schedulePlaybackDeviceUpdate(true);
   }
 
   function selectedPlaybackTargetDeviceId(): string {
@@ -1465,10 +1793,10 @@
     if (candidate === deviceId) {
       return deviceId;
     }
-    // Never aim commands at a device that isn't actually registered right
-    // now — a phone that closed the app stays "active" in old state, and
-    // sending play there means silence here. Local playback is the safe
-    // fallback; the user can always re-pick a live target.
+    // A backgrounded native player can outlive its presence entry. Keep its
+    // authoritative target; only an explicit transfer should take the audio.
+    if (playbackStateV2?.active_device_id === candidate) return candidate;
+    // A saved selection unrelated to the current session can still expire.
     const live = playbackDevices.some((device) => device.device_id === candidate);
     return live ? candidate : deviceId;
   }
@@ -1481,14 +1809,45 @@
       throw new Error("Playback sync is not connected.");
     }
 
-    return sendPlaybackCommandV2(syncServerUrl, {
-      command_id: createPlaybackCommandId(kind),
-      kind,
-      device_id: deviceId,
-      target_device_id: selectedPlaybackTargetDeviceId(),
-      volume,
-      ...overrides
-    });
+    const server = syncServerUrl;
+    const sender = deviceId;
+    const generation = playbackConnectionGeneration;
+    playbackApplyGeneration++;
+    localPlaybackGeneration++;
+    applyingRemotePlayback = false;
+    // Later actions must build on this command's context even when another
+    // device is playing and its acknowledgement has not arrived yet.
+    if (overrides.context) applyPlaybackContextV2({ context: overrides.context });
+    pendingPlaybackCommands++;
+    let failed = false;
+    try {
+      const state = await sendPlaybackCommandV2(server, {
+        command_id: createPlaybackCommandId(kind),
+        expectedRevision: overrides.context ? playbackStateV2?.revision : undefined,
+        kind,
+        device_id: sender,
+        target_device_id: selectedPlaybackTargetDeviceId(),
+        ...(kind === "volume" ? { volume } : {}),
+        ...overrides
+      });
+      if (generation !== playbackConnectionGeneration || server !== syncServerUrl || sender !== deviceId || !syncServerReady) {
+        throw new Error("The playback connection changed.");
+      }
+      return state;
+    } catch (error) {
+      failed = true;
+      throw error;
+    } finally {
+      if (generation === playbackConnectionGeneration) {
+        pendingPlaybackCommands--;
+        if (pendingPlaybackCommands === 0 && deferredPlaybackState) {
+          const latest = deferredPlaybackState;
+          deferredPlaybackState = null;
+          void applyPlaybackStateV2(latest);
+        }
+        if (failed && pendingPlaybackCommands === 0) void refreshPlaybackDevices(true);
+      }
+    }
   }
 
   function createPlaybackCommandId(kind: string): string {
@@ -1505,9 +1864,11 @@
     queued = queuedTracks,
     history = playHistory,
     shuffled = shuffle,
-    repeat = repeatMode
+    repeat = repeatMode,
+    playlistID = sourcePlaylistID
   ): PlaybackContextV2 {
     return {
+      playlist_id: playlistID,
       playback_source: sourceTracks.map(trackReference),
       playback_index: Math.max(0, Math.min(sourceIndex, Math.max(sourceTracks.length - 1, 0))),
       queued_tracks: queued.map(trackReference),
@@ -1517,7 +1878,8 @@
     };
   }
 
-  function applyPlaybackContextV2(state: PlaybackStateV2) {
+  function applyPlaybackContextV2(state: Pick<PlaybackStateV2, "context">) {
+    sourcePlaylistID = typeof state.context.playlist_id === "string" ? state.context.playlist_id.trim() || null : null;
     if (!library) {
       return;
     }
@@ -1532,43 +1894,50 @@
     writeStoredValue(REPEAT_STORAGE_KEY, repeatMode);
   }
 
-  async function syncLocalAudioToPlaybackState(state: PlaybackStateV2, track: Track) {
+  async function syncLocalAudioToPlaybackState(state: PlaybackStateV2, track: Track, generation: number, previousState: PlaybackStateV2 | null) {
     if (!audioEl) {
       return;
     }
 
     const position = clampPlaybackTime(currentSyncedPlaybackPosition(), track);
-    const source = await playbackUrlForTrack(track);
-    if (loadedSource !== source) {
+    // Reconciliation must keep the active media resource stable. A download may
+    // finish (or be removed) while this song plays; switch sources on the next
+    // intentional start, never during a routine sync update.
+    const source = loadedTrackId === track.id && loadedSource && !audioEl.error
+      ? loadedSource : await playbackUrlForTrack(track);
+    if (generation !== playbackApplyGeneration) return;
+    if (audioSourceIdentity(loadedSource) !== audioSourceIdentity(source) || audioEl.error) {
       loadAudioSource(source, position, track.id);
       await waitForAudioMetadata();
-    } else if (Math.abs((audioEl.currentTime || 0) - position) > 0.75) {
+    } else if (
+      (playbackPositionChanged(previousState, state) || previousState?.state !== state.state) &&
+      Math.abs((audioEl.currentTime || 0) - position) > 0.05
+    ) {
       audioEl.currentTime = position;
       currentTime = position;
     }
 
+    if (generation !== playbackApplyGeneration) return;
     if (state.state === "playing") {
       try {
-        await audioEl.play();
+        if (audioEl.paused) await playLocalAudio();
+        if (generation !== playbackApplyGeneration) return;
         isPlaying = true;
       } catch (error) {
-        // Autoplay policy: without a user gesture (a fresh page load), the
-        // browser refuses play(). Reflect reality — pause the shared state
-        // at the current position so the play button resumes cleanly on the
-        // first press instead of fighting a "playing" server state.
+        if (generation !== playbackApplyGeneration) return;
+        // A browser's autoplay refusal is local, not a transport command.
+        // Publishing a pause here can race a native transfer and stop the
+        // phone's audio. Keep the shared state intact; a tap can resume here.
         isPlaying = false;
-        console.warn("resume blocked by autoplay policy; pausing shared state", error);
-        void sendPlaybackCommand("pause", {
-          target_device_id: deviceId,
-          position_seconds: position
-        })
-          .then((paused) => applyPlaybackStateV2(paused, true))
-          .catch(() => undefined);
+        console.warn("Playback needs a tap on this device", error);
       }
     } else {
-      audioEl.pause();
+      if (!audioEl.paused) pauseLocalAudio();
       isPlaying = false;
     }
+    // The active speaker's progress follows its audio, including buffering;
+    // routine sync must not make the progress thumb jump to a different clock.
+    currentTime = audioEl.currentTime || 0;
   }
 
   function currentSyncedPlaybackPosition(): number {
@@ -1609,17 +1978,37 @@
   // Playback engine (local audio element + shared-state commands)
   // ---------------------------------------------------------------------------
 
-  async function playTrack(track: Track, sourceTracks = visibleTracks, shuffled = shuffle) {
+  function selectedSourcePlaylistID(): string | null {
+    if (globalSearch || mobileCollection) return null;
+    return selectedPlaylist?.id ?? (selectedView === "liked"
+      ? library?.playlists.find(playlist => playlist.is_liked)?.id ?? null : null);
+  }
+
+  async function playTrack(track: Track, sourceTracks = visibleTracks, shuffled = shuffle, playlistID: string | null = null) {
     if (usePlaybackSync()) {
       const nextSource = createQueue(sourceTracks, track.id, shuffled);
       const nextTrack = nextSource[0] ?? track;
       try {
-        const state = await sendPlaybackCommand("play", {
-          track: trackReference(nextTrack),
-          context: playbackContextSnapshot(nextSource, 0, [], [], shuffled, repeatMode),
-          position_seconds: 0
-        });
-        await applyPlaybackStateV2(state, true);
+        const local = selectedPlaybackTargetDeviceId() === deviceId;
+        if (local) {
+          playbackSource = nextSource;
+          sourcePlaylistID = playlistID;
+          playbackIndex = 0;
+          playHistory = [];
+          queuedTracks = [];
+          currentTrack = nextTrack;
+          currentTime = 0;
+          isPlaying = true;
+        }
+        const [state] = await Promise.all([
+          sendPlaybackCommand("play", {
+            track: trackReference(nextTrack),
+            context: playbackContextSnapshot(nextSource, 0, [], [], shuffled, repeatMode, playlistID),
+            position_seconds: 0
+          }),
+          local ? startPlayback() : Promise.resolve()
+        ]);
+        await applyPlaybackStateV2(state);
       } catch (error) {
         errorMessage = error instanceof Error ? error.message : String(error);
       }
@@ -1627,6 +2016,7 @@
     }
 
     playbackSource = createQueue(sourceTracks, track.id, shuffled);
+    sourcePlaylistID = playlistID;
     playbackIndex = 0;
     playHistory = [];
     currentTrack = playbackSource[0] ?? track;
@@ -1645,10 +2035,12 @@
       return;
     }
 
-    await playTrack(track, visibleTracks);
+    recordPlaylistPlay();
+    await playTrack(track, visibleTracks, shuffle, selectedSourcePlaylistID());
   }
 
-  async function playTrackSet(sourceTracks: Track[], shuffled = false) {
+  async function playTrackSet(sourceTracks: Track[], shuffled = false, playlistID = selectedSourcePlaylistID()) {
+    if (sourceTracks.length) recordPlaylistPlay();
     const nextSource = shuffled ? shuffleTracks(sourceTracks) : [...sourceTracks];
     const firstTrack = nextSource[0];
 
@@ -1658,12 +2050,26 @@
 
     if (usePlaybackSync()) {
       try {
-        const state = await sendPlaybackCommand("play", {
-          track: trackReference(firstTrack),
-          context: playbackContextSnapshot(nextSource, 0, [], [], shuffled, repeatMode),
-          position_seconds: 0
-        });
-        await applyPlaybackStateV2(state, true);
+        const local = selectedPlaybackTargetDeviceId() === deviceId;
+        if (local) {
+          playbackSource = nextSource;
+          sourcePlaylistID = playlistID;
+          playbackIndex = 0;
+          playHistory = [];
+          queuedTracks = [];
+          currentTrack = firstTrack;
+          currentTime = 0;
+          isPlaying = true;
+        }
+        const [state] = await Promise.all([
+          sendPlaybackCommand("play", {
+            track: trackReference(firstTrack),
+            context: playbackContextSnapshot(nextSource, 0, [], [], shuffled, repeatMode, playlistID),
+            position_seconds: 0
+          }),
+          local ? startPlayback() : Promise.resolve()
+        ]);
+        await applyPlaybackStateV2(state);
       } catch (error) {
         errorMessage = error instanceof Error ? error.message : String(error);
       }
@@ -1671,6 +2077,7 @@
     }
 
     playbackSource = nextSource;
+    sourcePlaylistID = playlistID;
     playbackIndex = 0;
     playHistory = [];
     currentTrack = firstTrack;
@@ -1685,8 +2092,15 @@
   let visualizerAnalyser: AnalyserNode | null = null;
   let visualizerSampler: SpectroSampler | null = null;
 
+  // Retain the ring buffer between views and pauses. Hidden/remote clients
+  // have no useful samples; stopping these frames must never stop local audio.
+  $: if (visualizerSampler) {
+    if (isPlaying && playbackPageVisible && (!syncServerReady || !playbackStateV2?.active_device_id || playbackStateV2.active_device_id === deviceId)) visualizerSampler.start();
+    else visualizerSampler.stop();
+  }
+
   function ensureAnalyser(): AnalyserNode | null {
-    if (!audioEl) {
+    if (!audioEl || audioEl.paused || (usePlaybackSync() && !isActiveSyncDevice())) {
       return null;
     }
 
@@ -1724,8 +2138,16 @@
     visualizerAnalyser = ensureAnalyser();
   }
 
+  function publishQueueChange() {
+    if (!usePlaybackSync()) return;
+    void sendPlaybackCommand("set_queue", { context: playbackContextSnapshot() })
+      .then((state) => applyPlaybackStateV2(state))
+      .catch((error) => { errorMessage = error instanceof Error ? error.message : String(error); });
+  }
+
   function clearQueuedTracks() {
     queuedTracks = [];
+    publishQueueChange();
   }
 
   function removeQueuedTrackAt(queueIndex: number) {
@@ -1735,10 +2157,12 @@
     }
 
     queuedTracks = queuedTracks.filter((_, index) => index !== manualIndex);
+    publishQueueChange();
   }
 
   function queueTrackLast(track: Track) {
     queuedTracks = [...queuedTracks, track];
+    publishQueueChange();
   }
 
   function moveQueuedTrack(queueIndex: number, targetQueueIndex: number) {
@@ -1758,25 +2182,26 @@
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
     queuedTracks = next;
+    publishQueueChange();
   }
 
   async function togglePlayback() {
     if (usePlaybackSync()) {
       const targetDeviceId = selectedPlaybackTargetDeviceId();
-      const targetIsPlaying =
-        playbackStateV2?.state === "playing" && playbackStateV2.active_device_id === targetDeviceId;
+      const targetIsPlaying = isPlaying;
       const actingLocally = targetDeviceId === deviceId && Boolean(currentTrack) && Boolean(loadedSource);
 
       if (targetIsPlaying) {
+        isPlaying = false;
         if (actingLocally) {
-          audioEl?.pause();
+          pauseLocalAudio();
           isPlaying = false;
         }
         void sendPlaybackCommand("pause", {
           target_device_id: targetDeviceId,
           position_seconds: currentPlaybackTimeForSave()
         })
-          .then((state) => applyPlaybackStateV2(state, true))
+          .then((state) => applyPlaybackStateV2(state))
           .catch((error) => {
             errorMessage = error instanceof Error ? error.message : String(error);
           });
@@ -1789,7 +2214,7 @@
         track = visibleTracks[0] ?? library?.tracks[0] ?? null;
         if (track) {
           const source = createQueue(visibleTracks.length ? visibleTracks : library?.tracks ?? [], track.id, shuffle);
-          context = playbackContextSnapshot(source, 0, [], [], shuffle, repeatMode);
+          context = playbackContextSnapshot(source, 0, [], [], shuffle, repeatMode, selectedSourcePlaylistID());
         }
       }
       if (!track) {
@@ -1800,16 +2225,17 @@
       // track — otherwise a session-restored source would play a different
       // song than the UI shows; the command round-trip loads the right one.
       if (actingLocally && currentTrack?.id === track.id && loadedTrackId === track.id) {
-        void audioEl?.play().catch(() => undefined);
+        void playLocalAudio().catch(() => undefined);
         isPlaying = true;
       }
+      isPlaying = true;
       void sendPlaybackCommand("play", {
         target_device_id: targetDeviceId,
-        track: trackReference(track),
-        context,
+        track: playbackStateV2?.track?.fingerprint === track.fingerprint ? undefined : trackReference(track),
+        context: playbackStateV2?.track?.fingerprint === track.fingerprint ? undefined : context,
         position_seconds: currentTrack?.id === track.id ? currentPlaybackTimeForSave() : 0
       })
-        .then((state) => applyPlaybackStateV2(state, true))
+        .then((state) => applyPlaybackStateV2(state))
         .catch((error) => {
           errorMessage = error instanceof Error ? error.message : String(error);
         });
@@ -1827,13 +2253,13 @@
 
       const firstTrack = visibleTracks[0] ?? library?.tracks[0];
       if (firstTrack) {
-        await playTrack(firstTrack, visibleTracks.length ? visibleTracks : library?.tracks ?? []);
+        await playTrack(firstTrack, visibleTracks.length ? visibleTracks : library?.tracks ?? [], shuffle, selectedSourcePlaylistID());
       }
       return;
     }
 
     if (isPlaying) {
-      audioEl?.pause();
+      pauseLocalAudio();
       isPlaying = false;
       return;
     }
@@ -1842,7 +2268,9 @@
   }
 
   async function startPlayback() {
+    const generation = ++localPlaybackGeneration;
     await tick();
+    if (generation !== localPlaybackGeneration) return;
 
     if (!audioEl || !currentTrack || !rootPath) {
       isPlaying = false;
@@ -1852,23 +2280,32 @@
 
     try {
       const source = await playbackUrlForTrack(currentTrack);
-      if (loadedSource !== source) {
+      if (generation !== localPlaybackGeneration) return;
+      if (audioSourceIdentity(loadedSource) !== audioSourceIdentity(source) || audioEl.error) {
         loadAudioSource(source, currentTime, currentTrack.id);
         await waitForAudioMetadata();
       } else if (Math.abs((audioEl.currentTime || 0) - currentTime) > 1.5) {
         audioEl.currentTime = currentTime;
       }
 
+      if (generation !== localPlaybackGeneration) return;
       applyPendingSeek();
-      await audioEl.play();
+      await playLocalAudio();
+      if (generation !== localPlaybackGeneration) return;
+      isPlaying = !audioEl.paused;
       errorMessage = "";
     } catch (error) {
+      if (generation !== localPlaybackGeneration) return;
       isPlaying = false;
       errorMessage = mediaErrorMessage(error, audioEl?.error ?? null);
     }
   }
 
   async function playbackUrlForTrack(track: Track): Promise<string> {
+    if (!hasNativeBridge() && syncServerUrl) {
+      const local = await downloadedTrackURL(syncServerUrl, track.fingerprint).catch(() => null);
+      if (local) return local;
+    }
     if (track.media_url) {
       return track.media_url;
     }
@@ -1887,10 +2324,21 @@
     return source.url;
   }
 
+  function audioSourceIdentity(source: string): string {
+    if (!source) return "";
+    const url = new URL(source);
+    url.searchParams.delete("access_token");
+    return url.toString();
+  }
+
   function loadAudioSource(source: string, seekTime = 0, trackId = "") {
     audioEl.src = source;
     pendingSeekTime = seekTime > 0 ? seekTime : null;
     audioEl.load();
+    // load() discards pending media tasks and resets paused without emitting
+    // a pause event. Expectations belong only to the previous resource.
+    expectedAudioPlayEvents = 0;
+    expectedAudioPauseEvents = 0;
     loadedSource = source;
     loadedTrackId = trackId;
   }
@@ -1975,7 +2423,7 @@
           ),
           position_seconds: 0
         });
-        await applyPlaybackStateV2(state, true);
+        await applyPlaybackStateV2(state);
       } catch (error) {
         errorMessage = error instanceof Error ? error.message : String(error);
       }
@@ -2012,7 +2460,7 @@
         const state = await sendPlaybackCommand("next", {
           position_seconds: currentSyncedPlaybackPosition()
         });
-        await applyPlaybackStateV2(state, true);
+        await applyPlaybackStateV2(state);
       } catch (error) {
         errorMessage = error instanceof Error ? error.message : String(error);
       }
@@ -2072,7 +2520,7 @@
         const state = await sendPlaybackCommand("previous", {
           position_seconds: currentSyncedPlaybackPosition()
         });
-        await applyPlaybackStateV2(state, true);
+        await applyPlaybackStateV2(state);
       } catch (error) {
         errorMessage = error instanceof Error ? error.message : String(error);
       }
@@ -2087,7 +2535,7 @@
       if (usePlaybackSync()) {
         playbackClockSuppressUntil = Date.now() + 1500;
         void sendPlaybackCommand("seek", { position_seconds: 0 })
-          .then((state) => applyPlaybackStateV2(state, true))
+          .then((state) => applyPlaybackStateV2(state))
           .catch(() => undefined);
       }
       return;
@@ -2122,7 +2570,7 @@
         await startPlayback();
         playbackClockSuppressUntil = Date.now() + 1500;
         void sendPlaybackCommand("seek", { target_device_id: deviceId, position_seconds: 0 })
-          .then((state) => applyPlaybackStateV2(state, true))
+          .then((state) => applyPlaybackStateV2(state))
           .catch(() => undefined);
         return;
       }
@@ -2151,7 +2599,7 @@
       if (currentTrack) {
         nextSource = nextShuffle
           ? [currentTrack, ...shuffleTracks(playbackSource.filter((track) => track.id !== currentTrack?.id))]
-          : createQueue(visibleTracks.length ? visibleTracks : library?.tracks ?? [], currentTrack.id, false);
+          : createQueue(sortTracks(playbackSource, "added"), currentTrack.id, false);
         nextIndex = 0;
       }
 
@@ -2166,7 +2614,7 @@
         context: playbackContextSnapshot(nextSource, nextIndex, queuedTracks, playHistory, nextShuffle, repeatMode),
         position_seconds: currentPlaybackTimeForSave()
       })
-        .then((state) => applyPlaybackStateV2(state, true))
+        .then((state) => applyPlaybackStateV2(state))
         .catch((error) => {
           errorMessage = error instanceof Error ? error.message : String(error);
         });
@@ -2186,8 +2634,8 @@
       return;
     }
 
-    const source = visibleTracks.length ? visibleTracks : library?.tracks ?? [];
-    playbackSource = createQueue(source, currentTrack.id, false);
+    // Changing pages must not replace the active playlist when shuffle ends.
+    playbackSource = createQueue(sortTracks(playbackSource, "added"), currentTrack.id, false);
     playbackIndex = 0;
   }
 
@@ -2202,7 +2650,7 @@
         context: playbackContextSnapshot(playbackSource, playbackIndex, queuedTracks, playHistory, shuffle, nextRepeat),
         position_seconds: currentPlaybackTimeForSave()
       })
-        .then((state) => applyPlaybackStateV2(state, true))
+        .then((state) => applyPlaybackStateV2(state))
         .catch((error) => {
           errorMessage = error instanceof Error ? error.message : String(error);
         });
@@ -2219,7 +2667,7 @@
       }
       playbackClockSuppressUntil = Date.now() + 1500;
       void sendPlaybackCommand("seek", { position_seconds: value })
-        .then((state) => applyPlaybackStateV2(state, true))
+        .then((state) => applyPlaybackStateV2(state))
         .catch((error) => {
           errorMessage = error instanceof Error ? error.message : String(error);
         });
@@ -2232,8 +2680,15 @@
     schedulePlaybackDeviceUpdate(true);
   }
 
+  function syncMediaVolume() {
+    if (!audioEl || !hasNativeBridge() || !isActiveSyncDevice()) return;
+    volume = boundedVolume(audioEl.volume);
+    writeStoredValue(VOLUME_STORAGE_KEY, String(volume));
+  }
+
   async function updateVolume(event: Event) {
-    volume = Number((event.currentTarget as HTMLInputElement).value);
+    if (!hasNativeBridge()) return;
+    volume = boundedVolume((event.currentTarget as HTMLInputElement).value);
     writeStoredValue(VOLUME_STORAGE_KEY, String(volume));
 
     if (usePlaybackSync()) {
@@ -2242,7 +2697,7 @@
           volume,
           position_seconds: currentSyncedPlaybackPosition()
         });
-        await applyPlaybackStateV2(state, true);
+        await applyPlaybackStateV2(state);
       } catch (error) {
         errorMessage = error instanceof Error ? error.message : String(error);
       }
@@ -2265,7 +2720,7 @@
       void sendPlaybackCommand("seek", {
         position_seconds: nextTime
       })
-        .then((state) => applyPlaybackStateV2(state, true))
+        .then((state) => applyPlaybackStateV2(state))
         .catch((error) => {
           errorMessage = error instanceof Error ? error.message : String(error);
         });
@@ -2297,11 +2752,13 @@
   }
 
   function syncDuration() {
+    if (usePlaybackSync() && !isActiveSyncDevice()) return;
     audioDuration = audioEl?.duration || currentTrack?.duration_seconds || 0;
     applyPendingSeek();
   }
 
   function handleAudioError() {
+    if (usePlaybackSync() && !isActiveSyncDevice()) return;
     if (!currentTrack) {
       return;
     }
@@ -2313,25 +2770,94 @@
     );
   }
 
-  function handleAudioPause() {
-    if (applyingRemotePlayback) {
-      return;
-    }
+  function playLocalAudio(): Promise<void> {
+    if (!audioEl) return Promise.resolve();
+    const wasPaused = audioEl.paused;
+    const result = audioEl.play();
+    if (wasPaused && !audioEl.paused) expectedAudioPlayEvents++;
+    return result;
+  }
+
+  function pauseLocalAudio() {
+    if (!audioEl) return;
+    const wasPaused = audioEl.paused;
+    audioEl.pause();
+    if (!wasPaused && audioEl.paused) expectedAudioPauseEvents++;
+  }
+
+  function updateSystemMediaSession(track: Track | null, playing: boolean, local: boolean) {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = track && local ? (playing ? "playing" : "paused") : "none";
+    const trackId = local ? track?.id ?? "" : "";
+    if (trackId === systemMediaTrackId) return;
+    systemMediaTrackId = trackId;
+    navigator.mediaSession.metadata = track && local && typeof MediaMetadata !== "undefined"
+      ? new MediaMetadata({ title: track.title, artist: track.artist ?? "", album: track.album ?? "" })
+      : null;
+  }
+
+  function canControlLocalMedia(): boolean {
+    // Selection changes before a transfer is acknowledged. Our own queued
+    // commands can advance revision guards, so also honor that pending target.
+    return !usePlaybackSync() || (isActiveSyncDevice() &&
+      (!selectedPlaybackDeviceId || selectedPlaybackDeviceId === deviceId));
+  }
+
+  function publishLocalMediaState(playing: boolean) {
+    if (!canControlLocalMedia() || isPlaying === playing) return;
+    isPlaying = playing;
+    currentTime = audioEl.currentTime || 0;
     if (usePlaybackSync()) {
-      // When this desktop is the speaker, the audio element is the truth —
-      // mirroring the server here would undo optimistic pause taps until
-      // the confirmation round-trip lands.
-      isPlaying = isActiveSyncDevice() ? false : playbackStateV2?.state === "playing";
+      // System events belong to this speaker, never a selected remote device.
+      // The revision guard rejects a stale event racing a transfer to a phone.
+      void sendPlaybackCommand(playing ? "play" : "pause", {
+        target_device_id: deviceId,
+        expectedRevision: playbackStateV2?.revision,
+        position_seconds: currentTime
+      }).then((state) => applyPlaybackStateV2(state)).catch((error) => {
+        errorMessage = error instanceof Error ? error.message : String(error);
+      });
+    } else {
+      schedulePlaybackDeviceUpdate(true);
+      void activateThisPlaybackDevice();
+    }
+  }
+
+  function handleSystemPlayback(playing: boolean) {
+    if (!audioEl || !currentTrack || loadedTrackId !== currentTrack.id || !canControlLocalMedia()) return;
+    // Explicit desired state makes repeated hardware pause/play idempotent.
+    // Perform the local operation in the user gesture before any network await.
+    if (playing) {
+      void playLocalAudio().catch(() => {
+        if (isActiveSyncDevice() && audioEl.paused) isPlaying = false;
+      });
+    } else {
+      pauseLocalAudio();
+    }
+    publishLocalMediaState(playing);
+  }
+
+  function handleAudioPause() {
+    if (expectedAudioPauseEvents > 0) {
+      expectedAudioPauseEvents--;
       return;
     }
-
-    isPlaying = false;
-    schedulePlaybackDeviceUpdate(true);
-
-    void activateThisPlaybackDevice();
+    if (!canControlLocalMedia()) return;
+    // End-of-track, failed resources and stale events have their own handling.
+    if (!audioEl?.paused || audioEl.ended || audioEl.error || !currentTrack ||
+        loadedTrackId !== currentTrack.id || audioEl.readyState === 0) return;
+    publishLocalMediaState(false);
   }
 
   function handleAudioPlay() {
+    const expected = expectedAudioPlayEvents > 0;
+    if (expected) expectedAudioPlayEvents--;
+    // A play promise can settle after ownership moved to native. Stop only
+    // this stale element; it must not change or claim the remote session.
+    if (!canControlLocalMedia()) {
+      pauseLocalAudio();
+      return;
+    }
     // If the element is wired into the visualizer's audio graph and that
     // context is suspended (it was built without a user gesture), every
     // sample routes into a dead graph and playback is silent. Any real play
@@ -2347,29 +2873,20 @@
       visualizerAnalyser = ensureAnalyser();
     }
 
-    if (applyingRemotePlayback) {
-      return;
-    }
-    if (usePlaybackSync()) {
-      isPlaying = isActiveSyncDevice() ? true : playbackStateV2?.state === "playing";
-      return;
-    }
-
-    isPlaying = true;
-    schedulePlaybackDeviceUpdate(true);
-
-    void activateThisPlaybackDevice();
+    if (expected || audioEl?.paused || audioEl?.error ||
+        !currentTrack || loadedTrackId !== currentTrack.id) return;
+    publishLocalMediaState(true);
   }
 
   // ---------------------------------------------------------------------------
   // Views, themes, and playlist editing
   // ---------------------------------------------------------------------------
 
-  async function joinAuxAsGuest(code: string) {
-    const origin = window.location.origin;
+  async function joinAuxAsGuest(code: string, handoff = true) {
+    const origin = handoff ? window.location.origin : (syncServerUrl || window.location.origin);
     // Hand off to the native app when it's installed; iOS switches apps and
     // hides this tab, otherwise the browser join below is the fallback.
-    if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+    if (handoff && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
       window.location.href = `codec://aux?server=${encodeURIComponent(origin)}&code=${encodeURIComponent(code)}`;
       await new Promise((resolve) => setTimeout(resolve, 1500));
       if (document.hidden) {
@@ -2412,6 +2929,7 @@
   }
 
   async function endAux() {
+    if (guestMode) { auxCode = ""; auxModalOpen = false; guestMode = false; disconnectSyncServer(); return; }
     if (auxBusy || !auxCode) {
       return;
     }
@@ -2450,13 +2968,83 @@
   }
 
   function selectView(view: string) {
+    if (mobileLayout && selectedView === mobileTab) mobileRootScroll.set(mobileTab, contentEl?.scrollTop ?? 0);
     cancelPlaylistRename();
+    mobilePlaylistEditing = false;
+    mobileCollection = null;
     selectedView = view;
     searchQuery = "";
     sortKey = "default";
+    if (mobileLayout) void tick().then(() => contentEl?.scrollTo({ top: view === mobileTab ? mobileRootScroll.get(mobileTab) ?? 0 : 0 }));
   }
 
-  function openFromBrowseGrid(query: string) {
+  function selectMobileTab(view: string) {
+    mobilePlaylistEditing = false;
+    if (view === mobileTab) { selectView(view); return; }
+    mobileTabStates.set(mobileTab, { view: selectedView, query: searchQuery, sort: sortKey, collection: mobileCollection, scroll: contentEl?.scrollTop ?? 0 });
+    mobileTab = view;
+    const saved = mobileTabStates.get(view);
+    if (saved) {
+      cancelPlaylistRename();
+      selectedView = saved.view;
+      searchQuery = saved.query;
+      sortKey = saved.sort;
+      mobileCollection = saved.collection;
+      void tick().then(() => contentEl?.scrollTo({ top: saved.scroll }));
+    } else selectView(view);
+  }
+
+  function openMobileAlbum(album: AlbumSummary) {
+    selectView("all");
+    mobileCollection = { title: album.name, artist: album.artist, kind: "album" };
+  }
+
+  function openMobileArtist(artist: ArtistSummary) {
+    selectView("all");
+    mobileCollection = { title: artist.name, kind: "artist" };
+  }
+
+  async function createPlaylistFromLibrary() {
+    const name = newPlaylistTitle.trim();
+    if (!name || creatingPlaylist || !syncServerUrl || !isRemoteRoot(rootPath) || guestMode) return;
+    const server = syncServerUrl;
+    const token = syncTokenDraft;
+    const root = rootPath;
+    const stillConnected = () => server === syncServerUrl && token === syncTokenDraft && root === rootPath;
+    creatingPlaylist = true;
+    createPlaylistError = "";
+    try {
+      const playlist = await createRemotePlaylist(server, name);
+      if (!stillConnected()) return;
+      if (library) {
+        const playlists = [...library.playlists.filter((existing) => existing.id !== playlist.id), playlist];
+        syncLibrary({ ...library, playlists, stats: { ...library.stats, playlistCount: playlists.filter((item) => !item.is_liked).length } });
+      }
+      const trackToAdd = newPlaylistTrack;
+      // Creation is committed now. A later membership failure must not leave
+      // Create active and make the next attempt create a duplicate playlist.
+      newPlaylistTrack = null;
+      newPlaylistOpen = false;
+      newPlaylistTitle = "";
+      if (trackToAdd) await addTrackToRemotePlaylist(server, playlist.id, trackToAdd.fingerprint);
+      else selectView(playlist.id);
+      if (stillConnected()) await refreshRemoteLibraryState(true);
+    } catch (error) {
+      if (stillConnected()) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (newPlaylistOpen) createPlaylistError = message;
+        else errorMessage = message;
+      }
+    } finally { creatingPlaylist = false; }
+  }
+
+  function openFromBrowseGrid(query: string, albumArtist?: string) {
+    if (mobileLayout && albumArtist !== undefined) {
+      selectView("all");
+      mobileCollection = { title: query, artist: albumArtist, kind: "album" };
+      return;
+    }
+    mobileCollection = null;
     selectedView = "all";
     searchQuery = query;
   }
@@ -2506,16 +3094,27 @@
 
     renamingPlaylist = true;
     errorMessage = "";
+    const playlist = selectedPlaylist;
+    const root = rootPath;
+    const server = syncServerUrl;
+    const token = syncTokenDraft;
+    const remote = isRemoteRoot(root);
+    const stillConnected = () => root === rootPath && (!remote || (server === syncServerUrl && token === syncTokenDraft));
     try {
-      await invoke("rename_playlist", {
-        root_path: rootPath,
-        playlist_id: selectedPlaylist.id,
-        name
-      });
-      cancelPlaylistRename();
-      await loadLibrary(rootPath, true);
+      if (remote) {
+        await renameRemotePlaylist(server, playlist.id, name);
+      } else {
+        await invoke("rename_playlist", { root_path: root, playlist_id: playlist.id, name });
+      }
+      if (!stillConnected()) return;
+      if (remote && library) {
+        syncLibrary({ ...library, playlists: library.playlists.map((item) => item.id === playlist.id ? { ...item, name } : item) });
+      }
+      if (editingPlaylistId === playlist.id) cancelPlaylistRename();
+      if (remote) await refreshRemoteLibraryState(true);
+      else await loadLibrary(root, true);
     } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error);
+      if (stillConnected()) errorMessage = error instanceof Error ? error.message : String(error);
     } finally {
       renamingPlaylist = false;
     }
@@ -2525,26 +3124,36 @@
   // like the desktop, then metadata + audio + artwork go straight to the
   // sync server through the existing upsert endpoints.
   async function importAudioFiles(files: File[]) {
-    if (!syncServerUrl || files.length === 0 || importing) {
+    if (!syncServerUrl || files.length === 0 || importBusy) {
       return;
     }
 
-    const zipFile = files.find((file) => file.name.toLowerCase().endsWith(".zip"));
-    const manifestFile = files.find((file) => file.name.toLowerCase().endsWith(".json"));
-    const audioFiles = files.filter((file) => file !== manifestFile && file !== zipFile);
-
+    const importServer = syncServerUrl;
+    const importToken = syncTokenDraft;
+    const zipFiles = files.filter((file) => file.name.toLowerCase().endsWith(".zip"));
+    const hasManifest = files.some((file) => file.name.toLowerCase().endsWith(".json"));
     importing = true;
     errorMessage = "";
     try {
-      if (zipFile) {
-        importing = false;
-        await importLoudZip(zipFile);
-        return;
-      } else if (manifestFile) {
-        await importManifestBundle(manifestFile, audioFiles);
+      if (zipFiles.length) {
+        if (zipFiles.length !== 1 || files.length !== 1) throw new Error("Select one bundle ZIP, or select its unpacked folder instead.");
+        await importLoudZip(zipFiles[0]);
+      } else if (hasManifest) {
+        importPhase = "preparing";
+        importUploadFraction = 0;
+        const bundle = await buildImportBundle(files, (fraction) => { importUploadFraction = fraction; });
+        if (syncServerUrl !== importServer || syncTokenDraft !== importToken) {
+          throw new Error("The server connection changed while preparing the bundle. Select it again for the current server.");
+        }
+        await importLoudZip(bundle);
       } else {
-        await importPlainAudio(audioFiles);
+        const audio = files.filter((file) => /\.mp3$/i.test(file.name));
+        if (audio.length !== files.length) throw new Error("Select MP3 files, a bundle ZIP, or a manifest with its audio and artwork files.");
+        await importPlainAudio(audio);
       }
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+      if (importPhase === "preparing") importPhase = "failed";
     } finally {
       importing = false;
     }
@@ -2560,10 +3169,11 @@
 
   let importJob: ImportJobStatus | null = null;
   let importUploadFraction = 0;
-  let importPhase: "idle" | "uploading" | "processing" | "done" | "failed" = "idle";
+  let importPhase: "idle" | "preparing" | "uploading" | "processing" | "done" | "failed" = "idle";
   let importJobTimer: number | null = null;
+  $: importBusy = importing || importPhase === "preparing" || importPhase === "uploading" || importPhase === "processing";
 
-  async function importLoudZip(zipFile: File) {
+  async function importLoudZip(zipFile: Blob) {
     if (!syncServerUrl) {
       return;
     }
@@ -2607,18 +3217,9 @@
         if (status.state === "failed") {
           errorMessage = status.error ? `Import failed: ${status.error}` : "Import failed.";
         } else {
-          const bits = [`${status.added} new`, `${status.existing} existing`];
-          if (status.playlist_adds > 0) {
-            bits.push(`${status.playlist_adds} playlist adds`);
-          }
-          if (status.liked > 0) {
-            bits.push(`${status.liked} liked`);
-          }
-          if (status.skipped > 0) {
-            bits.push(`${status.skipped} skipped`);
-          }
-          syncMessage = `Import · ${bits.join(" · ")}`;
           await loadRemoteLibrary(true);
+          syncMessage = bundleImportSummary(status);
+          if (status.artwork_warnings?.length) errorMessage = status.artwork_warnings.slice(0, 3).join(" · ");
         }
         finishImportJob();
       } catch {
@@ -2673,130 +3274,6 @@
       failures.length > 0
         ? `Imported ${formatCount(imported, "track")} · failed: ${failures.join(", ")}`
         : `Imported ${formatCount(imported, "track")}`;
-  }
-
-  /** loud.import.v1 in the browser: pick the manifest together with its
-   * audio files. Identity, dedupe, liked flags, and playlist refs follow
-   * docs/codec-import-v1.md — everything lands on the sync server. */
-  async function importManifestBundle(manifestFile: File, audioFiles: File[]) {
-    let manifest: ImportManifest;
-    try {
-      manifest = JSON.parse(await manifestFile.text()) as ImportManifest;
-    } catch {
-      errorMessage = `${manifestFile.name} is not valid JSON.`;
-      return;
-    }
-    if (manifest.schema && manifest.schema !== IMPORT_SCHEMA) {
-      errorMessage = `Unsupported import schema ${manifest.schema} (expected ${IMPORT_SCHEMA}).`;
-      return;
-    }
-
-    const manifestTracks = manifest.tracks ?? [];
-    const filesByBase = new Map(audioFiles.map((file) => [file.name.toLowerCase(), file]));
-    const known = new Set(library?.tracks.map((track) => track.fingerprint) ?? []);
-    const identityByFile = new Map<string, string>();
-    const likedTargets: string[] = [];
-    let added = 0;
-    let existing = 0;
-    let likedUpdates = 0;
-    let playlistAdds = 0;
-    const skipped: string[] = [];
-
-    for (const [index, entry] of manifestTracks.entries()) {
-      syncMessage = `Importing ${index + 1}/${manifestTracks.length}${entry.title ? `: ${entry.title}` : ""}`;
-      const identity = identityForImportTrack(entry);
-      if (entry.file) {
-        identityByFile.set(entry.file, identity);
-      }
-
-      if (known.has(identity)) {
-        existing += 1;
-      } else {
-        const file = entry.file ? filesByBase.get(baseName(entry.file).toLowerCase()) : undefined;
-        if (!file) {
-          skipped.push(entry.file ?? entry.title ?? "unnamed track");
-          continue;
-        }
-        try {
-          await importSingleAudioFile(file, entry, identity);
-          known.add(identity);
-          added += 1;
-        } catch (error) {
-          console.warn("manifest import failed", entry.file, error);
-          skipped.push(entry.file ?? entry.title ?? "unnamed track");
-          continue;
-        }
-      }
-
-      if (entry.liked) {
-        likedTargets.push(identity);
-      }
-    }
-
-    for (const identity of likedTargets) {
-      try {
-        await setTrackLiked(syncServerUrl, identity, true);
-        likedUpdates += 1;
-      } catch (error) {
-        console.warn("liked update failed", identity, error);
-      }
-    }
-
-    // Playlist membership: track-level names plus the playlists section.
-    const wanted = new Map<string, Set<string>>();
-    const want = (name: string | undefined, identity: string | null) => {
-      const key = name?.trim();
-      if (!key || !identity) {
-        return;
-      }
-      if (!wanted.has(key)) {
-        wanted.set(key, new Set());
-      }
-      wanted.get(key)!.add(identity);
-    };
-    for (const entry of manifestTracks) {
-      for (const name of entry.playlists ?? []) {
-        want(name, identityForImportTrack(entry));
-      }
-    }
-    for (const playlist of manifest.playlists ?? []) {
-      for (const ref of playlist.tracks ?? []) {
-        want(playlist.name, identityForPlaylistRef(ref, identityByFile));
-      }
-    }
-
-    for (const [name, identities] of wanted) {
-      try {
-        const target =
-          library?.playlists.find(
-            (playlist) => !playlist.is_liked && playlist.name.toLowerCase() === name.toLowerCase()
-          ) ?? null;
-        const have = new Set(target?.track_ids ?? []);
-        const targetId = target?.id ?? (await createRemotePlaylist(syncServerUrl, name)).id;
-        for (const identity of identities) {
-          if (have.has(`track_${identity}`)) {
-            continue;
-          }
-          await addTrackToRemotePlaylist(syncServerUrl, targetId, identity);
-          playlistAdds += 1;
-        }
-      } catch (error) {
-        console.warn("playlist import failed", name, error);
-      }
-    }
-
-    await loadRemoteLibrary(true);
-    const bits = [`${added} new`, `${existing} existing`];
-    if (playlistAdds > 0) {
-      bits.push(`${playlistAdds} playlist adds`);
-    }
-    if (likedUpdates > 0) {
-      bits.push(`${likedUpdates} liked`);
-    }
-    if (skipped.length > 0) {
-      bits.push(`skipped ${skipped.length}: ${skipped.slice(0, 3).join(", ")}${skipped.length > 3 ? "…" : ""}`);
-    }
-    syncMessage = `Import · ${bits.join(" · ")}`;
   }
 
   async function importSingleAudioFile(
@@ -2977,7 +3454,6 @@
   function closePlaylistMembershipModal() {
     playlistModalTrack = null;
     playlistModalSelectionIds = [];
-    savingPlaylistMemberships = false;
   }
 
   function applyLocalPlaylistMemberships(track: Track, selectedPlaylistIds: string[]) {
@@ -3007,7 +3483,9 @@
     });
 
     const nextPlaylists = activeLibrary.playlists.map((playlist) => {
-      const trackIds = playlist.track_ids.filter((trackId) => !nextTrackIds.has(trackId));
+      const trackIds = selectedIds.has(playlist.id)
+        ? [...playlist.track_ids]
+        : playlist.track_ids.filter((trackId) => !nextTrackIds.has(trackId));
 
       if (selectedIds.has(playlist.id)) {
         for (const trackId of nextTrackIds) {
@@ -3032,7 +3510,7 @@
   }
 
   async function savePlaylistMemberships() {
-    const track = playlistModalTrack;
+    const track = library?.tracks.find((candidate) => candidate.fingerprint === playlistModalTrack?.fingerprint) ?? playlistModalTrack;
     const selectedPlaylistIds = [...playlistModalSelectionIds];
     const previousLibrary = library;
 
@@ -3040,26 +3518,150 @@
       return;
     }
 
+    const root = rootPath;
+    const server = syncServerUrl;
+    const token = syncTokenDraft;
+    const remote = isRemoteRoot(root);
+    const stillConnected = () => root === rootPath && (!remote || (server === syncServerUrl && token === syncTokenDraft));
     savingPlaylistMemberships = true;
     errorMessage = "";
     applyLocalPlaylistMemberships(track, selectedPlaylistIds);
     closePlaylistMembershipModal();
 
     try {
-      await invoke("set_track_playlist_memberships", {
-        root_path: rootPath,
-        track_path: track.path,
-        playlist_ids: selectedPlaylistIds
-      });
-      void loadLibrary(rootPath, true);
+      if (remote) {
+        await enqueuePlaylistWrite(server, token, async () => {
+          const desired = new Set(selectedPlaylistIds);
+          for (const playlist of previousLibrary?.playlists ?? []) {
+            if (!stillConnected()) return;
+            const wasMember = playlist.is_liked ? track.is_liked : playlist.track_ids.includes(track.id);
+            const isMember = desired.has(playlist.id);
+            if (wasMember === isMember) continue;
+            if (playlist.is_liked) await setTrackLiked(server, track.fingerprint, isMember);
+            else if (isMember) await addTrackToRemotePlaylist(server, playlist.id, track.fingerprint);
+            else await removeTrackFromRemotePlaylist(server, playlist.id, track.fingerprint);
+          }
+        }, true);
+      } else {
+        await invoke("set_track_playlist_memberships", { root_path: root, track_path: track.path, playlist_ids: selectedPlaylistIds });
+        if (stillConnected()) await loadLibrary(root, true);
+      }
     } catch (error) {
+      if (!stillConnected()) return;
       errorMessage = error instanceof Error ? error.message : String(error);
       if (previousLibrary) {
-        syncLibrary(previousLibrary);
+        applyLocalPlaylistMemberships(track, playlistSelectionForTrack(track));
       }
+      if (remote) await refreshRemoteLibraryState(true);
+    } finally {
       savingPlaylistMemberships = false;
     }
   }
+  function recordPlaylistPlay() {
+    if (!selectedPlaylist || selectedPlaylist.is_liked || !syncServerUrl) return;
+    playlistHistory = { ...playlistHistory, [syncServerUrl]: { ...playlistHistory[syncServerUrl], [selectedPlaylist.id]: Date.now() } };
+    try { localStorage.setItem("codec.playlistHistory", JSON.stringify(playlistHistory)); } catch { /* Playback works if preferences storage is full. */ }
+  }
+
+  async function refreshDownloads(server: string) {
+    const saved = server ? await listDownloaded(server).catch(() => new Set<string>()) : new Set<string>();
+    if (syncServerUrl === server) downloadedFingerprints = saved;
+  }
+
+  function downloadKey(server: string, fingerprint: string): string { return `${server}\u0000${fingerprint}`; }
+
+  async function downloadSong(track: Track) {
+    if (!syncServerUrl || guestMode || downloadedFingerprints.has(track.fingerprint) || downloadingKeys.has(downloadKey(syncServerUrl, track.fingerprint))) return;
+    const server = syncServerUrl, token = syncTokenDraft, key = downloadKey(server, track.fingerprint);
+    const stillConnected = () => server === syncServerUrl && token === syncTokenDraft && !guestMode;
+    downloadingKeys = new Set([...downloadingKeys, key]);
+    try {
+      let url = track.media_url;
+      if (!url) {
+        await refreshSyncStreamToken(server);
+        // The URL helper reads the current credential. Never resolve A's URL
+        // after a connection change has installed B's credential.
+        if (!stillConnected()) return;
+        url = trackAudioUrl(server, track.fingerprint);
+      }
+      if (!stillConnected()) return;
+      await cacheDownload(server, track.fingerprint, url);
+      if (stillConnected()) await refreshDownloads(server);
+    } catch (error) { if (stillConnected()) errorMessage = error instanceof Error ? error.message : String(error); }
+    finally { downloadingKeys = new Set([...downloadingKeys].filter(id => id !== key)); }
+  }
+
+  async function removeDownloadedSong(track: Track) {
+    const server = syncServerUrl;
+    try { await deleteDownload(server, track.fingerprint); await refreshDownloads(server); }
+    catch (error) { errorMessage = error instanceof Error ? error.message : String(error); }
+  }
+
+  async function downloadVisibleSongs() {
+    const server = syncServerUrl, token = syncTokenDraft;
+    for (const track of [...visibleTracks]) { if (server !== syncServerUrl || token !== syncTokenDraft) break; await downloadSong(track); }
+  }
+
+  function removeUpcoming(index: number) {
+    const actual = playbackIndex + 1 + index;
+    if (actual <= playbackIndex || actual >= playbackSource.length) return;
+    playbackSource = playbackSource.filter((_, i) => i !== actual);
+    publishQueueChange();
+  }
+
+  function moveUpcoming(index: number, target: number) {
+    const start = playbackIndex + 1, next = [...playbackSource];
+    if (index < 0 || target < 0 || start + index >= next.length || start + target >= next.length) return;
+    const [moved] = next.splice(start + index,1); next.splice(start + target,0,moved);
+    playbackSource = next; publishQueueChange();
+  }
+
+  function enqueuePlaylistWrite(server: string, token: string, action: () => Promise<void>, propagate = false): Promise<void> {
+    const stillConnected = () => server === syncServerUrl && token === syncTokenDraft && !guestMode;
+    pendingPlaylistWrites++;
+    playlistMutationEpoch++;
+    const write = playlistWriteTail.then(async () => {
+      if (!stillConnected()) return;
+      await action();
+    }).catch(error => {
+      if (stillConnected()) errorMessage = error instanceof Error ? error.message : String(error);
+      if (propagate) throw error;
+    }).finally(async () => {
+      pendingPlaylistWrites--;
+      // Reconcile once the full optimistic edit sequence has landed. An
+      // intermediate snapshot must not undo later queued membership edits.
+      if (pendingPlaylistWrites === 0 && stillConnected()) await refreshRemoteLibraryState(true);
+    });
+    playlistWriteTail = write.catch(() => undefined);
+    return write;
+  }
+
+  function movePlaylistSong(from: number, to: number) {
+    const playlist = selectedPlaylist, server = syncServerUrl, token = syncTokenDraft;
+    if (!playlist || guestMode || !library || from === to || !visibleTracks[from] || !visibleTracks[to]) return;
+    const ids = [...playlist.track_ids], original = ids.indexOf(visibleTracks[from].id), target = ids.indexOf(visibleTracks[to].id);
+    if (original < 0 || target < 0) return;
+    const [moved] = ids.splice(original,1); ids.splice(target,0,moved);
+    syncLibrary({ ...library, playlists: library.playlists.map(p => p.id === playlist.id ? { ...p, track_ids:ids } : p) });
+    void enqueuePlaylistWrite(server,token,() => setRemotePlaylistTracks(server,playlist.id,ids));
+  }
+
+  function removePlaylistSong(index: number) {
+    const playlist = selectedPlaylist, track = visibleTracks[index], server = syncServerUrl, token = syncTokenDraft;
+    if (!playlist || !track || guestMode || !library) return;
+    syncLibrary({ ...library, playlists:library.playlists.map(p => p.id === playlist.id ? { ...p,track_ids:p.track_ids.filter(id => id !== track.id) } : p) });
+    void enqueuePlaylistWrite(server,token,() => removeTrackFromRemotePlaylist(server,playlist.id,track.fingerprint));
+  }
+
+  async function addPlaylistSong(track: Track) {
+    const playlist = selectedPlaylist, server = syncServerUrl, token = syncTokenDraft;
+    if (!playlist || !library || guestMode || addingSongIDs.has(track.id) || playlist.track_ids.includes(track.id)) return;
+    addingSongIDs = new Set([...addingSongIDs,track.id]);
+    syncLibrary({ ...library, playlists: library.playlists.map(p => p.id === playlist.id ? { ...p,track_ids:[...p.track_ids,track.id] } : p) });
+    try { await enqueuePlaylistWrite(server,token,() => addTrackToRemotePlaylist(server,playlist.id,track.fingerprint)); }
+    finally { addingSongIDs = new Set([...addingSongIDs].filter(id => id !== track.id)); }
+  }
+
 </script>
 
 <svelte:head>
@@ -3078,7 +3680,10 @@
     onConnect={() => void loadRemoteLibrary(false)}
   />
 {:else}
-  <main class="app-shell" data-theme={theme}>
+  <main class="app-shell" class:has-mobile-player={mobileLayout && Boolean(currentTrack)} class:mobile-empty-search={mobileLayout && selectedView === "search" && !searchActive} data-theme={theme} data-view={selectedView}>
+    {#if visualizerSampler}
+      <SpectrumAppearance sampler={visualizerSampler} {currentTrack} {theme} />
+    {/if}
     <Sidebar
       {selectedView}
       {guestMode}
@@ -3090,12 +3695,34 @@
 
     <TopBar bind:this={topBar} bind:searchQuery />
 
-    <section class="content">
+    {#if mobileLayout}
+      <header class="mobile-toolbar">
+        {#if !["home", "search", "library", "visualizer"].includes(selectedView)}
+          <button class="mobile-text-button" type="button" onclick={() => selectView(mobileTab)}><ChevronLeft size={22} />{titleForView(mobileTab, null)}</button>
+          <ViewHeader viewTitle={mobileViewTitle} {viewSubtitle} {selectedPlaylist} isEditing={false} renaming={false} mobileToolbarOnly mobileSortKey={sortKey} onMobileSort={(value) => sortKey = value}
+            playlistEditing={mobilePlaylistEditing} onTogglePlaylistEdit={!guestMode && selectedPlaylist && !selectedPlaylist.is_liked ? () => { mobilePlaylistEditing = !mobilePlaylistEditing; sortKey = "default"; } : undefined}
+            onAddSongs={!guestMode && selectedPlaylist && !selectedPlaylist.is_liked ? () => { addingSongs = true; addSongQuery = ""; } : undefined}
+            canEditCover={Boolean(syncServerUrl && !guestMode && selectedPlaylist && !selectedPlaylist.is_liked)} bind:playlistNameDraft onStartRename={startPlaylistRename} onCommitRename={() => void commitPlaylistRename()} onCancelRename={cancelPlaylistRename} onChangeCover={(file) => void changePlaylistCover(file)}/>
+        {:else}<h1 class:codec-title={selectedView === "home"}>{selectedView === "home" ? "Codec" : titleForView(selectedView,null)}</h1>{/if}
+        {#if selectedView === "home"}
+          <div class="mobile-toolbar-actions">
+            {#if auxCode}<button class="mobile-aux-chip" type="button" aria-label="Aux session" onclick={() => auxModalOpen = true}><Radio size={16}/>{auxCode}</button>{/if}
+            <button class="mobile-icon-button" type="button" aria-label="Palettes" onclick={openThemeModal}><Palette size={24} /></button>
+            <button class="mobile-icon-button" type="button" aria-label="Settings" onclick={() => { syncServerDraft = syncServerUrl; settingsModalOpen = true; }}><MobileSymbol name="settings" size={24} /></button>
+          </div>
+        {/if}
+      </header>
+      {#if selectedView === "search"}<div class="mobile-search-header"><label class="mobile-search-field"><Search size={19} /><input bind:this={mobileSearchInput} bind:value={searchQuery} type="search" aria-label="Search library" placeholder="Songs, artists, albums" />
+        {#if searchQuery}<button class="mobile-icon-button" type="button" aria-label="Clear search" onclick={() => { searchQuery = ""; }}><X size={17} /></button>{/if}
+      </label></div>{/if}
+    {/if}
+
+    <section class="content" class:mobile-visualizer={selectedView === "visualizer"} bind:this={contentEl} use:mobileViewMotion={{ view: selectedView, tab: mobileTab, enabled: mobileLayout }}>
       {#if importPhase !== "idle"}
         <section class="import-banner" class:done={importPhase === "done"} class:failed={importPhase === "failed"} aria-live="polite">
           <div class="import-banner-copy">
-            {#if importPhase === "uploading"}
-              <strong>Uploading bundle</strong>
+            {#if importPhase === "preparing" || importPhase === "uploading"}
+              <strong>{importPhase === "preparing" ? "Preparing bundle" : "Uploading bundle"}</strong>
               <span>{Math.round(importUploadFraction * 100)}%</span>
             {:else if importPhase === "processing"}
               <strong>Importing{importJob?.total ? ` ${importJob.done}/${importJob.total}` : ""}</strong>
@@ -3108,10 +3735,10 @@
               <span>{errorMessage}</span>
             {/if}
           </div>
-          {#if importPhase === "uploading" || importPhase === "processing"}
+          {#if importPhase === "preparing" || importPhase === "uploading" || importPhase === "processing"}
             <div class="import-banner-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
-              aria-valuenow={importPhase === "uploading" ? Math.round(importUploadFraction * 100) : (importJob?.total ? Math.round((importJob.done / importJob.total) * 100) : 0)}>
-              <i style={`width: ${importPhase === "uploading" ? importUploadFraction * 100 : (importJob?.total ? (importJob.done / importJob.total) * 100 : 0)}%`}></i>
+              aria-valuenow={(importPhase === "preparing" || importPhase === "uploading") ? Math.round(importUploadFraction * 100) : (importJob?.total ? Math.round((importJob.done / importJob.total) * 100) : 0)}>
+              <i style={`width: ${(importPhase === "preparing" || importPhase === "uploading") ? importUploadFraction * 100 : (importJob?.total ? (importJob.done / importJob.total) * 100 : 0)}%`}></i>
             </div>
           {:else}
             <button class="ui-button compact" type="button" onclick={dismissImportBanner}>Dismiss</button>
@@ -3125,9 +3752,9 @@
           <p>Reading music folder</p>
         </section>
       {:else if library}
-        {#if selectedView !== "home" && selectedView !== "visualizer" && !globalSearch}
+        {#if !["home", "search", "library", "visualizer"].includes(selectedView) && !globalSearch}
           <ViewHeader
-            {viewTitle}
+            viewTitle={mobileLayout ? mobileViewTitle : viewTitle}
             {viewSubtitle}
             {selectedPlaylist}
             isEditing={isEditingSelectedPlaylist}
@@ -3149,17 +3776,30 @@
 
         {#if selectedView === "home" && !globalSearch}
           <HomeView
-            {userPlaylists}
+            userPlaylists={mobileLayout ? recentPlaylists : userPlaylists}
             recentItems={homeItems}
             playlistCovers={homePlaylistCovers}
+            {playingPlaylist} {playingPlaylistCovers} {isPlaying}
             currentTrackId={currentTrack?.id ?? null}
             onOpenPlaylist={selectView}
             onOpenAlbum={openFromBrowseGrid}
             onPlayTrack={(track) => void playTrackRow(track, 0)}
+            {auxCode}
+            onShowAux={() => { auxModalOpen = true; }}
+          />
+        {:else if selectedView === "library" && !globalSearch}
+          <MobileLibrary
+            playlists={userPlaylists} {playlistArtwork}
+            songCount={stats.trackCount} likedCount={stats.likedCount} downloadedCount={downloadedIDs.size} onOpenDownloaded={() => selectView("downloaded")}
+            albums={albums.filter((album) => album.trackCount >= 2)} {artists}
+            canCreate={Boolean(syncServerUrl && syncServerReady && isRemoteRoot(rootPath) && !guestMode)}
+            onOpen={selectView} onOpenAlbum={openMobileAlbum} onOpenArtist={openMobileArtist}
+            onCreate={() => { newPlaylistTrack = null; newPlaylistOpen = true; createPlaylistError = ""; }}
           />
         {:else if selectedView === "visualizer"}
           <VisualizerView
             sampler={visualizerSampler}
+            sampling={isPlaying && playbackPageVisible && (!syncServerReady || activePlaybackDeviceId === deviceId)}
             {currentTrack}
             {theme}
           />
@@ -3175,7 +3815,7 @@
           />
         {:else}
           <TrackList
-            viewTitle={globalSearch ? "Search" : viewTitle}
+            viewTitle={globalSearch || selectedView === "search" ? "Search" : viewTitle}
             isQueueView={selectedView === "queue"}
             listMeta={globalSearch ? formatCount(visibleTracks.length, "result") : listMeta}
             {visibleTracks}
@@ -3189,6 +3829,11 @@
             onClearQueue={clearQueuedTracks}
             onPlayRow={(track, index) => void playTrackRow(track, index)}
             onQueueTrack={queueTrackLast}
+            onQueueNext={(track) => { queuedTracks = [track, ...queuedTracks]; publishQueueChange(); }}
+            {downloadedIDs} {downloadingIDs} onDownloadTrack={!guestMode ? (track) => void downloadSong(track) : undefined} onRemoveDownload={(track) => void removeDownloadedSong(track)}
+            onDownloadAll={!guestMode && selectedView !== "downloaded" ? () => void downloadVisibleSongs() : undefined}
+            emptyTitle={selectedView === "search" ? "No Results" : selectedPlaylist && !selectedPlaylist.is_liked ? "No Songs" : "No Tracks"} emptyDescription={selectedView === "search" ? `No results for “${searchQuery}”.` : selectedPlaylist && !selectedPlaylist.is_liked ? "Add songs from your library." : undefined}
+            playlistEditing={mobilePlaylistEditing} onMovePlaylistTrack={movePlaylistSong} onRemovePlaylistTrack={removePlaylistSong}
             onRemoveQueued={removeQueuedTrackAt}
             {guestMode}
             onEditPlaylists={openPlaylistMembershipModal}
@@ -3198,6 +3843,8 @@
       {/if}
     </section>
 
+    {#if !mobileLayout}
+    {#if queueRailVisible}
     <QueueRail
       {queue}
       queuedTracksCount={queuedTracks.length}
@@ -3208,6 +3855,7 @@
       onMoveQueued={moveQueuedTrack}
       onClearQueue={clearQueuedTracks}
     />
+    {/if}
 
     <PlayerBar
       {currentTrack}
@@ -3217,6 +3865,7 @@
       {currentTime}
       {audioDuration}
       {volume}
+      showVolumeControl={hasNativeBridge()}
       showDeviceControl={Boolean(syncServerUrl && syncServerReady && deviceId)}
       {playbackDeviceOptions}
       {activePlaybackDeviceId}
@@ -3231,6 +3880,37 @@
       onVolumeInput={(event) => void updateVolume(event)}
       onDeviceChange={handlePlaybackDeviceChange}
     />
+    {/if}
+
+    {#if mobileLayout}
+      <div class="mobile-bottom-controls">
+        {#if currentTrack}
+          <MobilePlayer
+            currentTrack={mobileTrackIndex.get(currentTrack.id) ?? currentTrack}
+            {isPlaying} {shuffle} {repeatMode} {currentTime} {audioDuration}
+            showDeviceControl={Boolean(syncServerUrl && syncServerReady && deviceId)}
+            {playbackDeviceOptions} {activePlaybackDeviceId} {activePlaybackDeviceName} {deviceId}
+            {theme} obscured={Boolean(playlistModalTrack)} downloadState={downloadingKeys.has(downloadKey(syncServerUrl, currentTrack.fingerprint)) ? "downloading" : downloadedFingerprints.has(currentTrack.fingerprint) ? "downloaded" : "none"}
+            onDownload={!guestMode ? (track) => void downloadSong(track) : undefined} onRemoveDownload={(track) => void removeDownloadedSong(track)}
+            airPlayAvailable={Boolean(audioEl && "webkitShowPlaybackTargetPicker" in audioEl)} onAirPlay={() => (audioEl as HTMLAudioElement & { webkitShowPlaybackTargetPicker?:()=>void })?.webkitShowPlaybackTargetPicker?.()}
+            onRemoveUpcoming={removeUpcoming} onMoveUpcoming={moveUpcoming}
+            {queue} queuedTracksCount={queuedTracks.length} {guestMode}
+            onToggleShuffle={() => void toggleShuffle()} onPrevious={() => void previousTrack()}
+            onTogglePlayback={() => void togglePlayback()} onNext={() => void nextTrack()}
+            onToggleRepeat={() => void toggleRepeat()} onSeekInput={(event) => void setProgress(event)}
+            onDeviceChange={handlePlaybackDeviceChange}
+            onToggleLike={(track) => void toggleLike(track)} onEditPlaylists={openPlaylistMembershipModal}
+            onPlayQueueTrack={(index) => void playQueueTrack(index)} onRemoveQueued={removeQueuedTrackAt}
+            onMoveQueued={moveQueuedTrack} onClearQueue={clearQueuedTracks}
+          />
+        {/if}
+        <MobileTabs selected={["home", "search", "library", "visualizer"].includes(selectedView) ? selectedView : mobileTab} onSelect={selectMobileTab} />
+      </div>
+    {/if}
+
+    {#if newPlaylistOpen}
+      <MobileNewPlaylist bind:name={newPlaylistTitle} busy={creatingPlaylist} error={createPlaylistError} onClose={() => { newPlaylistOpen = false; newPlaylistTrack = null; }} onCreate={() => void createPlaylistFromLibrary()}/>
+    {/if}
 
     {#if syncServerModalOpen}
       <SyncServerModal
@@ -3244,33 +3924,38 @@
     {/if}
 
     {#if playlistModalTrack && library}
-      <PlaylistModal
+      {#if mobileLayout}<MobilePlaylistMembership track={playlistModalTrack} playlists={library.playlists} bind:selectedIds={playlistModalSelectionIds} saving={savingPlaylistMemberships} onClose={closePlaylistMembershipModal} onSave={() => void savePlaylistMemberships()} onCreate={() => { newPlaylistTrack = playlistModalTrack; void savePlaylistMemberships(); newPlaylistOpen = true; }}/>
+      {:else}<PlaylistModal
         track={playlistModalTrack}
         playlists={library.playlists}
         bind:selectedIds={playlistModalSelectionIds}
         saving={savingPlaylistMemberships}
         onClose={closePlaylistMembershipModal}
         onSave={() => void savePlaylistMemberships()}
-      />
+      />{/if}
     {/if}
 
     {#if themeModalOpen}
-      <ThemeModal
+      {#if mobileLayout}<MobilePalettes {theme} onSetTheme={setTheme} onClose={closeThemeModal}/>{:else}<ThemeModal
         {theme}
         activeThemeName={activeTheme.name}
         onSetTheme={setTheme}
         onClose={closeThemeModal}
-      />
+      />{/if}
     {/if}
 
     {#if settingsModalOpen}
-      <SettingsModal
+      {#if mobileLayout}<MobileSettings importing={importBusy} {syncMessage} onImportFiles={(files) => void importAudioFiles(files)} bind:server={syncServerDraft} bind:token={syncTokenDraft} connected={syncServerReady} {loading} error={errorMessage} {auxCode} {auxBusy} {guestMode}
+        onClose={() => settingsModalOpen = false} onReconnect={() => { void loadRemoteLibrary(false).then(() => { if(syncServerReady) settingsModalOpen = false; }); }}
+        onDisconnect={() => { settingsModalOpen = false; disconnectSyncServer(); }} onStartAux={() => { settingsModalOpen = false; void startAux(); }}
+        onShowAux={() => { settingsModalOpen = false; auxModalOpen = true; }} onEndAux={() => void endAux()} onJoinAux={(code) => { settingsModalOpen = false; void joinAuxAsGuest(code,false); }}/>
+      {:else}<SettingsModal
         activeThemeName={activeTheme.name}
         {syncing}
-        canUpload={Boolean(library)}
+        canUpload={Boolean(library) && hasNativeBridge() && !isRemoteRoot(rootPath)}
         {syncMessage}
-        {importing}
-        importDisabled={isRemoteRoot(rootPath)}
+        importing={importBusy}
+        importDisabled={!hasNativeBridge() || isRemoteRoot(rootPath)}
         {auxCode}
         {auxBusy}
         onOpenThemeModal={() => {
@@ -3295,19 +3980,34 @@
         }}
         onEndAux={() => void endAux()}
         onClose={() => (settingsModalOpen = false)}
-      />
+      />{/if}
     {/if}
 
     {#if auxModalOpen && auxCode}
-      <AuxModal
+      {#if mobileLayout}<MobileAux code={auxCode} link={auxLink()} {guestMode} onClose={() => auxModalOpen = false} onEnd={() => void endAux()}/>{:else}<AuxModal
         {auxCode}
         auxLink={auxLink()}
         onCopyLink={() => void copyAuxLink()}
         onEnd={() => void endAux()}
         onClose={() => (auxModalOpen = false)}
-      />
+      />{/if}
     {/if}
 
+    {#if addingSongs && selectedPlaylist && library}
+      <MobileSheet full title="Add Songs" onClose={() => addingSongs = false}>
+        <div class="native-add-songs"><label class="mobile-search-field"><Search size={19}/><input type="search" bind:value={addSongQuery} placeholder="Search songs" aria-label="Search songs to add"/></label>
+          <VirtualRows items={searchTracks(library.tracks,addSongQuery)} rowHeight={86}>
+            {#snippet children(track)}
+              <button class="native-song-choice" type="button" disabled={selectedPlaylist?.track_ids.includes(track.id) || addingSongIDs.has(track.id)} onclick={() => void addPlaylistSong(track)}>
+                {#if track.artwork_url}<ArtworkImage src={track.artwork_url} alt="" loading="lazy"/>{:else}<span class="native-song-art-placeholder">♪</span>{/if}
+                <span class="native-song-copy"><strong>{track.title}</strong><small>{track.artist}</small></span>
+                <span class="native-song-check" class:checked={selectedPlaylist?.track_ids.includes(track.id)}>{addingSongIDs.has(track.id) ? "…" : selectedPlaylist?.track_ids.includes(track.id) ? "✓" : "+"}</span>
+              </button>
+            {/snippet}
+          </VirtualRows>
+        </div>
+      </MobileSheet>
+    {/if}
     <audio
       bind:this={audioEl}
       crossorigin="anonymous"
@@ -3317,6 +4017,7 @@
       onpause={handleAudioPause}
       onplay={handleAudioPlay}
       ontimeupdate={syncTime}
+      onvolumechange={syncMediaVolume}
     ></audio>
   </main>
 {/if}

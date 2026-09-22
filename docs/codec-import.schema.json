@@ -3,87 +3,384 @@
   "$id": "https://codec.local/schemas/codec-import.v1.schema.json",
   "title": "Codec Import Manifest v1",
   "type": "object",
-  "required": ["schema", "tracks"],
+  "required": [
+    "schema",
+    "tracks"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema": { "const": "loud.import.v1" },
+    "schema": {
+      "const": "loud.import.v1"
+    },
     "source": {
-      "type": "object",
+      "type": [
+        "object",
+        "null"
+      ],
       "additionalProperties": true,
       "properties": {
-        "name": { "type": "string" },
-        "generated_at": { "type": "string", "format": "date-time" },
-        "base_path": {
-          "type": "string",
-          "description": "Relative to this manifest file. Track files are resolved under this folder unless they are absolute paths."
+        "name": {
+          "type": "string"
         },
-        "spotify_source": { "type": "string" }
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "base_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Relative to this manifest file. Track files are resolved under this folder unless they are absolute paths. For artwork, absolute base paths, parent traversal, and symlinks escaping the manifest folder are rejected."
+        },
+        "spotify_source": {
+          "type": "string"
+        }
       }
     },
     "tracks": {
       "type": "array",
-      "items": { "$ref": "#/$defs/track" }
+      "items": {
+        "$ref": "#/$defs/track"
+      }
     },
     "playlists": {
       "type": "array",
       "default": [],
-      "items": { "$ref": "#/$defs/playlist" }
+      "items": {
+        "$ref": "#/$defs/playlist"
+      }
     }
   },
   "$defs": {
+    "artwork": {
+      "type": "object",
+      "required": [
+        "file",
+        "sha256",
+        "mime_type",
+        "width",
+        "height"
+      ],
+      "additionalProperties": false,
+      "description": "Optional local artwork. Codec validates the original bytes before importing, preserves those bytes, and generates a separate JPEG thumbnail. Existing artwork is retained. Inline artwork takes precedence over the corresponding sibling S2Y artwork sidecar.",
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Relative to source.base_path, or to the manifest folder when omitted. Absolute paths, parent traversal, and symlinks escaping that canonical base folder are rejected."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "description": "SHA-256 of the complete original image file (at most 12 MiB)."
+        },
+        "mime_type": {
+          "enum": [
+            "image/jpeg",
+            "image/png"
+          ],
+          "description": "Must match the decoded image format. Imported originals accept JPEG and PNG; WebP and GIF are rejected."
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8192,
+          "description": "Exact decoded width. Width multiplied by height must not exceed 16,777,216 pixels."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8192,
+          "description": "Exact decoded height. Width multiplied by height must not exceed 16,777,216 pixels."
+        },
+        "source_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "spotify_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "license_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Provenance metadata only; Codec never fetches this URL."
+        },
+        "attribution_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Provenance metadata only; Codec never fetches this URL."
+        },
+        "provenance": {
+          "description": "Optional source metadata; does not change artwork identity or validation."
+        }
+      }
+    },
+    "playlist_artwork_sidecar": {
+      "type": "object",
+      "required": [
+        "schema",
+        "playlists"
+      ],
+      "additionalProperties": false,
+      "description": "Optional sibling playlist-artwork.json file. Its artwork paths use this sidecar's base_path independently of the main manifest.",
+      "properties": {
+        "schema": {
+          "const": "s2y.playlist-artwork.v1"
+        },
+        "base_path": {
+          "type": "string",
+          "default": ".",
+          "description": "Relative to this sidecar folder. Absolute paths, parent traversal, and symlinks escaping that canonical folder are rejected."
+        },
+        "playlists": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "artwork"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "origin": {
+                "type": "string",
+                "description": "Optional source label supplied by S2Y. Informational only; playlist identity uses name."
+              },
+              "artwork": {
+                "$ref": "#/$defs/artwork"
+              }
+            }
+          }
+        }
+      }
+    },
+    "track_artwork_sidecar": {
+      "type": "object",
+      "required": [
+        "schema",
+        "tracks"
+      ],
+      "additionalProperties": false,
+      "description": "Optional sibling track-artwork.json file. Its artwork paths use this sidecar's base_path independently of the main manifest.",
+      "properties": {
+        "schema": {
+          "const": "s2y.track-artwork.v1"
+        },
+        "base_path": {
+          "type": "string",
+          "default": ".",
+          "description": "Relative to this sidecar folder. Absolute paths, parent traversal, and symlinks escaping that canonical folder are rejected."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "fingerprint",
+              "artwork"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "fingerprint": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Exact stored Codec track fingerprint; title, ID, and alternate identity aliases are not matched."
+              },
+              "artwork": {
+                "$ref": "#/$defs/artwork"
+              }
+            }
+          }
+        }
+      }
+    },
     "identifiers": {
       "type": "object",
       "default": {},
-      "additionalProperties": { "type": "string" },
+      "additionalProperties": {
+        "type": "string"
+      },
       "properties": {
-        "isrc": { "type": "string" },
-        "spotify_track_id": { "type": "string" },
-        "spotify_album_id": { "type": "string" },
-        "youtube_video_id": { "type": "string" },
-        "musicbrainz_recording_id": { "type": "string" }
+        "isrc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "spotify_track_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "spotify_album_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "youtube_video_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "musicbrainz_recording_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "source_urls": {
       "type": "object",
       "default": {},
-      "additionalProperties": { "type": "string" },
+      "additionalProperties": {
+        "type": "string"
+      },
       "properties": {
-        "spotify": { "type": "string" },
-        "youtube": { "type": "string" },
-        "musicbrainz": { "type": "string" }
+        "spotify": {
+          "type": "string"
+        },
+        "youtube": {
+          "type": "string"
+        },
+        "musicbrainz": {
+          "type": "string"
+        }
       }
     },
     "track": {
       "type": "object",
-      "required": ["file"],
+      "required": [
+        "file"
+      ],
       "additionalProperties": false,
       "properties": {
         "file": {
           "type": "string",
-          "description": "Path to an MP3. Relative paths are resolved from source.base_path, or from the manifest folder when base_path is omitted."
+          "description": "Path to an MP3, M4A, FLAC, or WAV file. Relative paths are resolved from source.base_path, or from the manifest folder when base_path is omitted."
         },
-        "title": { "type": "string" },
-        "artist": { "type": "string" },
-        "album": { "type": "string" },
-        "album_artist": { "type": "string" },
-        "genre": { "type": "string" },
-        "year": { "type": "integer", "minimum": 0, "maximum": 9999 },
-        "track_number": { "type": "integer", "minimum": 1 },
-        "disc_number": { "type": "integer", "minimum": 1 },
-        "duration_seconds": { "type": "number", "minimum": 0 },
-        "duration_ms": { "type": "integer", "minimum": 0 },
-        "explicit": { "type": "boolean" },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artist": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "album": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "album_artist": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "genre": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "year": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9999
+        },
+        "track_number": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "disc_number": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "duration_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "duration_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "explicit": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "fingerprint": {
-          "type": "string",
-          "description": "Optional direct Codec identity. Kept for compatibility; identifiers is preferred for downloader output."
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Optional authoritative Codec identity. When supplied, only the exact fingerprint can match an existing track; metadata and provider aliases never merge distinct fingerprints. When omitted, identifiers can supply the identity."
         },
-        "identifiers": { "$ref": "#/$defs/identifiers" },
-        "source_urls": { "$ref": "#/$defs/source_urls" },
-        "liked": { "type": "boolean", "default": false },
+        "identifiers": {
+          "$ref": "#/$defs/identifiers"
+        },
+        "source_urls": {
+          "$ref": "#/$defs/source_urls"
+        },
+        "artwork": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/artwork"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "liked": {
+          "type": "boolean",
+          "default": false
+        },
         "playlists": {
           "type": "array",
           "default": [],
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Playlist names this track should be attached to."
         }
       }
@@ -98,32 +395,77 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "file": { "type": "string" },
-            "fingerprint": { "type": "string" },
-            "identifiers": { "$ref": "#/$defs/identifiers" }
+            "file": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "fingerprint": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "identifiers": {
+              "$ref": "#/$defs/identifiers"
+            }
           },
           "anyOf": [
-            { "required": ["file"] },
-            { "required": ["fingerprint"] },
-            { "required": ["identifiers"] }
+            {
+              "required": [
+                "file"
+              ]
+            },
+            {
+              "required": [
+                "fingerprint"
+              ]
+            },
+            {
+              "required": [
+                "identifiers"
+              ]
+            }
           ]
         }
       ]
     },
     "playlist": {
       "type": "object",
-      "required": ["name", "tracks"],
+      "required": [
+        "name"
+      ],
+      "description": "A playlist may supply artwork without supplying track references.",
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
+        "name": {
+          "type": "string"
+        },
+        "artwork": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/artwork"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "mode": {
-          "enum": ["append", "replace"],
+          "enum": [
+            "append",
+            "replace"
+          ],
           "default": "append",
           "description": "append adds refs. replace clears Codec-managed refs for this playlist before adding these tracks."
         },
         "tracks": {
           "type": "array",
-          "items": { "$ref": "#/$defs/playlist_track_ref" },
+          "items": {
+            "$ref": "#/$defs/playlist_track_ref"
+          },
+          "default": [],
           "description": "Refs matching tracks by file, fingerprint, or identifiers."
         }
       }

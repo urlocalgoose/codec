@@ -2,7 +2,15 @@
  * graph exists — whatever view is open — into a ring buffer, so opening the
  * Visualizer paints the recent past instead of starting blank. */
 
+import { spectrumColorTable, spectrumPalette, type SpectrumColors } from "./visualizer-palette";
+
 export const SPECTRO_BANDS = 112;
+
+function snapshotColors(colors: SpectrumColors): SpectrumColors {
+  if (Object.isFrozen(colors) && Object.isFrozen(colors.ink) && Object.isFrozen(colors.alpha)) return colors;
+  return Object.freeze({ background: colors.background,
+    ink: Object.freeze([...colors.ink]), alpha: Object.freeze([...colors.alpha]) });
+}
 
 export class SpectroSampler {
   readonly bands = SPECTRO_BANDS;
@@ -11,24 +19,41 @@ export class SpectroSampler {
   private readonly buffer: Uint8Array;
   private readonly bins: Uint8Array;
   private readonly analyser: AnalyserNode;
+  // One shared immutable table reference per column. The ring bounds their
+  // lifetime; changing tracks never rewrites the colors of recorded audio.
+  private readonly appearances: SpectrumColors[];
+  private colors: SpectrumColors;
+  private readonly colorListeners = new Set<() => void>();
   private total = 0;
   private raf = 0;
+  private running = false;
+  private readonly tick = () => {
+    if (!this.running) return;
+    this.sample();
+    this.raf = requestAnimationFrame(this.tick);
+  };
 
-  constructor(analyser: AnalyserNode, capacity = 1600) {
+  constructor(analyser: AnalyserNode, capacity = 1600, colors?: SpectrumColors) {
     this.analyser = analyser;
     this.capacity = capacity;
     this.buffer = new Uint8Array(capacity * SPECTRO_BANDS);
     this.bins = new Uint8Array(analyser.frequencyBinCount);
+    this.appearances = new Array(capacity);
+    this.colors = snapshotColors(colors ?? spectrumColorTable(spectrumPalette({ bg: "#101312", accent: "#a7b0aa", text: "#eef2ed" }, null)));
 
-    const tick = () => {
-      this.raf = requestAnimationFrame(tick);
-      this.sample();
-    };
-    tick();
+    this.start();
+  }
+
+  start(): void {
+    if (this.running) return;
+    this.running = true;
+    this.tick();
   }
 
   stop(): void {
+    this.running = false;
     cancelAnimationFrame(this.raf);
+    this.raf = 0;
   }
 
   /** Total columns ever sampled; the retained window ends here. */
@@ -39,6 +64,27 @@ export class SpectroSampler {
   /** First column index still held by the ring buffer. */
   get oldestIndex(): number {
     return Math.max(0, this.total - this.capacity);
+  }
+
+  get currentColors(): SpectrumColors { return this.colors; }
+
+  /** Applies only to future columns, including while the visualizer is closed. */
+  setColors(colors: SpectrumColors): void {
+    if (colors === this.colors || (colors.background === this.colors.background
+      && colors.ink.every((value, index) => value === this.colors.ink[index])
+      && colors.alpha.every((value, index) => value === this.colors.alpha[index]))) return;
+    this.colors = snapshotColors(colors);
+    for (const listener of this.colorListeners) listener();
+  }
+
+  subscribeColors(listener: () => void): () => void {
+    this.colorListeners.add(listener);
+    return () => { this.colorListeners.delete(listener); };
+  }
+
+  colorsAt(index: number): SpectrumColors {
+    if (index < this.oldestIndex || index >= this.count) throw new RangeError("Spectrum column is outside retained history");
+    return this.appearances[index % this.capacity];
   }
 
   /** Copies the band magnitudes of absolute column `index` into `out`
@@ -65,6 +111,7 @@ export class SpectroSampler {
       this.buffer[offset + band] = Math.round(sum / (to - from));
     }
 
+    this.appearances[this.total % this.capacity] = this.colors;
     this.total += 1;
   }
 }

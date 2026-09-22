@@ -1,0 +1,20 @@
+# Send only source needed by Dockerfile; never local libraries, credentials,
+# captures, dependencies, build outputs, or the repository history.
+**
+!Dockerfile
+!package.json
+!bun.lock
+!svelte.config.js
+!vite.config.js
+!tsconfig.json
+!src/
+!src/**
+!static/
+!static/**
+!sync-server/
+!sync-server/go.mod
+!sync-server/go.sum
+!sync-server/cmd/
+!sync-server/cmd/**
+!sync-server/internal/
+!sync-server/internal/**

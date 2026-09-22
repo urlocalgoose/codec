@@ -19,6 +19,7 @@ public struct CodecClient: Sendable {
     public let token: String?
     private let transport: CodecTransport
     private let decoder = JSONDecoder()
+    private let libraryCache = LibraryCache()
 
     public init(baseURL: URL, token: String? = nil, transport: CodecTransport = URLSession.shared) {
         self.baseURL = baseURL
@@ -36,12 +37,26 @@ public struct CodecClient: Sendable {
         return ["Authorization": "Bearer \(token)"]
     }
 
+    public func authHeaders(for url: URL) -> [String: String] {
+        guard url.scheme?.lowercased() == baseURL.scheme?.lowercased(),
+              url.host()?.lowercased() == baseURL.host()?.lowercased(),
+              (url.port ?? (url.scheme == "https" ? 443 : 80)) == (baseURL.port ?? (baseURL.scheme == "https" ? 443 : 80))
+        else { return [:] }
+        return authHeaders
+    }
+
     public func health() async throws -> CodecHealth {
         try await send(request(method: "GET", path: "/health"), as: CodecHealth.self)
     }
 
     public func library() async throws -> CodecLibrary {
-        try await send(request(method: "GET", path: "/api/v1/library"), as: CodecLibrary.self)
+        try await libraryCache.load(request: request(method: "GET", path: "/api/v1/library"), transport: transport)
+    }
+
+    /// Drop a request tied to an obsolete network path without discarding the
+    /// last validated library or ETag. Await this before validating a new path.
+    public func cancelPendingLibraryRequest() async {
+        await libraryCache.cancelPendingRequest()
     }
 
     // MARK: - Aux sessions
@@ -116,6 +131,16 @@ public struct CodecClient: Sendable {
         return try decoder.decode(CodecPlaylist.self, from: data)
     }
 
+    /// Deletes the collection only. Tracks, audio, and likes remain intact.
+    public func deletePlaylist(id: String) async throws {
+        var request = URLRequest(url: try playlistURL(id: id, suffix: ""))
+        request.httpMethod = "DELETE"
+        for (name, value) in authHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        _ = try await sendExpectingSuccess(request)
+    }
+
     public func addToPlaylist(id: String, fingerprint: String) async throws {
         var request = URLRequest(url: try playlistURL(id: id, suffix: "/tracks"))
         request.httpMethod = "POST"
@@ -186,6 +211,9 @@ public struct CodecClient: Sendable {
         var request = try request(method: "POST", path: "/api/v2/playback/commands")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(command)
+        if let revision = command.expectedRevision {
+            request.setValue("\"\(revision)\"", forHTTPHeaderField: "If-Match")
+        }
         let data = try await sendExpectingSuccess(request)
         return try decoder.decode(PlaybackState.self, from: data)
     }
@@ -201,6 +229,7 @@ public struct CodecClient: Sendable {
             throw CodecClientError.invalidBaseURL
         }
         var request = URLRequest(url: try endpointURL(path: "/api/v1/playback/devices/\(encoded)", encodedPath: true))
+        request.timeoutInterval = 12
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(device)
@@ -222,6 +251,9 @@ public struct CodecClient: Sendable {
     public func request(method: String, path: String) throws -> URLRequest {
         let url = try endpointURL(path: path, encodedPath: false)
         var request = URLRequest(url: url)
+        // Control/metadata requests must fail in time to reconnect. Media and
+        // background downloads have their own streaming timeout policy.
+        request.timeoutInterval = 12
         request.httpMethod = method.uppercased()
         for (name, value) in authHeaders {
             request.setValue(value, forHTTPHeaderField: name)
@@ -281,6 +313,66 @@ public struct CodecClient: Sendable {
             throw CodecClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
         return try decoder.decode(type, from: data)
+    }
+}
+
+private actor LibraryCache {
+    private var cached: (library: CodecLibrary, etag: String?)?
+    private var pending: Task<(CodecLibrary, String?), Error>?
+    private var cancellationGeneration = 0
+
+    func cancelPendingRequest() {
+        cancellationGeneration += 1
+        pending?.cancel()
+        pending = nil
+    }
+
+    func load(request: URLRequest, transport: CodecTransport) async throws -> CodecLibrary {
+        let generation = cancellationGeneration
+        if let pending {
+            do {
+                let result = try await pending.value
+                guard generation == cancellationGeneration else { throw CancellationError() }
+                return result.0
+            } catch {
+                guard generation == cancellationGeneration else { throw CancellationError() }
+                throw error
+            }
+        }
+        let cached = cached
+        let task = Task {
+            try Task.checkCancellation()
+            var request = request
+            // Own validation so an unchanged response also skips JSON decoding.
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            if let etag = cached?.etag {
+                request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+            }
+            let (data, response) = try await transport.data(for: request)
+            try Task.checkCancellation()
+            guard let http = response as? HTTPURLResponse else {
+                throw CodecClientError.invalidResponse
+            }
+            if http.statusCode == 304, let cached, cached.etag != nil {
+                return (cached.library, http.value(forHTTPHeaderField: "ETag") ?? cached.etag)
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                throw CodecClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            }
+            return (try JSONDecoder().decode(CodecLibrary.self, from: data), http.value(forHTTPHeaderField: "ETag"))
+        }
+        pending = task
+        do {
+            let result = try await task.value
+            guard generation == cancellationGeneration else { throw CancellationError() }
+            self.cached = result
+            pending = nil
+            return result.0
+        } catch {
+            guard generation == cancellationGeneration else { throw CancellationError() }
+            pending = nil
+            throw error
+        }
     }
 }
 

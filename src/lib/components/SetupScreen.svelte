@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AlertCircle, CloudDownload, FolderOpen, KeyRound, LoaderCircle, Music2, Server } from "lucide-svelte";
+  import { AlertCircle, CloudDownload, FolderOpen, KeyRound, LoaderCircle, Link, Music2, Server } from "lucide-svelte";
   import type { ThemeId } from "$lib/themes";
 
   let {
@@ -23,7 +23,15 @@
   } = $props();
 </script>
 
-<main class="setup-screen" data-theme={theme}>
+<main class="setup-screen" class:native-connect={!isNative} data-theme={theme}>
+{#if !isNative}
+  <form class="native-connect-form" onsubmit={(event) => { event.preventDefault(); onConnect(); }}>
+    <div class="native-connect-brand"><img src="/favicon.png" alt=""/><strong>Codec</strong></div>
+    <div class="native-connect-copy"><h1>Connect to your library</h1><p>Enter your server address and auth token to get started.</p></div>
+    <div class="native-connect-fields"><label>Server address<span><Link size={20}/><input bind:value={syncServerDraft} type="url" placeholder="https://music.example.com" aria-label="Server address" autocapitalize="none" spellcheck="false" disabled={loading}/></span></label><label>Auth token<span><KeyRound size={20}/><input bind:value={syncTokenDraft} type="password" placeholder="Paste your token" aria-label="Auth token" autocomplete="off" disabled={loading}/></span></label></div>
+    <div class="native-connect-submit">{#if errorMessage}<p class="setup-error" role="alert"><AlertCircle size={17}/>{errorMessage}</p>{/if}<button type="submit" disabled={loading || !syncServerDraft.trim()}>{#if loading}<LoaderCircle size={18} class="spin-icon"/>{/if}{loading ? "Connecting…" : "Connect"}</button><p>Use the same server and token as your other devices.</p></div>
+  </form>
+{:else}
   <section class="setup-panel" class:web-setup={!isNative} aria-labelledby="setup-title">
     <div class="brand-row">
       <span class="brand-mark"><Music2 size={32} /></span>
@@ -68,7 +76,7 @@
           <KeyRound size={17} />
           <input
             bind:value={syncTokenDraft}
-            placeholder="Auth token (optional)"
+            placeholder="Auth token"
             type="password"
             autocomplete="off"
           />
@@ -87,4 +95,5 @@
       <p class="setup-error"><AlertCircle size={16} /> {errorMessage}</p>
     {/if}
   </section>
+{/if}
 </main>

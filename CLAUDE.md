@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Codec Is
 
-Codec (formerly Loud) is a local-first music player/library manager built as a Tauri v2 desktop app (SvelteKit + Svelte 5 frontend, Rust backend), with a portable Go sync server that serves the same web UI as a mobile PWA and syncs libraries between devices, plus a native SwiftUI iOS app.
+Codec (formerly Loud) is a self-hosted music server with a SvelteKit web/PWA player and a separate native SwiftUI iPhone/iPad app. The Go server serves both the web interface and API. Rust library and CLI import code lives in the existing `src-tauri` crate. Desktop GUI distribution and promotion are paused; do not add desktop installers, download links, or product claims. Keep the shared Rust code and import tests.
 
 **Naming rule:** "Codec" is the brand (UI strings, app names, docs, code identifiers). The `loud.*` wire schemas, `.loud/` state folder, and `loud://` roots are historical compatibility IDs and MUST stay without a migration. New env vars, docs, storage keys, and generated names should use `codec.*` / `CODEC_*`; old `LOUD_*` and `loud.*` app preferences are read only as aliases.
 
@@ -14,7 +14,6 @@ Bun is the package manager and JS test runner.
 
 ```bash
 bun run dev              # Vite dev server only (UI debugging, port 1420)
-bun run tauri dev        # Full desktop app (Rust + frontend)
 bun run server:dev       # Build web UI, then run Go sync server on :8787 (mobile/PWA flow)
 bun run build            # vite build -> build/
 bun run check            # svelte-check + typescript
@@ -30,9 +29,9 @@ cd ios/CodecMobile && swift test                      # iOS tests (runs on macOS
 
 ## Architecture
 
-Three clients speak one contract to one server:
+The web and native clients share the server contract; the Rust CLI imports and transfers libraries:
 
-1. **Tauri desktop app** — `src/` (frontend) + `src-tauri/` (Rust).
+1. **Web player and Rust import tools** — `src/` (Svelte web UI) + `src-tauri/` (shared library and CLI code).
    - Rust core is `src-tauri/src/library/` (mod.rs holds types + public API; scan/ops/import/state/summaries/artwork/util/tests split per concern). App truth lives in `.loud/state.json` inside the user's music folder; new MP3s are copied to `.loud/audio/Artist/Album/`; likes and playlists are references to canonical tracks by fingerprint, never file copies.
    - `src-tauri/src/lib.rs` is Tauri commands + wiring only; `media_server.rs` is the token-per-path localhost stream server for the WebView; `sync_transfer.rs` moves MP3s/artwork to/from the sync server.
    - Frontend: `src/routes/+page.svelte` is the orchestrator (state + playback engine); markup lives in `src/lib/components/` (PlayerBar, TrackList, Sidebar, modals, etc. — Svelte 5 runes components); pure logic in `src/lib/*.ts` where the tests live. Keep new logic in `src/lib` so it stays testable. All styling is `src/app.css` (global, theme via `data-theme` attribute; themes defined in `src/lib/themes.ts` + app.css blocks).
@@ -50,13 +49,13 @@ Three clients speak one contract to one server:
 
 ### Aux (shared listening)
 
-The host starts an aux from Settings (desktop/web) and gets a 4-char code + QR; the join link carries the full server URL. Guests trade the code for a scoped token: they can browse, stream, and drive the shared queue, but never sync/upload/like/playlist (guest-blocked UI is gated by `guestMode` / `.hidden-for-guests`). Ending the aux revokes every guest token. Cross-server tracks ride on `loud.playback.v2` track refs (optional title/artist/media_url/artwork_url) backed by media grants (`POST /api/v1/media-grants`, 24h, scoped to the granted tracks). Server logic in `sync-server/internal/server/aux.go`; client flow in `src/routes/+page.svelte` (`joinAuxAsGuest`, `?aux=` param) + `src/lib/components/AuxModal.svelte`.
+The host starts an aux from Settings (web) and gets a 4-char code + QR; the join link carries the full server URL. Guests trade the code for a scoped token: they can browse, stream, and drive the shared queue, but never sync/upload/like/playlist (guest-blocked UI is gated by `guestMode` / `.hidden-for-guests`). Ending the aux revokes every guest token. Cross-server tracks ride on `loud.playback.v2` track refs (optional title/artist/media_url/artwork_url) backed by media grants (`POST /api/v1/media-grants`, 24h, scoped to the granted tracks). Server logic in `sync-server/internal/server/aux.go`; client flow in `src/routes/+page.svelte` (`joinAuxAsGuest`, `?aux=` param) + `src/lib/components/AuxModal.svelte`.
 
-### UI conventions (desktop/web)
+### UI conventions (web)
 
 Read `docs/ui-system.md` before UI work. The current Codec style is not a generic app shell: it is theme-token driven, music-first, and tape-deck influenced.
 
-- Desktop/web styling lives in `src/app.css`; Svelte components do not get `<style>` blocks.
+- Web styling lives in `src/app.css`; Svelte components do not get `<style>` blocks.
 - Use existing theme tokens (`--color-*`, `--button-*`, `--radius-*`) and existing primitives (`.ui-button`, `.title-icon-button`, `.queue-button`, `.app-modal`, `.modal-header`, `.modal-actions`).
 - Buttons are raised physical controls: no outlines, fill differs from background, rest/hover/press/latched depth matters. Connected button stacks round only the outside corners.
 - The bottom transport is the reference: play is wider and accent-filled; shuffle/repeat/play can latch down; skip/previous are momentary.

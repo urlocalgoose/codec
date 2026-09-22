@@ -1,8 +1,36 @@
 import AVKit
 import AVFAudio
-import Combine
 import MediaPlayer
 import SwiftUI
+
+/// A heading is text, rather than an adaptive toolbar action. Give it its
+/// intrinsic width and omit iOS 26's shared button background so it cannot
+/// collapse into an overflow control.
+struct ScreenHeader: ToolbarContent {
+    @Environment(\.codecTheme) private var theme
+    let title: String
+    var font: Font = .largeTitle.bold()
+    var tracking: CGFloat = 0
+
+    var body: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarLeading) { heading }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarLeading) { heading }
+        }
+    }
+
+    private var heading: some View {
+        Text(title)
+            .font(font)
+            .tracking(tracking)
+            .foregroundStyle(theme.text)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
 
 /// The system output picker: AirPods, Bluetooth speakers, AirPlay, CarPlay.
 /// Wraps AVRoutePickerView since SwiftUI has no native equivalent.
@@ -71,6 +99,7 @@ struct SectionLabel: View {
 /// Artwork with auth headers and an in-memory cache.
 struct ArtworkView: View {
     @Environment(\.codecTheme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @Environment(AppModel.self) private var app
 
     let track: CodecTrack?
@@ -78,6 +107,12 @@ struct ArtworkView: View {
     var cornerRadius: CGFloat = 6
 
     @State private var image: UIImage?
+
+    private var request: ArtworkRequest? {
+        guard let track, let client = app.client, let url = client.artworkURL(for: track) else { return nil }
+        return ArtworkRequest(url: url, authorization: client.authHeaders(for: url)["Authorization"],
+                              pixelSize: max(1, Int(ceil(size * displayScale))))
+    }
 
     var body: some View {
         ZStack {
@@ -94,19 +129,21 @@ struct ArtworkView: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .task(id: track?.fingerprint) {
-            guard let track, let client = app.client, let url = client.artworkURL(for: track) else {
+        .task(id: request) {
+            guard let request else {
                 image = nil
                 return
             }
             // Cached artwork paints synchronously — no placeholder flash
             // when rows are recycled or rebuilt.
-            if let cached = ArtworkLoader.cachedImage(for: url) {
+            if let cached = ArtworkLoader.cachedImage(for: request.url, headers: request.headers, pixelSize: request.pixelSize) {
                 image = cached
                 return
             }
             image = nil
-            image = await ArtworkLoader.shared.image(for: url, headers: client.authHeaders)
+            let loaded = await ArtworkLoader.shared.image(for: request.url, headers: request.headers, pixelSize: request.pixelSize)
+            guard !Task.isCancelled else { return }
+            image = loaded
         }
     }
 }
@@ -115,6 +152,7 @@ struct ArtworkView: View {
 /// cache, and auth headers as track artwork.
 struct RemoteArtworkView: View {
     @Environment(\.codecTheme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @Environment(AppModel.self) private var app
 
     let urlString: String?
@@ -123,6 +161,12 @@ struct RemoteArtworkView: View {
     var placeholderSymbol: String = "music.note.list"
 
     @State private var image: UIImage?
+
+    private var request: ArtworkRequest? {
+        guard let urlString, let url = URL(string: urlString), let client = app.client else { return nil }
+        return ArtworkRequest(url: url, authorization: client.authHeaders(for: url)["Authorization"],
+                              pixelSize: max(1, Int(ceil(size * displayScale))))
+    }
 
     var body: some View {
         ZStack {
@@ -139,18 +183,89 @@ struct RemoteArtworkView: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .task(id: urlString) {
-            guard let urlString, let url = URL(string: urlString), let client = app.client else {
+        .task(id: request) {
+            guard let request else {
                 image = nil
                 return
             }
-            if let cached = ArtworkLoader.cachedImage(for: url) {
+            if let cached = ArtworkLoader.cachedImage(for: request.url, headers: request.headers, pixelSize: request.pixelSize) {
                 image = cached
                 return
             }
             image = nil
-            image = await ArtworkLoader.shared.image(for: url, headers: client.authHeaders)
+            let loaded = await ArtworkLoader.shared.image(for: request.url, headers: request.headers, pixelSize: request.pixelSize)
+            guard !Task.isCancelled else { return }
+            image = loaded
         }
+    }
+}
+
+/// Playlist covers favor the chosen image, then an album-art mosaic. Reuse
+/// the artwork loader so library cards share authenticated requests/cache.
+struct PlaylistArtworkView: View {
+    @Environment(\.codecTheme) private var theme
+    @Environment(AppModel.self) private var app
+
+    let playlist: CodecPlaylist
+    var size: CGFloat = 128
+    var cornerRadius: CGFloat = 10
+
+    private var coverTracks: [CodecTrack] {
+        guard playlist.artworkURL?.isEmpty ?? true else { return [] }
+        var seen = Set<String>()
+        var covers: [CodecTrack] = []
+        for trackID in playlist.trackIDs {
+            guard let track = app.track(withID: trackID) else { continue }
+            guard let url = track.artworkURL else { continue }
+            // Artwork URLs are track-specific even when an album shares a
+            // cover. Prefer distinct albums over four copies of one sleeve.
+            let album = track.album.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let artist = (track.albumArtist ?? track.artist).lowercased()
+            let identity = album.isEmpty || album == "unknown album" ? url.absoluteString : "\(artist)|\(album)"
+            guard seen.insert(identity).inserted else { continue }
+            covers.append(track)
+            if covers.count == 4 { break }
+        }
+        return covers
+    }
+
+    var body: some View {
+        let tracks = coverTracks
+        Group {
+            if let cover = playlist.artworkURL, !cover.isEmpty {
+                RemoteArtworkView(urlString: cover, size: size, cornerRadius: cornerRadius)
+            } else if tracks.count > 1 {
+                VStack(spacing: 0) {
+                    ForEach(0..<2, id: \.self) { row in
+                        HStack(spacing: 0) {
+                            ForEach(0..<2, id: \.self) { column in
+                                ArtworkView(
+                                    track: tracks[(row * 2 + column) % tracks.count],
+                                    size: size / 2,
+                                    cornerRadius: 0
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if let track = tracks.first {
+                ArtworkView(track: track, size: size, cornerRadius: cornerRadius)
+            } else {
+                ZStack {
+                    theme.panel2
+                    Image(systemName: "music.note.list")
+                        .font(.system(size: size * 0.3, weight: .semibold))
+                        .foregroundStyle(theme.subtle)
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke((theme.isLight ? Color.black : Color.white).opacity(0.1), lineWidth: 1)
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -219,13 +334,15 @@ struct PlayableTrackRow: View {
     let track: CodecTrack
     let collection: [CodecTrack]
     var showsDownloadState = true
+    var playlistID: String? = nil
+    var onRemoveFromPlaylist: (() -> Void)? = nil
 
     var body: some View {
         Button {
             if player.currentTrack?.id == track.id {
-                player.togglePlayback()
+                player.togglePlayback(playlistID: playlistID)
             } else {
-                player.play(track, from: collection)
+                player.play(track, from: collection, playlistID: playlistID)
             }
         } label: {
             TrackRow(track: track, showsDownloadState: showsDownloadState)
@@ -249,30 +366,42 @@ struct PlayableTrackRow: View {
             .tint(theme.surfaceHover)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button {
-                app.toggleLike(track)
-            } label: {
-                Label(
-                    app.isLiked(track) ? "Unlike" : "Like",
-                    systemImage: app.isLiked(track) ? "heart.slash.fill" : "heart.fill"
-                )
-            }
-            .tint(theme.accent)
+            if !app.activeAuxIsGuest {
+                if let onRemoveFromPlaylist {
+                    Button(role: .destructive) {
+                        guard !app.activeAuxIsGuest else { return }
+                        onRemoveFromPlaylist()
+                    } label: {
+                        Label("Remove from Playlist", systemImage: "minus.circle")
+                    }
+                    .tint(theme.danger)
+                } else {
+                    Button {
+                        app.toggleLike(track)
+                    } label: {
+                        Label(
+                            app.isLiked(track) ? "Unlike" : "Like",
+                            systemImage: app.isLiked(track) ? "heart.slash.fill" : "heart.fill"
+                        )
+                    }
+                    .tint(theme.accent)
 
-            if downloads.isDownloaded(track) {
-                Button {
-                    downloads.remove(track)
-                } label: {
-                    Label("Remove", systemImage: "trash")
+                    if downloads.isDownloaded(track) {
+                        Button {
+                            downloads.remove(track)
+                        } label: {
+                            Label("Remove Download", systemImage: "trash")
+                        }
+                        .tint(theme.danger)
+                    } else if let client = app.client {
+                        Button {
+                            downloads.download(track, using: client)
+                        } label: {
+                            Label("Download", systemImage: "arrow.down.circle.fill")
+                        }
+                        .tint(theme.subtle)
+                    }
                 }
-                .tint(theme.danger)
-            } else if let client = app.client {
-                Button {
-                    downloads.download(track, using: client)
-                } label: {
-                    Label("Download", systemImage: "arrow.down.circle.fill")
-                }
-                .tint(theme.subtle)
             }
         }
         .contextMenu {
@@ -282,13 +411,15 @@ struct PlayableTrackRow: View {
 
     @ViewBuilder
     private var trackMenu: some View {
-        Button {
-            app.toggleLike(track)
-        } label: {
-            Label(
-                app.isLiked(track) ? "Unlike" : "Like",
-                systemImage: app.isLiked(track) ? "heart.slash" : "heart"
-            )
+        if !app.activeAuxIsGuest {
+            Button {
+                app.toggleLike(track)
+            } label: {
+                Label(
+                    app.isLiked(track) ? "Unlike" : "Like",
+                    systemImage: app.isLiked(track) ? "heart.slash" : "heart"
+                )
+            }
         }
 
         Button {
@@ -303,23 +434,34 @@ struct PlayableTrackRow: View {
             Label("Play Last", systemImage: "text.line.last.and.arrowtriangle.forward")
         }
 
-        Button {
-            app.playlistPickerTrack = track
-        } label: {
-            Label("Add to Playlist", systemImage: "music.note.list")
-        }
-
-        if downloads.isDownloaded(track) {
-            Button(role: .destructive) {
-                downloads.remove(track)
-            } label: {
-                Label("Remove Download", systemImage: "trash")
-            }
-        } else if let client = app.client {
+        if !app.activeAuxIsGuest {
             Button {
-                downloads.download(track, using: client)
+                app.playlistPickerTrack = track
             } label: {
-                Label("Download", systemImage: "arrow.down.circle")
+                Label("Add to Playlist", systemImage: "music.note.list")
+            }
+
+            if let onRemoveFromPlaylist {
+                Button(role: .destructive) {
+                    guard !app.activeAuxIsGuest else { return }
+                    onRemoveFromPlaylist()
+                } label: {
+                    Label("Remove from Playlist", systemImage: "minus.circle")
+                }
+            }
+
+            if downloads.isDownloaded(track) {
+                Button(role: .destructive) {
+                    downloads.remove(track)
+                } label: {
+                    Label("Remove Download", systemImage: "trash")
+                }
+            } else if let client = app.client {
+                Button {
+                    downloads.download(track, using: client)
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
             }
         }
     }
@@ -362,6 +504,7 @@ struct CollectionActionHeader: View {
 
     let tracks: [CodecTrack]
     var showsDownloadAll = true
+    var playlistID: String? = nil
 
     @State private var playTaps = 0
     @State private var shuffleTaps = 0
@@ -371,7 +514,7 @@ struct CollectionActionHeader: View {
         HStack(spacing: 10) {
             Button {
                 playTaps += 1
-                player.playCollection(tracks)
+                player.playCollection(tracks, playlistID: playlistID)
             } label: {
                 Label("Play", systemImage: "play.fill")
                     .font(.system(size: 15, weight: .semibold))
@@ -387,7 +530,7 @@ struct CollectionActionHeader: View {
 
             Button {
                 shuffleTaps += 1
-                player.playCollection(tracks, shuffled: true)
+                player.playCollection(tracks, shuffled: true, playlistID: playlistID)
             } label: {
                 Label("Shuffle", systemImage: "shuffle")
                     .font(.system(size: 15, weight: .semibold))
@@ -413,14 +556,8 @@ struct CollectionActionHeader: View {
 
     @ViewBuilder
     private func downloadAllButton(_ client: CodecClient) -> some View {
-        let states = tracks.map { downloads.state(for: $0) }
-        let downloaded = states.filter { $0 == .downloaded }.count
-        let transferring = states.contains {
-            if case .downloading = $0 {
-                return true
-            }
-            return false
-        }
+        let downloaded = tracks.filter { downloads.isDownloaded($0) }.count
+        let transferring = tracks.contains { downloads.isDownloading($0) }
 
         if downloaded == tracks.count {
             Image(systemName: "checkmark.circle.fill")
@@ -465,6 +602,7 @@ struct TrackListView: View {
     let title: String
     let tracks: [CodecTrack]
     var showsDownloadAll = true
+    var playlistID: String? = nil
 
     enum TrackSort: String, CaseIterable, Identifiable {
         case standard = "Default"
@@ -491,11 +629,12 @@ struct TrackListView: View {
     }
 
     var body: some View {
+        let collection = sortedTracks
         List {
-            CollectionActionHeader(tracks: sortedTracks, showsDownloadAll: showsDownloadAll)
+            CollectionActionHeader(tracks: collection, showsDownloadAll: showsDownloadAll, playlistID: playlistID)
 
-            ForEach(sortedTracks) { track in
-                PlayableTrackRow(track: track, collection: sortedTracks)
+            ForEach(collection) { track in
+                PlayableTrackRow(track: track, collection: collection, playlistID: playlistID)
             }
 
             if tracks.isEmpty {
@@ -507,6 +646,7 @@ struct TrackListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(theme.bg)
+        .modifier(MiniPlayerInset())
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -525,57 +665,38 @@ struct TrackListView: View {
     }
 }
 
-/// System volume, minus MPVolumeView's jitter: a native slider that is the
-/// source of truth while touched (the system echoes volume back quantized to
-/// 1/16 steps, which snaps the raw MPVolumeView thumb around), and glides
-/// smoothly when the hardware buttons step the volume.
-struct SystemVolumeSlider: View {
+/// Embed the actual system-output control. Its displayed value, hardware-button
+/// updates, and route capabilities all come from iOS rather than a second,
+/// optimistic SwiftUI value that can drift from the phone's volume.
+struct SystemVolumeSlider: UIViewRepresentable {
     let tint: Color
 
-    @State private var volume: Double = 0
-    @State private var isDragging = false
+    func makeUIView(context: Context) -> MPVolumeView {
+        let view = SystemVolumeView(frame: .zero)
+        // Now Playing already provides AVRoutePickerView beside the queue.
+        view.showsRouteButton = false
+        view.showsVolumeSlider = true
+        view.backgroundColor = .clear
+        view.tintColor = UIColor(tint)
+        view.accessibilityIdentifier = "nowPlaying.systemVolume"
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return view
+    }
 
-    var body: some View {
-        Slider(
-            value: Binding(
-                get: { volume },
-                set: { newValue in
-                    volume = newValue
-                    SystemVolume.set(Float(newValue))
-                }
-            ),
-            in: 0...1
-        ) { editing in
-            isDragging = editing
-        }
-        .tint(tint)
-        .onAppear {
-            volume = Double(AVAudioSession.sharedInstance().outputVolume)
-        }
-        .onReceive(
-            AVAudioSession.sharedInstance()
-                .publisher(for: \.outputVolume)
-                .receive(on: DispatchQueue.main)
-        ) { systemVolume in
-            guard !isDragging else {
-                return
-            }
-            withAnimation(.easeOut(duration: 0.15)) {
-                volume = Double(systemVolume)
-            }
-        }
+    func updateUIView(_ view: MPVolumeView, context: Context) {
+        // Theme updates must not replace the control or write volume back.
+        view.tintColor = UIColor(tint)
     }
 }
 
-/// Writes device volume through a hidden MPVolumeView slider - the only
-/// sanctioned way to set it.
-@MainActor
-private enum SystemVolume {
-    private static let volumeView = MPVolumeView(frame: .zero)
-
-    static func set(_ value: Float) {
-        let slider = volumeView.subviews.compactMap { $0 as? UISlider }.first
-        slider?.value = value
+private final class SystemVolumeView: MPVolumeView {
+    override func volumeSliderRect(forBounds bounds: CGRect) -> CGRect {
+        let slider = super.volumeSliderRect(forBounds: bounds)
+        // Match the existing 30pt row without depending on private subviews or
+        // the system slider's version-specific vertical inset.
+        return CGRect(x: slider.minX, y: bounds.midY - slider.height / 2,
+                      width: slider.width, height: slider.height)
     }
 }
 

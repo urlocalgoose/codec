@@ -1,7 +1,8 @@
 # Modding Codec
 
-Start with `docs/ui-system.md` for visual rules. This file is the practical map
-for safe app changes.
+Start with the [UI system](ui-system.md) for visual rules. This file maps the
+source for reading or adapting Codec. We’re not accepting contributions or
+pull requests right now; the source is available under the [MIT license](../LICENSE).
 
 ## Themes
 
@@ -12,7 +13,7 @@ for safe app changes.
 
 ## UI
 
-- Desktop/PWA components live in `src/lib/components`.
+- Web/PWA components live in `src/lib/components`.
 - The main app orchestration is `src/routes/+page.svelte`.
 - iOS shared view primitives live in `ios/CodecMobile/App/Views/Components.swift`.
 - iOS app state lives in `ios/CodecMobile/App/AppModel.swift`.
@@ -27,19 +28,29 @@ states. Guest-mode UI must hide sync, upload, like, and playlist mutation.
   `aux.go`, auth/request plumbing in `httputil.go` and `auth_tokens.go`.
 - Keep `/api/v1` compatible unless you are deliberately creating a new version.
 
-## Rust/Desktop Core
+## Rust library and import CLI
 
-- Tauri command wiring lives in `src-tauri/src/lib.rs`.
 - Library scanning/import/state code lives in `src-tauri/src/library`.
+- The command-line importer is `src-tauri/src/bin/codec_import.rs`; server
+  transfers live in `src-tauri/src/sync_transfer.rs`.
+- These shared tools retain their existing `src-tauri/` paths. The
+  [Loud format guide](codec-import-v1.md#how-to-import) explains CLI use.
 - `.loud/state.json`, `loud://` paths, and `loud.*` schemas are compatibility
   protocol names. Do not rename them without a real migration.
 
-## Before Shipping A Change
+## Checking changes
+
+Run each command from the repository root:
 
 ```bash
 bun run check
-bun test
-cd sync-server && go test ./...
-cd ios/CodecMobile && swift test
-cargo test --manifest-path src-tauri/Cargo.toml
+bun run test:frontend
+bun run test:server
+bun run test:rust
+(cd ios/CodecMobile && swift test)
 ```
+
+`swift test` covers CodecKit models and the API client. SwiftUI, playback, and
+rendering use app-hosted Xcode tests; see the [native test guide](../ios/CodecMobile/Tests/README.md).
+The [fast-check guide](fast-checks.md) describes the combined web, server, and
+schema checks. Running these checks does not deploy a server or update an app.

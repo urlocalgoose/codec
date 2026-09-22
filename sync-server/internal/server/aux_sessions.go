@@ -73,6 +73,7 @@ func (s *Server) endAuxSession(ctx context.Context, code string) error {
 	if affected == 0 {
 		return sql.ErrNoRows
 	}
+	s.playbackEvents.broadcast(PlaybackEvent{Type: "authorization_changed"})
 	return nil
 }
 

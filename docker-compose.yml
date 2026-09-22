@@ -5,10 +5,9 @@ services:
   codec:
     build: .
     ports:
-      - "8787:8787"
+      - "127.0.0.1:8787:8787"
     environment:
-      - CODEC_AUTH_TOKEN=${CODEC_AUTH_TOKEN:-}
-      - LOUD_AUTH_TOKEN=${LOUD_AUTH_TOKEN:-}
+      - CODEC_AUTH_TOKEN=${CODEC_AUTH_TOKEN:?Set CODEC_AUTH_TOKEN before starting Codec}
     volumes:
       - codec-data:/data
     restart: unless-stopped

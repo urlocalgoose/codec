@@ -13,66 +13,80 @@ struct HomeView: View {
 
     private let grid = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
 
+    private var sourcePlaylist: CodecPlaylist? {
+        guard player.currentTrack != nil, let id = player.sourcePlaylistID else { return nil }
+        return app.playlist(withID: id)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    // Faceplate badge, with the aux chip when a session is live.
-                    HStack(alignment: .center, spacing: 12) {
-                        Text("Codec")
-                            .font(.system(size: 40, weight: .black))
-                            .tracking(-1)
-                            .foregroundStyle(theme.text)
-
-                        Spacer(minLength: 0)
-
-                        if !app.activeAuxCode.isEmpty {
-                            Button {
-                                showAuxPass = true
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "dot.radiowaves.left.and.right")
-                                        .font(.system(size: 12, weight: .black))
-                                    Text(app.activeAuxCode)
-                                        .font(.system(size: 13, weight: .black, design: .monospaced))
-                                        .kerning(2)
-                                }
-                                .foregroundStyle(theme.accent)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(theme.accent.opacity(0.16))
-                                .clipShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-
                     if app.connection == .offline {
-                        Label("Offline — playing downloads and cache", systemImage: "wifi.slash")
-                            .font(.system(size: 12, weight: .heavy))
-                            .foregroundStyle(theme.accentText)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(theme.accent)
-                            .clipShape(Capsule())
-                            .padding(.horizontal, 20)
+                        Button { showSettings = true } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: app.connectionIssue == .noNetwork ? "wifi.slash" : "icloud.slash")
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(app.connectionStatusTitle).font(.subheadline.weight(.semibold))
+                                    Text("Downloaded music is available")
+                                        .font(.caption)
+                                        .foregroundStyle(theme.muted)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                            }
+                            .foregroundStyle(theme.text)
+                            .padding(12)
+                            .background(theme.panel, in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 20)
                     }
 
-                    if !app.userPlaylists.isEmpty {
+                    if let playlist = sourcePlaylist {
+                        NavigationLink {
+                            PlaylistDetailView(playlistID: playlist.id)
+                        } label: {
+                            HStack(spacing: 12) {
+                                PlaylistArtworkView(playlist: playlist, size: 44, cornerRadius: 8)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(player.isPlaying ? "Playing from" : "Paused from")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(theme.subtle)
+                                    Text(playlist.name)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(theme.text)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(theme.subtle)
+                            }
+                            .padding(12)
+                            .background(theme.panel, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 20)
+                    }
+
+                    if !app.homePlaylists.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             SectionLabel("Playlists")
                                 .padding(.horizontal, 20)
 
                             ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 12) {
-                                    ForEach(app.userPlaylists) { playlist in
+                                LazyHStack(spacing: 12) {
+                                    ForEach(app.homePlaylists) { playlist in
                                         NavigationLink {
                                             PlaylistDetailView(playlistID: playlist.id)
                                         } label: {
                                             PlaylistCard(
                                                 playlist: playlist,
-                                                cover: app.tracks(in: playlist).first
+                                                cover: playlist.artworkURL == nil
+                                                    ? app.firstTracks(in: playlist, limit: 1).first
+                                                    : nil
                                             )
                                         }
                                         .buttonStyle(.plain)
@@ -118,23 +132,53 @@ struct HomeView: View {
                 .padding(.bottom, 16)
             }
             .background(theme.bg)
+            .modifier(MiniPlayerInset())
             .refreshable {
                 await app.refresh()
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ScreenHeader(title: "Codec", font: .system(size: 40, weight: .black), tracking: -1)
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showThemePicker = true
-                    } label: {
-                        Image(systemName: "paintpalette")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "server.rack")
+                    HStack(spacing: 8) {
+                        if !app.activeAuxCode.isEmpty {
+                            Button {
+                                showAuxPass = true
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "dot.radiowaves.left.and.right")
+                                        .font(.system(size: 12, weight: .black))
+                                    Text(app.activeAuxCode)
+                                        .font(.system(size: 13, weight: .black, design: .monospaced))
+                                        .kerning(2)
+                                }
+                                .foregroundStyle(theme.accent)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(theme.accent.opacity(0.16))
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        HStack(spacing: 0) {
+                            Button {
+                                showThemePicker = true
+                            } label: {
+                                Image(systemName: "paintpalette")
+                                    .frame(width: 44, height: 44)
+                            }
+                            .accessibilityLabel("Palettes")
+                            .accessibilityValue(theme.name)
+
+                            Button {
+                                showSettings = true
+                            } label: {
+                                Image(systemName: "gearshape")
+                                    .frame(width: 44, height: 44)
+                            }
+                            .accessibilityLabel("Settings")
+                        }
                     }
                 }
             }
@@ -274,7 +318,9 @@ struct ServerSettingsView: View {
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
-                    SecureField("Auth token (optional)", text: $app.token)
+                    SecureField("Auth token", text: $app.token)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
                 }
                 .listRowBackground(theme.panel)
 
@@ -334,7 +380,7 @@ struct ServerSettingsView: View {
                         Task {
                             await app.connect()
                             app.syncPlayer(player)
-                            dismiss()
+                            if app.isConnected { dismiss() }
                         }
                     }
                     Button("Disconnect", role: .destructive) {
@@ -343,14 +389,24 @@ struct ServerSettingsView: View {
                         dismiss()
                     }
                 } footer: {
-                    Text(app.errorMessage.isEmpty ? "Status: \(statusText)" : app.errorMessage)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(app.connectionStatusTitle)
+                        if let issue = app.connectionIssue { Text(issue.detail) }
+                        if !app.errorMessage.isEmpty { Text(app.errorMessage) }
+                    }
+                }
+                .listRowBackground(theme.panel)
+
+                Section("About Codec") {
+                    Link("Privacy Policy", destination: URL(string: "https://codec.codie.sh/privacy.html")!)
+                    Link("Support", destination: URL(string: "https://codec.codie.sh/support.html")!)
                 }
                 .listRowBackground(theme.panel)
             }
             .scrollContentBackground(.hidden)
             .background(theme.bg)
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle("Server")
+            .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

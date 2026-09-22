@@ -1,3 +1,5 @@
+import type { SyncTransferReport } from "./types";
+
 /** Browser-side MP3 import: parse ID3 tags and derive the same canonical
  * identity the desktop library uses, so web uploads land on the sync server
  * as first-class tracks (and dedupe against desktop imports). */
@@ -43,6 +45,7 @@ export function fingerprintFor(title: string, artist: string, album: string): st
 // ---------------------------------------------------------------------------
 
 export interface ImportIdentifiers {
+  [key: string]: string | undefined;
   isrc?: string;
   musicbrainz_recording_id?: string;
   spotify_track_id?: string;
@@ -52,17 +55,21 @@ export interface ImportIdentifiers {
 
 export interface ImportManifestTrack {
   file?: string;
-  title?: string;
-  artist?: string;
-  album?: string;
-  album_artist?: string;
-  genre?: string;
-  year?: number;
-  track_number?: number;
-  duration_ms?: number;
+  title?: string | null;
+  artist?: string | null;
+  album?: string | null;
+  album_artist?: string | null;
+  genre?: string | null;
+  year?: number | null;
+  track_number?: number | null;
+  duration_ms?: number | null;
+  duration_seconds?: number | null;
+  disc_number?: number | null;
+  explicit?: boolean | null;
+  artwork?: ImportArtwork | null;
   liked?: boolean;
   playlists?: string[];
-  fingerprint?: string;
+  fingerprint?: string | null;
   identifiers?: ImportIdentifiers;
   source_urls?: Record<string, string>;
 }
@@ -73,8 +80,80 @@ export type ImportPlaylistRef =
 
 export interface ImportManifest {
   schema?: string;
+  source?: { base_path?: string | null; [key: string]: unknown } | null;
   tracks?: ImportManifestTrack[];
-  playlists?: { name?: string; mode?: string; tracks?: ImportPlaylistRef[] }[];
+  playlists?: { name?: string; mode?: string; tracks?: ImportPlaylistRef[]; artwork?: ImportArtwork | null }[];
+}
+
+export interface ImportArtwork {
+  file: string;
+  sha256: string;
+  mime_type: "image/jpeg" | "image/png";
+  width: number;
+  height: number;
+  source_url?: string | null;
+  spotify_url?: string | null;
+  license_url?: string | null;
+  attribution_url?: string | null;
+  provenance?: unknown;
+}
+
+export interface ImportArtworkSummary {
+  track_artwork_imported?: number;
+  playlist_artwork_imported?: number;
+  artwork_imported?: number;
+  artwork_already_present?: number;
+  artwork_missing?: number;
+  artwork_failed?: number;
+}
+
+/** Shared local-import/server-job copy; absent counters support older servers. */
+export function artworkImportSummary(report: ImportArtworkSummary): string[] {
+  const bits: string[] = [];
+  const covers = (count: number, kind = "") => `${count} ${kind}${count === 1 ? "cover" : "covers"}`;
+  if (report.track_artwork_imported) bits.push(`${covers(report.track_artwork_imported, "track ")} imported`);
+  if (report.playlist_artwork_imported) bits.push(`${covers(report.playlist_artwork_imported, "playlist ")} imported`);
+  if (!report.track_artwork_imported && !report.playlist_artwork_imported && report.artwork_imported) {
+    bits.push(`${covers(report.artwork_imported)} imported`);
+  }
+  if (report.artwork_already_present) bits.push(`${covers(report.artwork_already_present, "existing ")} kept`);
+  if (report.artwork_missing) bits.push(`${covers(report.artwork_missing)} missing`);
+  if (report.artwork_failed) bits.push(`${report.artwork_failed} cover ${report.artwork_failed === 1 ? "import" : "imports"} failed`);
+  return bits;
+}
+
+export function bundleImportSummary(report: ImportArtworkSummary & {
+  added: number; existing: number; audio_restored?: number;
+  playlist_adds?: number; liked?: number; skipped?: number;
+}): string {
+  const bits = [`${report.added} new`, `${report.existing} existing`];
+  if (report.audio_restored) bits.push(`${report.audio_restored} missing audio ${report.audio_restored === 1 ? "file" : "files"} restored`);
+  if (report.playlist_adds) bits.push(`${report.playlist_adds} playlist ${report.playlist_adds === 1 ? "add" : "adds"}`);
+  if (report.liked) bits.push(`${report.liked} liked`);
+  if (report.skipped) bits.push(`${report.skipped} skipped`);
+  bits.push(...artworkImportSummary(report));
+  return `Import · ${bits.join(" · ")}`;
+}
+
+export function syncTransferSummary(action: string, report: SyncTransferReport): string {
+  const count = (value: number, name: string) => `${value} ${name}${value === 1 ? "" : "s"}`;
+  const moved = (report.tracks_uploaded ?? 0) + (report.tracks_downloaded ?? 0);
+  const bits = [`${count(moved, "track")} transferred`];
+  if (report.tracks_matched) bits.push(`${count(report.tracks_matched, "track")} matched`);
+  if (report.tracks_added) bits.push(`${count(report.tracks_added, "new track")}`);
+  if (report.tracks_skipped) bits.push(`${count(report.tracks_skipped, "audio file")} already present`);
+  if (report.playlists_added) bits.push(`${count(report.playlists_added, "playlist")} added`);
+  if (report.playlists_updated) bits.push(`${count(report.playlists_updated, "playlist")} updated`);
+  if (!report.playlists_added && !report.playlists_updated && report.playlist_updates) bits.push(`${count(report.playlist_updates, "playlist update")}`);
+  if (report.liked_updates) bits.push(`${report.liked_updates} liked`);
+  bits.push(...artworkImportSummary({
+    ...report,
+    track_artwork_imported: (report.track_artwork_uploaded ?? 0) + (report.track_artwork_downloaded ?? 0),
+    playlist_artwork_imported: (report.playlist_artwork_uploaded ?? 0) + (report.playlist_artwork_downloaded ?? 0),
+    artwork_imported: (report.artwork_uploaded ?? 0) + (report.artwork_downloaded ?? 0)
+  }));
+  if (report.failures?.length) bits.push(`${count(report.failures.length, "reported issue")}`);
+  return `${action} · ${bits.join(" · ")}`;
 }
 
 export const IMPORT_SCHEMA = "loud.import.v1";

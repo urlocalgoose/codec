@@ -1,171 +1,262 @@
-# Codec Import Manifest v1
+# Codec import format
 
-Use `loud.import.v1` when another program downloads or prepares audio files (MP3, M4A, FLAC, WAV) for Codec.
+`loud.import.v1` is Codec's portable music manifest. The S2Y artwork extension
+keeps that version: older manifests still work. A bundle holds the manifest,
+audio, and optional original cover images together. It can be a folder or a
+ZIP archive, conventionally named `library.loud.zip`.
 
-## Bundles (`.loud.zip`) — the preferred form
+The artwork sidecars and additive server imports described here require Codec
+server **v0.1.5 or later**. See the [server release guide](server-release.md)
+for setup.
 
-A bundle is the whole format in one file: a zip with the manifest at the
-root as `codec-import.json` and every audio file under `files/`. No loose
-files, no filesystem paths to resolve — the paths inside the zip are just
-internal names the manifest points at. This is what "Share library" exports
-(`library.loud.zip`) and what tools should produce when they can:
+## What connects to what
 
+```text
+S2Y or another exporter
+  → manifest + audio + artwork
+  → Codec importer
+  → your existing Codec server (library database + managed media)
+  → web / installed web app / Swift iPhone app
 ```
-library.loud.zip
-├── codec-import.json          loud.import.v1 manifest, base_path "files"
-└── files/
-    └── Artist/Album/Title.mp3 store-method (uncompressed) audio
+
+The server is the shared source of music. The web interface is one client;
+the Swift app is another. The Rust CLI can prepare a local import library. Importing
+adds data to the existing server; it does not create a replacement server.
+The phone reads the normal library, audio, and artwork endpoints, so receiving
+these imported songs and covers does not require a new phone version.
+
+## Folder structure
+
+```text
+my-collection/
+├── loud-import.json          preferred main manifest, including covers
+├── codec-import.json         optional alternative main manifest
+├── playlist-artwork.json     optional s2y.playlist-artwork.v1 sidecar
+├── track-artwork.json        optional s2y.track-artwork.v1 sidecar
+├── audio/                    actual MP3, M4A, FLAC, or WAV files
+├── artwork/                  original JPEG or PNG images
+├── provenance.json           source records; keep with the bundle
+├── checksums.json            source integrity records
+└── verification.json         source verification records
 ```
 
-Store the audio uncompressed — MP3s don't shrink and it keeps imports and
-exports pure streaming. Codec's web app imports a bundle directly (Settings →
-Import music, pick the zip — it uploads once, the server does the rest with
-live progress that survives a refresh); identity matching means importing someone
-else's bundle only adds what you don't already have. Everything below about
-manifests applies inside a bundle unchanged.
+Only one main manifest is imported. Canonical filenames are case-sensitive.
+Browser/server bundle selection prefers
+`loud-import.json`, then `codec-import.json`, then an unambiguous JSON document
+with `schema: "loud.import.v1"`. Multiple candidates at the selected priority
+are rejected. Sidecars are looked up beside that main manifest. The CLI takes
+the specific manifest path you give it.
 
-Codec keeps audio as normal media files, but it does not use duplicate files for app facts like liked songs or imported playlists. App truth lives in the selected music folder at `.loud/state.json`. New files are copied into `.loud/audio/Artist/Album/`, while songs that already exist are matched by identity and only get new playlist or liked references.
+For portable bundles, use relative paths. With `source.base_path: "."`,
+`audio/song.mp3` means the audio file beside the manifest under `audio/`.
+With `source.base_path: "files"`, it means `files/audio/song.mp3`.
+Each sidecar has its **own** `base_path`; it does not inherit the main one.
+Legacy local audio imports can use absolute paths, but ZIP and artwork paths
+must remain inside the bundle. Do not flatten folders with repeated filenames.
 
-## Recommended Manifest
+## Main manifest
+
+This minimal example matches both artwork sidecars below. The song details,
+`example:song-1` fingerprint, and audio filename are placeholders. Supply your
+own `audio/song.mp3`; no audio is included with the example downloads.
+Preserve an existing track's actual fingerprint when migrating it.
+
+[Download loud-import.json](../site/examples/loud-import.json).
 
 ```json
 {
   "schema": "loud.import.v1",
-  "source": {
-    "name": "s2y",
-    "generated_at": "2026-06-25T19:30:00Z",
-    "base_path": "files",
-    "spotify_source": "liked-songs"
-  },
+  "source": { "base_path": "." },
   "tracks": [
     {
-      "file": "Doja Cat/Planet Her/Woman.mp3",
-      "title": "Woman",
-      "artist": "Doja Cat",
-      "album": "Planet Her",
-      "album_artist": "Doja Cat",
-      "track_number": 1,
-      "disc_number": 1,
-      "year": 2021,
-      "duration_ms": 172626,
-      "explicit": true,
-      "liked": true,
-      "playlists": ["Liked Songs"],
-      "identifiers": {
-        "isrc": "USRC12100543",
-        "spotify_track_id": "spotify-track-id",
-        "spotify_album_id": "spotify-album-id",
-        "youtube_video_id": "youtube-video-id",
-        "musicbrainz_recording_id": "musicbrainz-recording-id"
-      },
-      "source_urls": {
-        "spotify": "https://open.spotify.com/track/spotify-track-id",
-        "youtube": "https://www.youtube.com/watch?v=youtube-video-id"
-      }
+      "file": "audio/song.mp3",
+      "fingerprint": "example:song-1",
+      "title": "Example Song",
+      "artist": "Example Artist",
+      "liked": true
     }
   ],
   "playlists": [
     {
-      "name": "Liked Songs",
+      "name": "My Mix",
       "mode": "append",
-      "tracks": [
-        {
-          "identifiers": {
-            "isrc": "USRC12100543"
-          }
-        }
-      ]
+      "tracks": [{ "fingerprint": "example:song-1" }]
     }
   ]
 }
 ```
 
-## Identity Rules
+Tracks can also include `album`, `album_artist`, `genre`, `year`, `track_number`,
+`disc_number`, `explicit`, `duration_ms`, `duration_seconds`, `identifiers`,
+`source_urls`, per-track `playlists`, and an inline `artwork` descriptor. Use milliseconds when both
+duration fields exist. Optional scalar metadata may be omitted or `null`;
+identity maps use string values. Disc number, explicit flag, identifiers, and
+source URLs survive supported import, transfer, and export paths. Unknown
+source audit documents are not automatically stored in the server database.
 
-Codec chooses the canonical identity in this order:
+See [the complete JSON Schema](codec-import.schema.json) for exact fields.
 
-1. `fingerprint`
-2. `identifiers.isrc`
-3. `identifiers.musicbrainz_recording_id`
-4. `identifiers.spotify_track_id`
-5. `identifiers.youtube_video_id`
-6. normalized `title + artist + album`
+## Artwork sidecars
 
-The generated identity strings look like `isrc:USRC12100543`, `mbid:<id>`, `spotify:track:<id>`, and `youtube:<id>`.
+Place the two sidecars beside `loud-import.json`. Each uses its own
+`base_path: "."`, so both examples look for `artwork/cover.jpg` in that same
+folder. Download the [actual example cover](../site/examples/artwork/cover.jpg)
+and save it at that path. The image is Jean-François Millet's *Autumn Landscape
+with a Flock of Turkeys*, supplied by The Met as public-domain/CC0 artwork;
+[source, license, and setup notes](../site/examples/CREDITS.txt) are included.
+The JPEG is unchanged: 98,487 bytes, 600 × 489 pixels. Both descriptors below
+contain its real SHA-256, MIME type, and dimensions.
 
-`spotify_album_id` is stored as metadata, but it is not used as a track identity because album IDs are not song IDs.
+### track-artwork.json
 
-## Playlist Refs
-
-Back-compatible playlist refs still work:
+This targets **the song's exact fingerprint**, `example:song-1` in the main
+manifest. It is not the song title or playlist name. Existing tracks can also
+receive missing covers this way. [Download track-artwork.json](../site/examples/track-artwork.json).
 
 ```json
-"tracks": ["Doja Cat/Planet Her/Woman.mp3"]
-```
-
-The stronger form is an identity ref:
-
-```json
-"tracks": [
-  {
-    "identifiers": {
-      "spotify_track_id": "spotify-track-id"
+{
+  "schema": "s2y.track-artwork.v1",
+  "base_path": ".",
+  "tracks": [
+    {
+      "fingerprint": "example:song-1",
+      "artwork": {
+        "file": "artwork/cover.jpg",
+        "sha256": "94f349d7962f0472d0f8318af881c6426f12321966e97892894951f4519cc0d8",
+        "mime_type": "image/jpeg",
+        "width": 600,
+        "height": 489
+      }
     }
-  }
-]
+  ]
+}
 ```
 
-You can also reference a direct Codec identity:
+### playlist-artwork.json
+
+This targets **the playlist's name**, `My Mix` in the main manifest. It does
+not use a track fingerprint or a playlist ID.
+[Download playlist-artwork.json](../site/examples/playlist-artwork.json).
 
 ```json
-"tracks": [
-  {
-    "fingerprint": "isrc:USRC12100543"
-  }
-]
+{
+  "schema": "s2y.playlist-artwork.v1",
+  "base_path": ".",
+  "playlists": [
+    {
+      "name": "My Mix",
+      "artwork": {
+        "file": "artwork/cover.jpg",
+        "sha256": "94f349d7962f0472d0f8318af881c6426f12321966e97892894951f4519cc0d8",
+        "mime_type": "image/jpeg",
+        "width": 600,
+        "height": 489
+      }
+    }
+  ]
+}
 ```
 
-## Downloader Rules
+Both examples reuse one image; separate track and playlist images are also
+supported. When replacing the image, update its file path, SHA-256, MIME type,
+width, and height together. When adapting the song or playlist, change the
+fingerprint or name consistently with the main manifest. An optional row-level
+`origin` is informational. Playlist names resolve to destination IDs; source
+IDs are not assumed to match server IDs.
 
-Write real audio files with normal tags whenever possible: title, artist, album, album artist, track number, disc number, year, genre, duration, and cover art.
+Inline artwork takes precedence over a sidecar for the same target. Existing
+destination covers are preserved. Valid external artwork takes precedence
+over embedded fallback art on newly imported audio. Missing artwork never
+clears an existing cover. Invalid descriptors report errors separately from
+valid audio and membership changes.
 
-Use stable relative file paths in `tracks[].file`. If `source.base_path` is set, Codec resolves files relative to that folder next to the manifest. Absolute paths work locally, but they are bad for sharing.
+Artwork descriptors require `file`, `sha256`, `mime_type`, `width`, and
+`height`. JPEG/PNG originals are retained byte-for-byte; thumbnails are
+separate. Validation checks the hash, decoded type and dimensions, a 12 MiB
+file limit, an 8192-pixel edge limit, and a 16,777,216-pixel total limit.
+Traversal and symlink escapes are rejected. Optional `source_url`,
+`spotify_url`, `license_url`, `attribution_url`, and `provenance` never cause
+remote image downloads. Keep the original bundle for its full provenance;
+server exports regenerate image descriptors, not all original source records.
 
-Prefer `identifiers` over `fingerprint` for downloader output. Keep `fingerprint` only when your tool already knows the exact Codec identity string it wants.
+Standalone schemas: [track sidecar](s2y-track-artwork.schema.json) and
+[playlist sidecar](s2y-playlist-artwork.schema.json).
 
-Use `liked: true` to mark the canonical song liked. Do not copy the song into a `Liked` folder.
+## Identity, likes, and playlist rules
 
-Use `playlists[].mode: "replace"` only for sync-style imports where your program owns that playlist. Use `append` when you are handing Codec a bundle of songs to add.
+An explicit `fingerprint` is exact: distinct fingerprints stay distinct even
+when title and artist match. Without one, the importer derives identity from
+ISRC, MusicBrainz recording ID, Spotify track ID, YouTube video ID, then
+normalized title + artist + album, in that order. Spotify album IDs are metadata,
+not song identities. For migrations, retain the original Codec fingerprints.
 
-## Importing From The Web App
+Playlist entries can reference a fingerprint, identifiers, or a relative audio
+filename. They point at canonical tracks, not additional audio copies.
+Server imports are additive: existing track metadata and likes remain; incoming
+likes can add likes; existing playlist order remains and missing members append
+in incoming order. Empty playlists are supported. Exact trimmed playlist names
+match; ambiguous names fail rather than silently merging unrelated playlists.
+Rename the incoming playlist explicitly when you want a separate playlist.
 
-The same manifest works in the browser (Settings → Import music) against a
-sync server — no desktop app needed. Two differences from the desktop flow:
+Each track occurs at most once in a playlist. Repeated source occurrences
+collapse to the first position. A playlist such as `Codec Liked Songs (snapshot)`
+is an ordinary playlist, not a replacement for current Liked Songs.
 
-- A browser cannot follow `tracks[].file` paths on disk, so select the
-  manifest **together with its audio files** in one file pick. Files are
-  matched to manifest entries by file name (the last path segment of
-  `tracks[].file`); `source.base_path` is ignored.
-- Everything lands directly on the sync server via the track/playlist upsert
-  endpoints instead of `.loud/` on disk. Identity rules, dedupe, `liked`,
-  and playlist refs behave the same; `playlists[].mode` is treated as
-  `append`.
+Local manifest imports also understand `mode: "replace"`; use it only for a
+local playlist your exporter owns. Server merges always append and preserve
+existing membership. Use `append` for ordinary imports.
 
-Plain MP3s can also be picked without a manifest; identity then comes from
-the normalized tag fallback, exactly like rule 6 above.
+## How to import
 
-## Mixed New And Existing Imports
+| Entry point | What to supply | Destination |
+| --- | --- | --- |
+| Web / mobile web | Settings → Import music: ZIP, bundle folder, or manifest and all referenced files | Connected server |
+| Rust CLI | Explicit manifest path, plus optional server URL and private token file | Local library, optionally server |
+| Swift app | Refresh the connected library after import | Receives normal server data; no bundle picker |
 
-When Codec imports the manifest, each track lands in one of these buckets:
+Browser folder selection preserves paths. Flat file selection is accepted only
+when filename references are unambiguous. Loose selections are packaged into
+ZIP64 and sent to the same server importer as an uploaded ZIP. Once uploaded,
+job progress survives a browser refresh while the server stays running. ZIP64
+supports archives over 4 GiB; this does not bypass upload limits imposed by your
+browser, reverse proxy, or server. Large collections are better imported with
+the CLI, which sends missing audio files individually.
 
-`new_tracks`: Codec copied the audio file into `.loud/audio`.
+Build and run the CLI from the repository root:
 
-`existing_tracks`: Codec already had the song identity, so it did not copy the file.
+```bash
+cargo build --release --manifest-path src-tauri/Cargo.toml --bin codec_import
+mkdir -p /path/to/staging-library
+src-tauri/target/release/codec_import \
+  /path/to/staging-library /path/to/bundle/loud-import.json \
+  --server https://your-codec-server.example \
+  --token-file /private/path/codec-token \
+  --report /path/to/private/import-report.json
+```
 
-`playlist_updates`: Codec added canonical song refs to playlists.
+Omit `--server` and `--token-file` for local import only. Unzip archives before
+using the CLI. Use a dedicated staging root: server merge scans that entire
+local library. Never put a real token in the command line. Repeating the same
+import reuses exact identities, completed media uploads, and memberships.
 
-`liked_updates`: Codec marked canonical songs as liked.
+Rust CLI server uploads use additive merge, not wholesale snapshot
+replacement. Download sync is different: it mirrors server playlist
+and liked state into the local library while retaining original covers.
 
-`skipped_tracks`: The file was missing, not an MP3, or otherwise unreadable.
+## Export and verification
 
-The key rule is simple: playlists and likes point at canonical songs, not file copies.
+Share library exports a ZIP containing `codec-import.json`, available audio,
+and managed JPEG/PNG track/playlist covers. Tracks without stored audio are
+omitted from that export; legacy GIF/WebP covers remain readable through the
+API but are not exported as new artwork descriptors. Audio and original image bytes are preserved. Metadata,
+ordered unique memberships, and likes are included. The exported manifest need
+not reproduce the source JSON byte-for-byte; keep your original bundle for its
+source provenance, checksum manifest, and previous verification records.
+
+Review new/matched/skipped tracks, playlist/like changes, and **separate**
+artwork imported/already-present/missing/failed counters. A completed job may
+still have skipped files or artwork warnings. Check those rather than relying
+only on its final state. Missing optional art does not mean lost music.
+
+For the S2Y migration workflow, detailed limits, collision rules, reports,
+and round-trip tests, see [S2Y artwork import](s2y-artwork-import.md).

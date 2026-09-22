@@ -1,0 +1,10 @@
+/*
+  Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'self'; media-src 'self'; script-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# HTML and CSS retain Workers Static Assets' default revalidation policy.
+# Avoid a global Cache-Control rule: overlapping rules concatenate values.
+/assets/*
+  Cache-Control: public, max-age=3600

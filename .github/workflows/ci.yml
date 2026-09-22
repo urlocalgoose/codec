@@ -4,34 +4,129 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+    inputs:
+      release_version:
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codec-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   web:
     name: Web (svelte-check, tests, build)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'package.json') }}
+          restore-keys: bun-${{ runner.os }}-
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun test src/lib
-      - run: bun run build
+      - name: Build and fingerprint web assets once
+        env:
+          CODEC_RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          python3 scripts/build-server-release.py --version "${CODEC_RELEASE_VERSION:-dev-${GITHUB_SHA:0:12}}" \
+            --web-only --web-output-dir dist/web-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: checked-release-web
+          path: dist/web-build/
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
 
   server:
-    name: Go sync server
-    runs-on: ubuntu-latest
+    name: Go sync server (vet + race)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: sync-server/go.mod
+          go-version-file: .go-version
+          cache-dependency-path: sync-server/go.sum
+      - run: go mod verify
+        working-directory: sync-server
       - run: go vet ./...
         working-directory: sync-server
-      - run: go test ./...
+      - run: go test -race ./...
         working-directory: sync-server
+      - name: Validate workflow syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+
+  contracts:
+    name: Import schemas and deployment safety
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install jsonschema==4.26.0
+      - run: python scripts/test-import-schema.py
+      - run: python scripts/test-server-release.py
+      - run: python -m unittest discover -s deploy/ubuntu -p 'test_*.py'
+
+  linux-release:
+    name: Linux server packages (amd64 + arm64)
+    needs: [web, server, contracts]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: sync-server/go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: checked-release-web
+          path: dist/web-build
+      - name: Build data-free release archives
+        env:
+          CODEC_RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          python3 scripts/build-server-release.py --version "${CODEC_RELEASE_VERSION:-dev-${GITHUB_SHA:0:12}}" \
+            --verified-web dist/web-build
+      - name: Verify archives and run the amd64 server
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends caddy
+          (cd dist/server && sha256sum -c SHA256SUMS)
+          for archive in dist/server/*.tar.gz; do
+            python3 deploy/ubuntu/runtime.py install "$archive" --sha256-file "$archive.sha256" --verify-only
+          done
+          mkdir -p "$RUNNER_TEMP/codec-release"
+          archive=$(find dist/server -name '*-linux-amd64.tar.gz' -print -quit)
+          tar -xzf "$archive" -C "$RUNNER_TEMP/codec-release"
+          release=$(find "$RUNNER_TEMP/codec-release" -mindepth 1 -maxdepth 1 -type d -print -quit)
+          (cd "$release" && sha256sum -c SHA256SUMS)
+          python3 scripts/smoke-server-release.py "$release" --caddy /usr/bin/caddy
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-server-packages
+          path: dist/server/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
 
   rust:
-    name: Rust core
+    # The CLI importer and library core still live in the Tauri crate. Keep
+    # their tests; desktop GUI packaging/distribution is paused.
+    name: Rust import and library core
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +137,7 @@ jobs:
             ~/.cargo/git
             src-tauri/target
           key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
-      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
   ios:
     name: CodecKit (swift test)

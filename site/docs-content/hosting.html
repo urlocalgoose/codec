@@ -1,0 +1,71 @@
+<h1>Hosting Codec</h1>
+<p>Run Codec on an Ubuntu server at home or in the cloud. It needs space for your music and must stay on while you stream. Your phone connects to it; downloaded songs can play without it.</p>
+
+<h2 id="what-runs-where">What you install</h2>
+<ul>
+  <li><strong>The server</strong> stores your music, artwork, playlists and playback state.</li>
+  <li><strong>The web player</strong> comes in the same download. Open your server’s address in a browser.</li>
+  <li><strong>The iPhone and iPad app</strong> connects to that address with your auth token.</li>
+</ul>
+<p>There is no music catalog included. This project website is documentation, not your music server.</p>
+
+<h2 id="quick-start">Install on Ubuntu</h2>
+<p>These instructions use the <a href="https://github.com/urlocalgoose/codec/releases/tag/v0.1.5">v0.1.5 Linux server release</a>. Use a normal Ubuntu installation with systemd and an account that can run <code>sudo</code>.</p>
+<ol>
+  <li>
+    <p><strong>Choose your server’s processor type.</strong> Run <code>uname -m</code>: <code>x86_64</code> means AMD64; <code>aarch64</code> means ARM64.</p>
+    <ul>
+      <li>AMD64: <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.5/codec-server-v0.1.5-linux-amd64.tar.gz">server archive</a> and <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.5/codec-server-v0.1.5-linux-amd64.tar.gz.sha256">checksum</a>.</li>
+      <li>ARM64: <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.5/codec-server-v0.1.5-linux-arm64.tar.gz">server archive</a> and <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.5/codec-server-v0.1.5-linux-arm64.tar.gz.sha256">checksum</a>.</li>
+    </ul>
+  </li>
+  <li>
+    <p><strong>Download both files on the server.</strong> These commands are for AMD64; replace <code>amd64</code> with <code>arm64</code> for ARM64.</p>
+    <pre><code>sudo apt-get update
+sudo apt-get install -y python3 ca-certificates curl
+curl -fLO https://github.com/urlocalgoose/codec/releases/download/v0.1.5/codec-server-v0.1.5-linux-amd64.tar.gz
+curl -fLO https://github.com/urlocalgoose/codec/releases/download/v0.1.5/codec-server-v0.1.5-linux-amd64.tar.gz.sha256
+sha256sum -c codec-server-v0.1.5-linux-amd64.tar.gz.sha256</code></pre>
+    <p>Continue only if the checksum says <strong>OK</strong>.</p>
+  </li>
+  <li>
+    <p><strong>Extract and install from the same directory.</strong></p>
+    <pre><code>tar -xzf codec-server-v0.1.5-linux-amd64.tar.gz
+sudo ./codec-server-v0.1.5-linux-amd64/scripts/ubuntu-install.sh \
+  ./codec-server-v0.1.5-linux-amd64.tar.gz \
+  --sha256-file ./codec-server-v0.1.5-linux-amd64.tar.gz.sha256</code></pre>
+    <p>The installer checks the package again, creates protected credentials, starts Codec and enables it at boot. No Go, Bun or Rust installation is needed.</p>
+  </li>
+  <li>
+    <p><strong>Read your auth token in a private terminal.</strong> Save it in your password manager.</p>
+    <pre><code>sudo /opt/codec/current/scripts/ubuntu-auth.sh</code></pre>
+    <p>This displays the existing token. It does not reset it.</p>
+  </li>
+</ol>
+
+<h2 id="away-from-home">Connect at home or away</h2>
+<p>The installed server listens on <code>127.0.0.1:8787</code>, accessible only from the server itself. A phone cannot use that address, even on the same Wi-Fi.</p>
+<p><strong>For private access, use Tailscale.</strong> Follow its <a href="https://tailscale.com/docs/how-to/quickstart">setup guide</a> on the server and your devices, connect them to the same private network, then run this on the server:</p>
+<pre><code>sudo tailscale serve --bg http://127.0.0.1:8787</code></pre>
+<p>Follow any HTTPS setup prompt. <a href="https://tailscale.com/docs/reference/tailscale-cli/serve">Tailscale Serve</a> prints the HTTPS address to open in your browser or enter in Codec. Use the same auth token. Leave Tailscale running on both devices.</p>
+<details>
+  <summary>Use your own public domain instead</summary>
+  <p>Install a reverse proxy such as <a href="https://caddyserver.com/docs/quick-starts/reverse-proxy">Caddy</a>, point your domain to the server and allow HTTPS traffic. The package includes <code>deploy/ubuntu/Caddyfile.example</code>; replace its example hostname with yours. It forwards requests to Codec on port <code>8787</code>.</p>
+  <p>Keep public port <code>8787</code> closed and token protection enabled. A public connection needs HTTPS: plain HTTP does not encrypt credentials or music.</p>
+</details>
+
+<h2 id="add-music">Add your music</h2>
+<p>Open your server’s HTTPS address, enter your token, then choose <strong>Settings → Import music</strong>. Select MP3s or a <a href="loud.html">Loud bundle</a>. Your other connected devices use that same library.</p>
+<p>In Codec on iPhone or iPad, enter the same HTTPS address and token. Download music in the app before going offline.</p>
+
+<h2 id="data-and-token">Keep your library and credentials</h2>
+<p>Music, artwork and the database live in <code>/var/lib/codec</code>. The private configuration is <code>/etc/codec/codec.env</code>. Keep both when updating. Neither belongs in the website files, and the data directory is not a watched music folder.</p>
+<p>For a complete backup, stop <code>codec</code>, copy <code>/var/lib/codec</code> and <code>/etc/codec</code> to protected backup storage, then restart it. Do not copy only a live database or run two servers against the same data.</p>
+
+<h2 id="updates">Updates and troubleshooting</h2>
+<p>Download a newer release’s matching archive and checksum. Run the installed updater with those two paths:</p>
+<pre><code>sudo /opt/codec/current/scripts/ubuntu-update.sh /path/to/codec-server-VERSION-linux-amd64.tar.gz \
+  --sha256-file /path/to/codec-server-VERSION-linux-amd64.tar.gz.sha256</code></pre>
+<p>Replace <code>VERSION</code>, the architecture and paths with the files you downloaded; keep their filenames unchanged. Updates preserve your library and token, with a brief service restart. The updater’s database backup does not replace a full music backup.</p>
+<p>Check <code>sudo systemctl status codec</code> and <code>sudo journalctl -u codec</code> if the service will not start. For connection or playback help, see <a href="../support.html">Support</a>.</p>
+<p><a href="../docs.html">All guides</a> · <a href="loud.html">The Loud format</a> · <a href="code.html">Code reference</a></p>

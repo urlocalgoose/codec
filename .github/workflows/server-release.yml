@@ -1,0 +1,22 @@
+name: Prepare server and web release
+
+# Build/test downloadable artifacts only. This workflow has no SSH/AWS secrets
+# and never switches a running server. Desktop GUI distribution is paused;
+# only Linux server + web archives and checksums are produced.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Artifact label (for example preview-20260921)"
+        type: string
+        required: true
+        default: preview
+
+permissions:
+  contents: read
+
+jobs:
+  checked-packages:
+    uses: ./.github/workflows/ci.yml
+    with:
+      release_version: ${{ inputs.version }}
