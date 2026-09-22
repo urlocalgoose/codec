@@ -427,7 +427,6 @@ h1 span {
 }
 
 .steps li {
-  border-block-start:1px solid var(--line);
   padding-block-start:25px;
 }
 
