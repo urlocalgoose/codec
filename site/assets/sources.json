@@ -1,5 +1,5 @@
 {
-  "content": "Licensed demonstration collection; actual native screenshots",
+  "content": "Licensed demonstration collection; actual native and web screenshots",
   "images": [
     {
       "source": "iphone-6.9/01-home.png",
@@ -48,6 +48,12 @@
       "source_sha256": "f7895b839ff1818813359a5af4691c0fd5a2183b9d1c9ab457ea49016018fa92",
       "asset": "ipad-home.webp",
       "bytes": 181846
+    },
+    {
+      "source": "desktop-web/01-home.png",
+      "source_sha256": "de16acce4b9fbaafddd4d619ccc2e70e79fab8d13775cde000952e83e396724a",
+      "asset": "desktop-web.webp",
+      "bytes": 175104
     }
   ]
 }

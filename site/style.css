@@ -377,11 +377,28 @@ h1 span {
   box-shadow:0 20px 60px #0005;
 }
 
-.tablet-story figcaption {
+.tablet-story figcaption,.desktop-web-story figcaption {
   font-size:.8rem;
   color:var(--muted);
   margin-block-start:22px;
   text-align:center;
+}
+
+.desktop-web-story {
+  grid-column:1 / -1;
+  min-inline-size:0;
+}
+
+.desktop-web-story a {
+  display:block;
+  border-radius:14px;
+}
+
+.desktop-web-story img {
+  inline-size:100%;
+  border:1px solid var(--line);
+  border-radius:14px;
+  box-shadow:0 20px 60px #0005;
 }
 
 .personal-section {

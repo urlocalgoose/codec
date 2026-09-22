@@ -24,7 +24,7 @@ the iPhone/iPad app and web player.
 
 ## Screenshot assets
 
-Screenshots are actual native iPhone/iPad captures of the separately verified
+Screenshots are actual iPhone/iPad app and desktop web captures of the separately verified
 `open-license-test-100` collection. No private collection screenshots or audio
 are included. Images are scaled and encoded to WebP; their UI is not recreated,
 retouched or recolored. The page labels the collection as demonstration content.
@@ -45,6 +45,16 @@ Requires `cwebp`. Output filenames remain stable. `assets/sources.json` records
 the relative input names and SHA-256 hashes, not local paths or credentials.
 Review the page at wide browser widths, 390 px and 320 px after replacing images. The
 horizontal screenshot gallery is intentionally scrollable on narrow screens.
+
+The desktop web screenshot uses the deployed web player with the same licensed
+demo library in Graphite. Capture at 1600×1000 with a 2× display scale, then
+resize to 1600×1000 WebP for `assets/desktop-web.webp`. Keep auth tokens and raw
+captures private; include only the relative capture name, source hash, and
+encoded byte count in `assets/sources.json`. This is the browser player, not a
+desktop app distribution. Its full-size image opens from the devices section.
+Pass `--desktop-web /path/to/01-home.png` to `prepare-assets.py` when replacing
+that capture alongside the native images. Without that option, the existing
+desktop image and its provenance entry are preserved.
 
 ## Cloudflare deployment
 

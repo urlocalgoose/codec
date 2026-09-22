@@ -10,6 +10,7 @@ import subprocess
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--screenshots', type=Path, required=True)
 parser.add_argument('--credits', type=Path, required=True)
+parser.add_argument('--desktop-web', type=Path, help='Optional approved 3200×2000 desktop web capture')
 args = parser.parse_args()
 site = Path(__file__).resolve().parent
 assets = site / 'assets'
@@ -24,14 +25,25 @@ images.append(('ipad-13/01-home.png', 'ipad-home.webp', 1050))
 for source_name, _, _ in images:
     if not (args.screenshots / source_name).is_file():
         raise SystemExit(f'Missing approved capture: {source_name}')
+if args.desktop_web and not args.desktop_web.is_file():
+    raise SystemExit('Missing approved desktop web capture')
 subprocess.run(['cwebp', '-quiet', '-q', '90', '-resize', '128', '128', str(icon), '-o', str(assets / 'codec-mark.webp')], check=True)
-sources = []
+ledger = assets / 'sources.json'
+previous = json.loads(ledger.read_text()).get('images', []) if ledger.exists() else []
+sources = [item for item in previous if item.get('asset') == 'desktop-web.webp'
+           and (assets / 'desktop-web.webp').is_file() and not args.desktop_web]
 for source_name, target_name, width in images:
     source = args.screenshots / source_name
     subprocess.run(['cwebp', '-quiet', '-q', '86', '-m', '6', '-resize', str(width), '0', str(source), '-o', str(assets / target_name)], check=True)
     sources.append({'source': source_name, 'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
                     'asset': target_name, 'bytes': (assets / target_name).stat().st_size})
-(assets / 'sources.json').write_text(json.dumps({'content': 'Licensed demonstration collection; actual native screenshots', 'images': sources}, indent=2) + '\n')
+if args.desktop_web:
+    target = assets / 'desktop-web.webp'
+    subprocess.run(['cwebp', '-quiet', '-q', '88', '-m', '6', '-resize', '1600', '0', str(args.desktop_web), '-o', str(target)], check=True)
+    sources.append({'source': 'desktop-web/' + args.desktop_web.name,
+                    'source_sha256': hashlib.sha256(args.desktop_web.read_bytes()).hexdigest(),
+                    'asset': target.name, 'bytes': target.stat().st_size})
+ledger.write_text(json.dumps({'content': 'Licensed demonstration collection; actual native and web screenshots', 'images': sources}, indent=2) + '\n')
 
 sections = []
 in_list = False
