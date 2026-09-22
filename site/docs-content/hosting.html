@@ -10,30 +10,30 @@
 <p>There is no music catalog included. This project website is documentation, not your music server.</p>
 
 <h2 id="quick-start">Install on Ubuntu</h2>
-<p>These instructions use the <a href="https://github.com/urlocalgoose/codec/releases/tag/v0.1.8">v0.1.8 Linux server release</a>. Use a normal Ubuntu installation with systemd and an account that can run <code>sudo</code>.</p>
+<p>These instructions use the <a href="https://github.com/urlocalgoose/codec/releases/tag/{{ release_version }}">{{ release_version }} Linux server release</a>. Use a normal Ubuntu installation with systemd and an account that can run <code>sudo</code>.</p>
 <ol>
   <li>
     <p><strong>Choose your server’s processor type.</strong> Run <code>uname -m</code>: <code>x86_64</code> means AMD64; <code>aarch64</code> means ARM64.</p>
     <ul>
-      <li>AMD64: <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.8/codec-server-v0.1.8-linux-amd64.tar.gz">server archive</a> and <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.8/codec-server-v0.1.8-linux-amd64.tar.gz.sha256">checksum</a>.</li>
-      <li>ARM64: <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.8/codec-server-v0.1.8-linux-arm64.tar.gz">server archive</a> and <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.8/codec-server-v0.1.8-linux-arm64.tar.gz.sha256">checksum</a>.</li>
+      <li>AMD64: <a href="https://github.com/urlocalgoose/codec/releases/download/{{ release_version }}/codec-server-{{ release_version }}-linux-amd64.tar.gz">server archive</a> and <a href="https://github.com/urlocalgoose/codec/releases/download/{{ release_version }}/codec-server-{{ release_version }}-linux-amd64.tar.gz.sha256">checksum</a>.</li>
+      <li>ARM64: <a href="https://github.com/urlocalgoose/codec/releases/download/{{ release_version }}/codec-server-{{ release_version }}-linux-arm64.tar.gz">server archive</a> and <a href="https://github.com/urlocalgoose/codec/releases/download/{{ release_version }}/codec-server-{{ release_version }}-linux-arm64.tar.gz.sha256">checksum</a>.</li>
     </ul>
   </li>
   <li>
     <p><strong>Download both files on the server.</strong> These commands are for AMD64; replace <code>amd64</code> with <code>arm64</code> for ARM64.</p>
     <pre><code>sudo apt-get update
 sudo apt-get install -y python3 ca-certificates curl
-curl -fLO https://github.com/urlocalgoose/codec/releases/download/v0.1.8/codec-server-v0.1.8-linux-amd64.tar.gz
-curl -fLO https://github.com/urlocalgoose/codec/releases/download/v0.1.8/codec-server-v0.1.8-linux-amd64.tar.gz.sha256
-sha256sum -c codec-server-v0.1.8-linux-amd64.tar.gz.sha256</code></pre>
+curl -fLO https://github.com/urlocalgoose/codec/releases/download/{{ release_version }}/codec-server-{{ release_version }}-linux-amd64.tar.gz
+curl -fLO https://github.com/urlocalgoose/codec/releases/download/{{ release_version }}/codec-server-{{ release_version }}-linux-amd64.tar.gz.sha256
+sha256sum -c codec-server-{{ release_version }}-linux-amd64.tar.gz.sha256</code></pre>
     <p>Continue only if the checksum says <strong>OK</strong>.</p>
   </li>
   <li>
     <p><strong>Extract and install from the same directory.</strong></p>
-    <pre><code>tar -xzf codec-server-v0.1.8-linux-amd64.tar.gz
-sudo ./codec-server-v0.1.8-linux-amd64/scripts/ubuntu-install.sh \
-  ./codec-server-v0.1.8-linux-amd64.tar.gz \
-  --sha256-file ./codec-server-v0.1.8-linux-amd64.tar.gz.sha256</code></pre>
+    <pre><code>tar -xzf codec-server-{{ release_version }}-linux-amd64.tar.gz
+sudo ./codec-server-{{ release_version }}-linux-amd64/scripts/ubuntu-install.sh \
+  ./codec-server-{{ release_version }}-linux-amd64.tar.gz \
+  --sha256-file ./codec-server-{{ release_version }}-linux-amd64.tar.gz.sha256</code></pre>
     <p>The installer checks the package again, creates protected credentials, starts Codec and enables it at boot. The download includes the server and web player, ready to run.</p>
   </li>
   <li>
@@ -64,8 +64,8 @@ sudo ./codec-server-v0.1.8-linux-amd64/scripts/ubuntu-install.sh \
 
 <h2 id="updates">Updates and troubleshooting</h2>
 <p>Download a newer release’s matching archive and checksum. Run the installed updater with those two paths:</p>
-<pre><code>sudo /opt/codec/current/scripts/ubuntu-update.sh /path/to/codec-server-VERSION-linux-amd64.tar.gz \
-  --sha256-file /path/to/codec-server-VERSION-linux-amd64.tar.gz.sha256</code></pre>
-<p>Replace <code>VERSION</code>, the architecture and paths with the files you downloaded; keep their filenames unchanged. Updates preserve your library and token, with a brief service restart. The updater’s database backup does not replace a full music backup.</p>
+<pre><code>sudo /opt/codec/current/scripts/ubuntu-update.sh /path/to/codec-server-{{ release_version }}-linux-amd64.tar.gz \
+  --sha256-file /path/to/codec-server-{{ release_version }}-linux-amd64.tar.gz.sha256</code></pre>
+<p>Adjust the architecture and paths to match the files you downloaded; keep their filenames unchanged. Updates preserve your library and token, with a brief service restart. The updater’s database backup does not replace a full music backup.</p>
 <p>Check <code>sudo systemctl status codec</code> and <code>sudo journalctl -u codec</code> if the service will not start. For connection or playback help, see <a href="../support.html">Support</a>.</p>
 <p><a href="../docs.html">All guides</a> · <a href="loud.html">The Loud format</a> · <a href="code.html">Code reference</a></p>

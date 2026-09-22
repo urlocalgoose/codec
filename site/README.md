@@ -110,10 +110,25 @@ pages. Navigation uses relative links so the private preview and
 `codec.codie.sh` serve the same files. These pages distinguish the documentation
 website, self-hosted music servers and developer-operated demonstration servers.
 
-The hosting guide targets v0.1.8 Linux AMD64/ARM64 server archives and their
-individual checksums, with the bundled Ubuntu installer. Verify those assets
-when updating downloads. Match future guide updates to actual package
-filenames and runtime scripts.
+## Updating the release version
+
+`release.json` is the single source for version values shown on the site.
+After a server release and its AMD64/ARM64 archives and checksums are published,
+change only `release_version` in that file, then run `python3 site/build.py`
+and publish `site/dist` with the command above. This updates the release labels,
+GitHub release/download links, archive names, and install/update commands together.
+
+Use `{{ release_version }}` in HTML or guide fragments instead of typing a
+release tag. The build substitutes the value into static HTML; visitors do not
+fetch configuration or need JavaScript for version labels. Preview generated
+pages in `site/dist` to see resolved values. Invalid tags and unknown variables
+fail the build before replacing the working preview.
+
+`artwork_import_min_version` is a separate compatibility requirement. It does
+not increase with ordinary releases; change it only if that requirement changes.
+Use `{{ artwork_import_min_version }}` for that minimum. CI runs
+`python3 site/test_release_config.py` and builds the site to catch stale literals
+or broken substitutions. Site publication stays separate from packaging a release.
 
 Keep host-specific operations, tokens, private source paths and dated deployment
 receipts out of the public guides. Check release availability before claiming a

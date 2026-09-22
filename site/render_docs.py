@@ -2,6 +2,7 @@
 import html
 from html.parser import HTMLParser
 from pathlib import Path
+from release_config import load_release, render_release
 
 PAGES = {'loud': 'The Loud format', 'hosting': 'Hosting Codec', 'code': 'Codebase reference'}
 
@@ -29,14 +30,16 @@ class Headings(HTMLParser):
             self.current = None
 
 
-def render_docs(output):
+def render_docs(output, release=None):
     source = Path(__file__).resolve().parent
+    if release is None:
+        release = load_release()
     exported = []
     for slug, title in PAGES.items():
         fragment_path = source / 'docs-content' / (slug + '.html')
         if fragment_path.is_symlink():
             raise ValueError('Guide sources must be regular files')
-        fragment = fragment_path.read_text()
+        fragment = render_release(fragment_path.read_text(), release)
         fragment = fragment.replace('<pre>', '<pre tabindex="0" aria-label="Code example">')
         fragment = fragment.replace('<table>', '<table tabindex="0">')
         headings = Headings()

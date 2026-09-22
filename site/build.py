@@ -5,9 +5,11 @@ from pathlib import Path
 import shutil
 import tempfile
 from render_docs import render_docs
+from release_config import load_release, render_release
 
 source = Path(__file__).resolve().parent
 output = source / 'dist'
+release = load_release()
 files = ['index.html', 'style.css', 'docs.html', 'docs.css', 'code-copy.js', 'credits.html', '404.html', '_headers',
          'privacy.html', 'support.html', 'legal.css',
          'examples/loud-import.json', 'examples/track-artwork.json', 'examples/playlist-artwork.json',
@@ -23,8 +25,11 @@ with tempfile.TemporaryDirectory(prefix='.site-build-', dir=source) as temporary
     for name in files:
         destination = stage / name
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source / name, destination)
-    generated = render_docs(stage)
+        if destination.suffix == '.html':
+            destination.write_text(render_release((source / name).read_text(), release))
+        else:
+            shutil.copyfile(source / name, destination)
+    generated = render_docs(stage, release)
     for name in ['codec-import.schema.json', 's2y-track-artwork.schema.json', 's2y-playlist-artwork.schema.json']:
         schema = source.parent / 'docs' / name
         if schema.is_symlink() or not schema.is_file():
@@ -34,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix='.site-build-', dir=source) as temporary
         shutil.copyfile(schema, destination)
         generated.append(destination)
     public_files = [stage / name for name in files] + generated
-    report = {'public_files': len(public_files), 'bytes': sum(file.stat().st_size for file in public_files), 'output': 'site/dist'}
+    report = {'public_files': len(public_files), 'bytes': sum(file.stat().st_size for file in public_files), 'output': 'site/dist', 'release_version': release['release_version']}
     # A bad fragment or missing schema must not remove the working preview.
     if output.exists():
         shutil.rmtree(output)
