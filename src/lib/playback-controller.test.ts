@@ -12,15 +12,17 @@ function controllerFunction(name: string) {
 }
 
 function controller() {
-  const functions = ["applyPlaybackStateV2", "syncLocalAudioToPlaybackState", "audioSourceIdentity", "publishPlaybackDeviceState", "startPlaybackDevicePolling", "selectedPlaybackTargetDeviceId", "currentPlaybackTimeForSave", "usePlaybackSync", "playbackDeviceChoices", "isActiveSyncDevice", "syncDuration", "handleAudioError", "handleAudioPlay", "handleAudioPause", "playLocalAudio", "pauseLocalAudio", "publishLocalMediaState", "handleSystemPlayback", "canControlLocalMedia"].map(controllerFunction).join("\n");
+  const functions = ["applyPlaybackStateV2", "syncLocalAudioToPlaybackState", "audioSourceIdentity", "publishPlaybackDeviceState", "startPlaybackDevicePolling", "selectedPlaybackTargetDeviceId", "currentPlaybackTimeForSave", "usePlaybackSync", "playbackDeviceChoices", "isActiveSyncDevice", "syncDuration", "handleAudioError", "handleAudioPlay", "handleAudioPause", "playLocalAudio", "pauseLocalAudio", "publishLocalMediaState", "handleSystemPlayback", "canControlLocalMedia", "resumeLocalAudioGraphAfterForeground", "refreshPlaybackSyncOnForeground"].map(controllerFunction).join("\n");
   const source = `
     let playbackStateV2 = null, pendingPlaybackCommands = 0, deferredPlaybackState = null;
     let playbackApplyGeneration = 0, localPlaybackGeneration = 0, playbackClockOffsetMs = 0, lastAppliedPlaybackRevision = 0;
     let currentTrack = null, currentTime = 0, isPlaying = false, volume = 1, audioDuration = 0, errorMessage = "";
     let audioGraphContext = null, visualizerAnalyser = null;
+    const playbackAudioSession = {begin(){},release(){},isInterrupted(){return false}};
     let expectedAudioPlayEvents = 0, expectedAudioPauseEvents = 0;
     const commands = [];
     const navigator = {userActivation:{hasBeenActive:false}};
+    const document = {hidden:false};
     let selectedPlaybackDeviceId = 'web', deviceId = 'web', syncServerUrl = 'http://codec.test', syncServerReady = true;
     let playbackDevices = [{device_id:'web'}], applyingRemotePlayback = false;
     let loadedSource = '', loadedTrackId = '', lastPublishedPlaybackDevice = '', playbackDevicePollTimer = null;
@@ -31,7 +33,7 @@ function controller() {
     const track = {id:'song',fingerprint:'song',duration_seconds:300};
     const library = {tracks:[track]};
     const counts = {loads:0,plays:0,pauses:0,presence:0,seeks:0,commands:0,graphSuspends:0,graphResumes:0};
-    let token = 'first', metadata = Promise.resolve(), playCompletion = Promise.resolve(), interval, rejectPlay = false;
+    let token = 'first', metadata = Promise.resolve(), playCompletion = Promise.resolve(), refreshCompletion = Promise.resolve(), interval, rejectPlay = false;
     const window = {setInterval(fn) {interval=fn;return 1}};
     let audioTime = 0;
     const audioEl = {error:null,ended:false,readyState:4,get currentTime(){return audioTime},set currentTime(value){counts.seeks++;audioTime=value},paused:true,async play(){counts.plays++;if(rejectPlay)throw new DOMException('User gesture required','NotAllowedError');this.paused=false;return playCompletion},pause(){counts.pauses++;this.paused=true}};
@@ -52,7 +54,7 @@ function controller() {
     function waitForAudioMetadata(){return metadata}
     function playbackDeviceState(){return {device_id:'web',is_playing:true,position_seconds:0,updated_at:Date.now()}}
     async function updatePlaybackDevice(){counts.presence++}
-    async function refreshPlaybackDevices(){}
+    async function refreshPlaybackDevices(){return refreshCompletion}
     async function refreshRemoteLibraryState(){}
     async function startPlaybackEvents(){}
     async function sendPlaybackCommand(kind,options){
@@ -75,11 +77,14 @@ function controller() {
       state:()=>playbackStateV2,
       displayed:()=>({currentTrack,currentTime,isPlaying,selectedPlaybackDeviceId,audioDuration,errorMessage}),
       mediaMetadata:syncDuration, mediaError:handleAudioError,mediaPlay:handleAudioPlay,mediaPause:handleAudioPause,
+      foreground:refreshPlaybackSyncOnForeground,
       target:selectedPlaybackTargetDeviceId,
       positionForCommand:currentPlaybackTimeForSave,
       choices:()=>playbackDeviceChoices(playbackDevices,deviceId,"This web browser",selectedPlaybackDeviceId),
       duration:(value)=>{track.duration_seconds=value},
       runningGraph:()=>{audioGraphContext={state:"running",suspend(){counts.graphSuspends++;this.state="suspended";return Promise.resolve()}}},
+      suspendedGraph:()=>{audioGraphContext={state:"suspended",resume(){counts.graphResumes++;this.state="running";return Promise.resolve()}}},
+      delayRefresh:()=>{let release;refreshCompletion=new Promise(resolve=>{release=resolve});return release},
       delayedGraph:()=>{
         let release;
         audioGraphContext={state:"running",suspend(){counts.graphSuspends++;return new Promise(resolve=>{release=()=>{this.state="suspended";resolve()}})},resume(){counts.graphResumes++;this.state="running";return Promise.resolve()}};
@@ -377,6 +382,7 @@ test("transferring playback away suspends the browser audio graph", async () => 
 test("a remote or paused visualizer never creates or resumes a silent audio session", () => {
   const source = `
     let audioGraphContext = null, visualizerAnalyser = null, visualizerSampler = null;
+    const playbackAudioSession = {begin(){},release(){},isInterrupted(){return false}};
     let local = false;
     const audioEl = {paused:false};
     const counts = {created:0,resumed:0};
@@ -414,6 +420,37 @@ test("a quick transfer back resumes local audio after an outstanding graph suspe
   await Promise.resolve();
   expect(c.counts.graphResumes).toBe(1);
   expect(c.audioEl.paused).toBe(false);
+});
+
+test("an aborted foreground refresh cannot wake a graph using stale ownership", async () => {
+  const c = controller();
+  await c.apply(state(1));
+  c.suspendedGraph();
+  const release = c.delayRefresh();
+  c.foreground();
+  // Cancelled/superseded reads resolve without applying a state. Recovery
+  // must await an actual current state, not this promise's completion.
+  release();
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  expect(c.counts.graphResumes).toBe(0);
+  await c.apply(state(2, "playing", "phone"));
+  expect(c.counts.graphResumes).toBe(0);
+  expect(c.audioEl.paused).toBe(true);
+});
+
+test("a current owned playback state recovers the graph without restarting or seeking audio", async () => {
+  const c = controller();
+  const current = state(1);
+  await c.apply(current);
+  c.advanceAudio(25);
+  c.suspendedGraph();
+  const before = {...c.counts};
+  await c.apply(current, true);
+  expect(c.counts.graphResumes).toBe(1);
+  expect(c.counts.plays).toBe(before.plays);
+  expect(c.counts.loads).toBe(before.loads);
+  expect(c.counts.seeks).toBe(before.seeks);
+  expect(c.audioEl.currentTime).toBe(25);
 });
 
 
@@ -528,4 +565,78 @@ test("hardware controls cannot undo an outgoing transfer before its acknowledgem
   await c.apply(state(8,"playing","phone"));
   expect(c.displayed().isPlaying).toBe(true);
   expect(c.commands).toEqual([]);
+});
+
+function endedController(synced = true, repeat = "one") {
+  const functions = ["handleEnded", "startPlayback", "audioSourceIdentity", "playLocalAudio"]
+    .map(controllerFunction).join("\n");
+  const source = `
+    let currentTime = 300, currentTrack = {id:"song",fingerprint:"song",duration_seconds:300};
+    let repeatMode = repeat, localPlaybackGeneration = 0, syncReadGeneration = 1;
+    let playbackClockSuppressUntil = 0, isPlaying = false, errorMessage = "";
+    const deviceId = "web", rootPath = "loud://sync-server";
+    const playbackStateV2 = {active_device_id:deviceId};
+    const usePlaybackSync = () => synced;
+    const playbackAudioSession = {begin(){}};
+    let audioGraphContext = null, expectedAudioPlayEvents = 0;
+    const loadedSource = "https://codec.test/song.mp3";
+    let nextCompletion = Promise.resolve();
+    const playPositions = [], commands = [], notifications = [];
+    // Deliberately do not dispatch timeupdate when the element is reset:
+    // browser events may arrive after the repeat-one restart is underway.
+    const audioEl = {currentTime:300,paused:true,error:null,
+      async play(){playPositions.push(this.currentTime);this.paused=false}};
+    const tick = () => Promise.resolve();
+    const playbackUrlForTrack = async () => loadedSource;
+    const waitForAudioMetadata = async () => {};
+    const applyPendingSeek = () => {};
+    const mediaErrorMessage = error => String(error);
+    function loadAudioSource(){throw new Error("Repeat must retain its loaded source")}
+    async function localNextTrack(){currentTrack={...currentTrack,id:"next"};await nextCompletion}
+    async function nextTrack(){throw new Error("Unexpected unsynchronized next")}
+    function notifyServerAfterLocalChange(before,kind){notifications.push({before,kind})}
+    async function sendPlaybackCommand(kind,options){commands.push({kind,...options});return {}}
+    async function applyPlaybackStateV2(){}
+    ${functions}
+    return {
+      end:handleEnded, playPositions, commands, notifications,
+      position:()=>({page:currentTime,audio:audioEl.currentTime}),
+      transfer:()=>{playbackStateV2.active_device_id="phone"},
+      switchConnection:()=>{syncReadGeneration++},
+      holdNext:()=>{let release;nextCompletion=new Promise(resolve=>{release=resolve});return release}
+    };
+  `;
+  return new Function("synced", "repeat", new Bun.Transpiler({loader:"ts"}).transformSync(source))(synced, repeat);
+}
+
+for (const synced of [false, true]) {
+  test(`repeat-one restarts at zero before a delayed timeupdate (${synced ? "synced" : "local"})`, async () => {
+    const c = endedController(synced);
+    await c.end();
+    expect(c.playPositions).toEqual([0]);
+    expect(c.position()).toEqual({page:0,audio:0});
+    expect(c.commands).toEqual(synced ? [{kind:"seek",target_device_id:"web",position_seconds:0}] : []);
+  });
+}
+
+for (const change of ["transfer", "switchConnection"] as const) {
+  test(`a delayed ended transition cannot publish after ${change}`, async () => {
+    const c = endedController(true, "off");
+    const release = c.holdNext();
+    const ending = c.end();
+    c[change]();
+    release();
+    await ending;
+    expect(c.notifications).toEqual([]);
+    expect(c.commands).toEqual([]);
+  });
+}
+
+test("a delayed ended transition still publishes while connection and owner stay current", async () => {
+  const c = endedController(true, "off");
+  const release = c.holdNext();
+  const ending = c.end();
+  release();
+  await ending;
+  expect(c.notifications).toEqual([{before:"song",kind:"next"}]);
 });

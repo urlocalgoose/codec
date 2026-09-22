@@ -2,6 +2,45 @@
 
 Routine synchronization must preserve an already-playing audio source. Stream-token renewal and context-only snapshots must not reload or seek the song; explicit remote seeks must still work.
 
+## Screen lock and background audio
+
+Before starting local audio or creating the visualizer's AudioContext, Codec
+sets the optional Audio Session API's type to `playback`. WebKit can otherwise
+treat Web Audio as ambient sound and suspend it when an iPhone locks. Media
+Session play/pause controls alone do not select that audio policy. Browsers
+without Audio Session support retain their ordinary media playback path.
+
+Only the local speaker claims this policy. A page controlling another device
+does not start an audio graph; transferring away suspends its graph and restores
+the previous session type. Hidden pages stop visualizer sampling and drawing,
+while the existing audio element continues playing.
+
+On return to the foreground, a successfully applied current-owner state can
+resume an interrupted graph without restarting or seeking its audio element.
+Failed or superseded reads do not trigger recovery. An explicit pause or an
+active OS audio interruption remains respected. This does not keep a closed
+tab alive or override iOS process termination.
+
+The controller tests also cover repeat-one with a delayed `timeupdate` and
+track-ending callbacks racing a transfer or server change. Both the page clock
+and media clock reset before repeating; an abandoned transition cannot send a
+new command to the destination device.
+
+After building, run the focused browser regression with the Playwright setup
+in [mobile regression](../scripts/mobile-regression.md):
+
+```sh
+node scripts/web-background-audio-regression.mjs build /tmp/codec-background-chromium.json
+PLAYWRIGHT_BROWSER=webkit node scripts/web-background-audio-regression.mjs build /tmp/codec-background-webkit.json
+```
+
+The test uses real media, output clocks and FFT samples; lifecycle events are
+simulated. WebKit exercises its real Audio Session API, while a browser lacking
+that API gets a policy stub. Physical iPhone Safari/PWA lock/unlock, Bluetooth
+and phone-call behavior still require a device test. See the
+[WebKit background-audio issue](https://bugs.webkit.org/show_bug.cgi?id=261554)
+and [Audio Session specification](https://w3c.github.io/audio-session/).
+
 
 ## Cause and correction
 

@@ -49,6 +49,7 @@
   import { buildImportBundle } from "$lib/import-bundle";
   import PlaylistGrid from "$lib/components/PlaylistGrid.svelte";
   import { mediaErrorMessage } from "$lib/audio-errors";
+  import { createPlaybackAudioSession } from "$lib/audio-session";
   import { playbackPositionChanged } from "$lib/playback-continuity";
   import {
     createQueue,
@@ -660,6 +661,7 @@
       playbackEventSource?.close();
       visualizerSampler?.stop();
       void audioGraphContext?.close().catch(() => undefined);
+      playbackAudioSession.release();
       if (hasNativeBridge() && !isRemoteRoot(rootPath)) {
         void invoke("stop_library_watch").catch(() => undefined);
       }
@@ -1355,6 +1357,7 @@
 
   function refreshPlaybackSyncOnForeground() {
     if (!syncServerReady) {
+      resumeLocalAudioGraphAfterForeground();
       // An offline launch never reaches the polling loop. Returning online
       // must reconnect the saved server before ordinary state reads can run.
       if (!syncServerUrl || !deviceId || loading || bootstrapping || playbackReconnect ||
@@ -1370,6 +1373,8 @@
     // Mobile browsers suspend sockets while backgrounded. Reconcile even an
     // unchanged revision and reopen SSE so buffered events cannot leave the
     // remote timeline behind after switching from the native player.
+    // Applying a current local playback state also recovers its audio graph.
+    // A cancelled/failed read must not resume from stale ownership here.
     void refreshPlaybackDevices(true);
     void publishPlaybackDeviceState(true);
     void refreshRemoteLibraryState(false, false);
@@ -1777,8 +1782,18 @@
           void context.suspend().then(() => {
             // A quick transfer back may have started local audio while the
             // asynchronous suspension was finishing. Do not leave it silent.
-            if (context === audioGraphContext && isActiveSyncDevice() && audioEl && !audioEl.paused) return context.resume();
+            if (context !== audioGraphContext) return;
+            if (canControlLocalMedia() && audioEl && !audioEl.paused) {
+              if (!playbackAudioSession.isInterrupted()) {
+                playbackAudioSession.begin();
+                return context.resume();
+              }
+              return;
+            }
+            playbackAudioSession.release();
           }).catch(() => undefined);
+        } else {
+          playbackAudioSession.release();
         }
       }
     } finally {
@@ -1923,6 +1938,7 @@
         if (audioEl.paused) await playLocalAudio();
         if (generation !== playbackApplyGeneration) return;
         isPlaying = true;
+        resumeLocalAudioGraphAfterForeground();
       } catch (error) {
         if (generation !== playbackApplyGeneration) return;
         // A browser's autoplay refusal is local, not a transport command.
@@ -2091,6 +2107,17 @@
   let audioGraphContext: AudioContext | null = null;
   let visualizerAnalyser: AnalyserNode | null = null;
   let visualizerSampler: SpectroSampler | null = null;
+  const playbackAudioSession = createPlaybackAudioSession();
+
+  function resumeLocalAudioGraphAfterForeground() {
+    if (document.hidden || !isPlaying || !audioEl || audioEl.paused ||
+        !canControlLocalMedia() || playbackAudioSession.isInterrupted() ||
+        !audioGraphContext || audioGraphContext.state === "running" || audioGraphContext.state === "closed") return;
+    playbackAudioSession.begin();
+    // Resume the existing graph only. Never restart the element or seek on
+    // foreground, and never override a real pause or another app's audio.
+    void audioGraphContext.resume().catch(() => undefined);
+  }
 
   // Retain the ring buffer between views and pauses. Hidden/remote clients
   // have no useful samples; stopping these frames must never stop local audio.
@@ -2106,6 +2133,7 @@
 
     if (!audioGraphContext) {
       try {
+        playbackAudioSession.begin();
         audioGraphContext = new AudioContext();
         const source = audioGraphContext.createMediaElementSource(audioEl);
         const analyser = audioGraphContext.createAnalyser();
@@ -2123,7 +2151,8 @@
       }
     }
 
-    void audioGraphContext.resume();
+    playbackAudioSession.begin();
+    void audioGraphContext.resume().catch(() => undefined);
     return visualizerAnalyser;
   }
 
@@ -2566,8 +2595,13 @@
       // Start the next song immediately; a network wait here is an audible
       // gap between every track.
       if (repeatMode === "one") {
+        const connectionGeneration = syncReadGeneration;
+        const repeatedTrackId = currentTrack?.id;
+        currentTime = 0;
         audioEl.currentTime = 0;
         await startPlayback();
+        if (connectionGeneration !== syncReadGeneration || playbackStateV2?.active_device_id !== deviceId ||
+            currentTrack?.id !== repeatedTrackId) return;
         playbackClockSuppressUntil = Date.now() + 1500;
         void sendPlaybackCommand("seek", { target_device_id: deviceId, position_seconds: 0 })
           .then((state) => applyPlaybackStateV2(state))
@@ -2576,12 +2610,15 @@
       }
 
       const beforeTrackId = currentTrack?.id ?? null;
+      const connectionGeneration = syncReadGeneration;
       await localNextTrack();
+      if (connectionGeneration !== syncReadGeneration || playbackStateV2?.active_device_id !== deviceId) return;
       notifyServerAfterLocalChange(beforeTrackId, "next");
       return;
     }
 
     if (repeatMode === "one") {
+      currentTime = 0;
       audioEl.currentTime = 0;
       await startPlayback();
       return;
@@ -2772,6 +2809,12 @@
 
   function playLocalAudio(): Promise<void> {
     if (!audioEl) return Promise.resolve();
+    playbackAudioSession.begin();
+    // A lock-screen play gesture must wake both the element and the existing
+    // analyser graph; HTMLAudioElement.play() alone cannot wake Web Audio.
+    if (audioGraphContext && audioGraphContext.state !== "running" && audioGraphContext.state !== "closed") {
+      void audioGraphContext.resume().catch(() => undefined);
+    }
     const wasPaused = audioEl.paused;
     const result = audioEl.play();
     if (wasPaused && !audioEl.paused) expectedAudioPlayEvents++;
@@ -2863,7 +2906,8 @@
     // sample routes into a dead graph and playback is silent. Any real play
     // is a gesture, so wake the graph here.
     if (audioGraphContext && audioGraphContext.state !== "running") {
-      void audioGraphContext.resume();
+      playbackAudioSession.begin();
+      void audioGraphContext.resume().catch(() => undefined);
     }
     // Build the graph on the first user-initiated play from any view, so
     // the visualizer records history in the background. Remote-initiated

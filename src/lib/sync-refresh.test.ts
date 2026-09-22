@@ -64,6 +64,7 @@ function controller(api: Record<string, (signal?: AbortSignal) => Promise<unknow
     const syncLibrary = () => {counts.librariesApplied++};
     const resetPlaybackCommandQueue = () => {};
     const stopPlaybackClock = () => {};
+    const resumeLocalAudioGraphAfterForeground = () => {};
     const playbackDeviceState = () => ({device_id:deviceId,updated_at:now});
     const updatePlaybackDevice = async () => {
       counts.presence++;
