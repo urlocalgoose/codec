@@ -27,40 +27,10 @@
             <array><string>35F9.1</string></array>
         </dict>
     </array>
+    <!-- The shipping app connects to user-configured, independently operated servers.
+         No app data is collected by the developer or integrated third-party SDKs.
+         Reassess this declaration before adding a developer-operated user service. -->
     <key>NSPrivacyCollectedDataTypes</key>
-    <array>
-        <dict>
-            <key>NSPrivacyCollectedDataType</key>
-            <string>NSPrivacyCollectedDataTypeDeviceID</string>
-            <key>NSPrivacyCollectedDataTypeLinked</key><true/>
-            <key>NSPrivacyCollectedDataTypeTracking</key><false/>
-            <key>NSPrivacyCollectedDataTypePurposes</key>
-            <array><string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string></array>
-        </dict>
-        <dict>
-            <key>NSPrivacyCollectedDataType</key>
-            <string>NSPrivacyCollectedDataTypeProductInteraction</string>
-            <key>NSPrivacyCollectedDataTypeLinked</key><true/>
-            <key>NSPrivacyCollectedDataTypeTracking</key><false/>
-            <key>NSPrivacyCollectedDataTypePurposes</key>
-            <array><string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string></array>
-        </dict>
-        <dict>
-            <key>NSPrivacyCollectedDataType</key>
-            <string>NSPrivacyCollectedDataTypeOtherUserContent</string>
-            <key>NSPrivacyCollectedDataTypeLinked</key><true/>
-            <key>NSPrivacyCollectedDataTypeTracking</key><false/>
-            <key>NSPrivacyCollectedDataTypePurposes</key>
-            <array><string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string></array>
-        </dict>
-        <dict>
-            <key>NSPrivacyCollectedDataType</key>
-            <string>NSPrivacyCollectedDataTypePhotosorVideos</string>
-            <key>NSPrivacyCollectedDataTypeLinked</key><true/>
-            <key>NSPrivacyCollectedDataTypeTracking</key><false/>
-            <key>NSPrivacyCollectedDataTypePurposes</key>
-            <array><string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string></array>
-        </dict>
-    </array>
+    <array/>
 </dict>
 </plist>
