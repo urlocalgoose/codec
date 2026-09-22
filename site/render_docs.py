@@ -47,7 +47,7 @@ def render_docs(output):
         pages = ''.join(f'<a href="{name}.html"' + (' aria-current="page"' if name == slug else '') + f'>{label}</a>' for name, label in PAGES.items())
         toc = ''.join(f'<li><a href="#{html.escape(ident, quote=True)}">{html.escape(label)}</a></li>' for ident, label in headings.headings)
         page = f'''<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#101312"><title>{html.escape(title)} — Codec</title><link rel="icon" href="../assets/codec-mark.webp"><link rel="stylesheet" href="../style.css"><link rel="stylesheet" href="../docs.css"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#101312"><title>{html.escape(title)} — Codec</title><link rel="icon" href="../assets/codec-mark.webp"><link rel="stylesheet" href="../style.css"><link rel="stylesheet" href="../docs.css"><script src="../code-copy.js" defer></script></head>
 <body><a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header wrap"><a class="brand" href="../index.html" aria-label="Codec home"><img src="../assets/codec-mark.webp" alt="" width="44" height="44"><span>Codec</span></a><nav aria-label="Main navigation"><a href="../docs.html">Docs</a><a href="https://github.com/urlocalgoose/codec">GitHub <span aria-hidden="true">↗</span></a></nav></header>
 <div class="docs-breadcrumb wrap"><a href="../docs.html">Documentation</a> / {html.escape(title)}</div>

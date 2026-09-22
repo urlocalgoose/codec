@@ -8,7 +8,7 @@ from render_docs import render_docs
 
 source = Path(__file__).resolve().parent
 output = source / 'dist'
-files = ['index.html', 'style.css', 'docs.html', 'docs.css', 'credits.html', '404.html', '_headers',
+files = ['index.html', 'style.css', 'docs.html', 'docs.css', 'code-copy.js', 'credits.html', '404.html', '_headers',
          'privacy.html', 'support.html', 'legal.css',
          'examples/loud-import.json', 'examples/track-artwork.json', 'examples/playlist-artwork.json',
          'examples/artwork/cover.jpg', 'examples/CREDITS.txt',

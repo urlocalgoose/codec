@@ -4,8 +4,9 @@ The project site is published at [codec.codie.sh](https://codec.codie.sh).
 This folder contains its source and build tools. Publishing the website is
 separate from App Review submission and public app release, which remain on hold.
 
-The page is plain HTML and CSS: no runtime JavaScript, framework,
-remote fonts, analytics, or music-server connection. Edit copy in `index.html`.
+The site is plain HTML and CSS with a small local script for copying code
+examples. It has no framework, remote fonts, analytics, or music-server
+connection. Edit landing-page copy in `index.html`.
 The exact Graphite app colors are declared at the top of `style.css`.
 
 Preview from the repository root:
@@ -15,7 +16,7 @@ python3 site/build.py
 python3 -m http.server 9086 --bind 127.0.0.1 --directory site/dist
 ```
 
-`build.py` copies an explicit allowlist into `site/dist`. Scripts, this README,
+`build.py` copies an explicit allowlist into `site/dist`. Python build tools, this README,
 the provenance ledger and raw captures are excluded. Publish only `site/dist`
 when deployment is explicitly authorized. GitHub links point to the project’s
 source and versioned Linux server releases. Listening clients shown here are
@@ -88,7 +89,11 @@ each `h2` needs a unique, stable `id`. `build.py` renders them into
 `dist/docs/` and copies the three canonical JSON schemas into `dist/schemas/`.
 The explicit allowlist also includes the sample import manifest, two artwork
 sidecars, their shared CC0 image and credits in `dist/examples/`.
-The site remains static and uses no runtime JavaScript or third-party assets.
+The site remains static with no third-party assets. `code-copy.js` adds Copy
+buttons to full code examples on the guide pages, preserving the exact text.
+It uses the Clipboard API with a local-preview fallback and announces success
+or failure. Without JavaScript, the examples remain selectable. Inline code
+keeps its compact styling. The security policy permits only local scripts.
 
 `privacy.html`, `support.html` and `legal.css` are the project’s public legal/help
 pages. Navigation uses relative links so the private preview and
