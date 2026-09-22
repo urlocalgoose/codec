@@ -103,19 +103,8 @@
 <h2 id="import">Import your collection</h2>
 <ul>
   <li><strong>Web/mobile web:</strong> Settings → Import music. Choose a ZIP, bundle folder, or manifest plus every referenced file. Imports go to your connected server.</li>
-  <li><strong>Rust CLI:</strong> unzip first; give <code>codec_import</code> a dedicated staging folder and manifest path. Server merge scans that entire folder. Use <code>--server</code> and <code>--token-file</code> for server transfer; omit both for local import.</li>
   <li><strong>Native iPhone/iPad:</strong> refresh your connected library after import. There is no native bundle picker.</li>
 </ul>
-<p>For large collections, CLI transfer sends missing audio files individually. Browser and proxy upload limits still apply to ZIPs. Review skipped files and artwork warnings even when a job finishes.</p>
-<details>
-  <summary id="cli">CLI example</summary>
-  <p>Run from a cloned Codec repository with Rust installed. Replace the example folders and server address. The token file contains your server token; keep it private.</p>
-  <pre><code>cargo build --release --manifest-path src-tauri/Cargo.toml --bin codec_import
-mkdir -p ./staging-library
-src-tauri/target/release/codec_import \
-  ./staging-library ./my-collection/loud-import.json \
-  --server https://your-server.example \
-  --token-file /private/path/codec-token \
-  --report ./import-report.json</code></pre>
-</details>
+<p>Browser and proxy upload limits apply to ZIPs. Review skipped files and artwork warnings even when a job finishes.</p>
+<p id="cli">For large collections, a separate command-line tool can transfer missing audio files individually. Its source, build requirements and usage are in the <a href="code.html#importing">optional import-tool reference</a>.</p>
 <p>Need a server first? Follow <a href="hosting.html">Hosting Codec</a>. Implementation details live in the <a href="code.html">code reference</a>.</p>

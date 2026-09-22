@@ -359,14 +359,6 @@ h1 span {
   margin-block-start:10px;
 }
 
-.gallery-hint {
-  display:none;
-  font-size:.8rem;
-  margin-block-start:26px;
-  align-items:center;
-  gap:18px;
-}
-
 .everywhere-section {
   background:var(--panel);
   border-block:1px solid #eef2ed08;
@@ -731,9 +723,6 @@ h1 span {
   .screen-story {
     flex:0 0 290px;
     scroll-snap-align:start;
-  }
-  .gallery-hint {
-    display:flex;
   }
   .everywhere {
     grid-template-columns:1fr;

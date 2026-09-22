@@ -62,10 +62,6 @@ metadata, likes, order and custom covers. Each song occurs at most once in a
 playlist; repeated source entries collapse. Refresh the phone library after
 import to receive the music and artwork.
 
-The `codec_import` command-line tool is also available from source for large
-collections. Its import library remains in `src-tauri/src/library/` for
-compatibility with existing tooling. See the format guide for its arguments.
-
 ## Documentation and source
 
 Documentation has two parts:
@@ -91,12 +87,14 @@ open ios/CodecMobile/Codec.xcodeproj   # iOS project; requires macOS/Xcode
 bun run check
 bun run test:frontend
 bun run test:server
-bun run test:rust              # Import/library core
 (cd ios/CodecMobile && swift test)   # CodecKit client/model tests
 ```
 
 The phone’s app-hosted playback and rendering tests are separate from
 `swift test`; see [native test scopes](ios/CodecMobile/Tests/README.md).
+The [optional import-tool reference](https://codec.codie.sh/docs/code.html#importing)
+covers the separate source-built CLI and its tests. It is not part of the server
+download or a requirement for uploading music through the web player.
 
 ## Contributions
 

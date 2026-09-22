@@ -3,7 +3,7 @@
 <p>We’re not accepting contributions or pull requests right now. The source is available to read and use under the <a href="https://github.com/urlocalgoose/codec/blob/main/LICENSE">MIT license</a>.</p>
 
 <h2 id="release-status">Source and release versions</h2>
-<p>This reference describes <a href="https://github.com/urlocalgoose/codec/releases/tag/v0.1.5">v0.1.5</a>. The server packages include the web player and Ubuntu installation tools. Match the source tag to your release when investigating behavior. The <a href="hosting.html">hosting guide</a> covers installation without building from source.</p>
+<p>This reference describes <a href="https://github.com/urlocalgoose/codec/releases/tag/v0.1.6">v0.1.6</a>. The server packages include the web player and Ubuntu installation tools. Match the source tag to your release when investigating behavior. The <a href="hosting.html">hosting guide</a> covers installation without building from source.</p>
 
 <h2 id="source-map">Where things live</h2>
 <div class="table-wrap">
@@ -13,7 +13,6 @@
     <tr><td><a href="https://github.com/urlocalgoose/codec/tree/main/sync-server"><code>sync-server/</code></a></td><td>HTTP API, shared library, media, playback state, and web hosting.</td><td><code>cmd/codec-sync-server/main.go</code>; routes in <code>internal/server/server.go</code>.</td></tr>
     <tr><td><a href="https://github.com/urlocalgoose/codec/tree/main/src"><code>src/</code></a></td><td>Svelte web player.</td><td><code>routes/+page.svelte</code> coordinates the app; <code>lib/components/</code> contains views.</td></tr>
     <tr><td><code>site/</code></td><td>Static project website and these public guides, separate from the music player.</td><td><code>index.html</code>, <code>docs-content/</code>, and <code>build.py</code>. Only <code>dist/</code> is published.</td></tr>
-    <tr><td><a href="https://github.com/urlocalgoose/codec/tree/main/src-tauri"><code>src-tauri/</code></a></td><td>Rust library used by the command-line importer: local scanning, staging and server transfers.</td><td><code>src/library/</code> owns library operations; <code>src/bin/codec_import.rs</code> is the CLI.</td></tr>
     <tr><td><a href="https://github.com/urlocalgoose/codec/tree/main/ios/CodecMobile"><code>ios/CodecMobile/</code></a></td><td>Native SwiftUI interface, AVPlayer playback, downloads, and artwork.</td><td><code>App/CodecApp.swift</code>, <code>App/AppModel.swift</code>, <code>App/PlayerController.swift</code>, and <code>App/Views/</code>.</td></tr>
     <tr><td><code>ios/CodecMobile/Sources/CodecKit/</code></td><td>Swift API client and shared Codable models.</td><td><code>CodecClient.swift</code>, <code>Models.swift</code>, and <code>PlaybackModels.swift</code>.</td></tr>
     <tr><td><a href="https://github.com/urlocalgoose/codec/tree/main/scripts"><code>scripts/</code></a> and <code>docs/</code></td><td>Build tools, regression checks, schemas, and internal reference material.</td><td><code>scripts/check-quick.py</code>, <code>scripts/build-server-release.py</code>, and <code>docs/codec-import.schema.json</code>.</td></tr>
@@ -33,16 +32,8 @@
 <p>The server’s <code>--data</code> directory holds <code>codec-sync.sqlite</code>, <code>audio/</code>, and <code>artwork/</code>. Its <code>--web</code> directory contains replaceable built web files. CLI staging libraries keep metadata in <code>.loud/state.json</code>; <code>loud://</code> paths are logical identifiers, not ordinary filesystem paths.</p>
 <p>Native library caches, artwork, and downloads live in the app’s container. The web app has separate browser storage and explicit audio downloads; its service worker caches the interface. Downloading in one client does not download into another.</p>
 
-<h2 id="importing">Importing from the command line</h2>
-<p><code>codec_import</code> is the Rust command-line importer. Supply an empty staging music directory and the manifest’s path; add server options to merge the result into a connected library. This CLI is built from source separately from the Linux server download.</p>
-<pre><code>cargo run --manifest-path src-tauri/Cargo.toml --bin codec_import -- \
-  /path/to/staging-library /path/to/bundle/codec-import.json \
-  --server https://music.example.com --token-file /path/to/private-token
-</code></pre>
-<p>Server imports match exact fingerprints and add missing media and memberships while preserving existing metadata and covers. Keep the manifest’s referenced files together. The <a href="loud.html">Loud format guide</a> explains identities, playlist matching, and artwork descriptors.</p>
-
 <h2 id="build-and-check">Build and check locally</h2>
-<p>Run these from the repository root. Use the Bun version in <code>package.json</code>, the checked-in lockfile and the Go version in <code>.go-version</code>. The CLI importer requires Rust and the platform dependencies of its Cargo package. iPhone and iPad app builds need macOS and Xcode.</p>
+<p>Run these from the repository root. Use the Bun version in <code>package.json</code>, the checked-in lockfile and the Go version in <code>.go-version</code>. iPhone and iPad app builds need macOS and Xcode.</p>
 <pre><code>bun install --frozen-lockfile
 bun run dev                 # Web interface development
 bun run build               # Production web files in build/
@@ -51,7 +42,6 @@ go -C sync-server build ./cmd/codec-sync-server
 <p>Checks have different scopes:</p>
 <pre><code>bun run check               # Svelte and TypeScript
 bun run test:frontend       # Bun tests
-bun run test:rust           # Rust library and importer tests
 bun run test:server         # Go tests
 (cd ios/CodecMobile &amp;&amp; swift test)  # CodecKit models and API client
 </code></pre>
@@ -61,6 +51,22 @@ bun run test:server         # Go tests
 <p>The release builder requires Python 3.11 or newer, plus the pinned Bun and Go versions. It builds the web player once and packages Linux AMD64 and ARM64 servers with checksums and Ubuntu scripts:</p>
 <pre><code>bun run release:server -- --version my-build</code></pre>
 <p>Outputs go to <code>dist/server/</code>. Use a distinct version for a changed build; the installer rejects different contents under an installed version. Building packages does not publish a release or modify a server.</p>
+
+<h2 id="importing">Optional import tool</h2>
+<p><code>codec_import</code> is a separate source-built tool for local scanning, staging, artwork import and server transfers. It is not included in the Linux server package and is not required for the web player’s <strong>Settings → Import music</strong> flow.</p>
+<p>The tool uses Rust code in <a href="https://github.com/urlocalgoose/codec/tree/main/src-tauri"><code>src-tauri/</code></a>: <code>src/library/</code> owns library operations, <code>src/sync_transfer.rs</code> handles server transfers, and <code>src/bin/codec_import.rs</code> is the CLI. The desktop UI is paused; this import code and its tests remain supported. Building the CLI still requires Rust and the Tauri package’s platform dependencies. The shipped Go server, web player and Swift app do not depend on this tool.</p>
+<p>Unzip the bundle first and keep its referenced files together. Use an empty staging directory: a server merge scans that entire directory. Replace the paths and server address below; the token file contains your private server token.</p>
+<pre><code>cargo build --release --manifest-path src-tauri/Cargo.toml --bin codec_import
+mkdir -p ./staging-library
+src-tauri/target/release/codec_import \
+  ./staging-library ./my-collection/loud-import.json \
+  --server https://your-server.example \
+  --token-file /private/path/codec-token \
+  --report ./import-report.json
+
+bun run test:rust           # Import library and CLI tests
+</code></pre>
+<p>Omit <code>--server</code> and <code>--token-file</code> for a local-only import. Server imports match exact fingerprints and add missing media and memberships while preserving existing metadata and covers. The <a href="loud.html">Loud format guide</a> explains identities, playlist matching and artwork descriptors.</p>
 
 <h2 id="appearance">UI and theme reference</h2>
 <p>Web theme tokens live in <code>src/app.css</code> and <code>src/lib/themes.ts</code>. <code>bun run gen:ios-themes</code> generates their Swift counterpart, <code>App/Themes.generated.swift</code>. SwiftUI shared view primitives live in <code>App/Views/Components.swift</code>. Graphite is the default appearance.</p>
