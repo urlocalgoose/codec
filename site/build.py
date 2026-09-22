@@ -14,7 +14,8 @@ files = ['index.html', 'style.css', 'docs.html', 'docs.css', 'code-copy.js', 'cr
          'privacy.html', 'support.html', 'legal.css',
          'examples/loud-import.json', 'examples/track-artwork.json', 'examples/playlist-artwork.json',
          'examples/artwork/cover.jpg', 'examples/CREDITS.txt',
-         'assets/codec-mark.webp', 'assets/ipad-home.webp', 'assets/desktop-web.webp']
+         'assets/codec-mark.webp', 'assets/ipad-home.webp', 'assets/desktop-web.webp',
+         'assets/codec-share.jpg', 'assets/apple-touch-icon.png']
 files += [f'assets/iphone-{name}.webp' for name in ('home', 'library', 'search', 'now-playing', 'visualizer', 'downloaded', 'palettes')]
 for name in files:
     file = source / name

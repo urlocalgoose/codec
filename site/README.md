@@ -58,6 +58,33 @@ desktop image and its provenance entry are preserved.
 
 ## Cloudflare deployment
 
+### Shared link previews
+
+The homepage provides static Open Graph and Twitter Card metadata for Messages
+and other sharing apps. Its canonical URL and image URLs use `codec.codie.sh`.
+`assets/codec-share.jpg` is a 1200×630 Graphite card with the existing logo and
+licensed native screenshots. `assets/apple-touch-icon.png` is the app's icon at
+180×180. Both files are public build assets; neither adds a request to normal
+homepage rendering unless the browser needs the icon.
+
+To regenerate after changing the logo, screenshots or card layout:
+
+```sh
+node site/render-share-card.mjs
+python3 site/build.py
+```
+
+The renderer uses Playwright/Chromium; set `PLAYWRIGHT_MODULE` to its module path
+if it is not installed in the local Node environment. Edit `share-card.html` for
+the composition. The template and renderer are excluded from the public build.
+If replacing a previously published card, use a new image filename and update
+the metadata, renderer and build allowlist together so sharing apps can fetch
+the new image. Existing messages may retain cached previews. Confirm live HTML
+contains the metadata without JavaScript, and that the image URL returns a JPEG.
+See [Apple's rich-link guidance](https://developer.apple.com/documentation/technotes/tn3156-create-rich-previews-for-messages).
+
+### Publishing
+
 `wrangler.jsonc` configures Cloudflare Workers Static Assets as `codec-site`,
 with the exact custom domain `codec.codie.sh`. It has no Worker script,
 database, secret, API or music-server dependency. The `workers.dev` address
