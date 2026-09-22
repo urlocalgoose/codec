@@ -250,19 +250,6 @@ h1 span {
   background:var(--panel-2);
 }
 
-.platforms {
-  font-size:var(--small);
-  color:var(--text);
-  display:flex;
-  flex-wrap:wrap;
-  gap:12px;
-  letter-spacing:.02em;
-}
-
-.platforms span {
-  color:#7f8983;
-}
-
 .release-note {
   font-size:.75rem;
   line-height:1.6;
@@ -834,10 +821,6 @@ h1 span {
     gap:12px;
     min-block-size:50px;
   }
-  .platforms {
-    font-size:.77rem;
-    gap:10px;
-  }
   .release-note {
     font-size:.7rem;
     max-inline-size:40ch;
@@ -953,10 +936,6 @@ h1 span {
   }
   .hero-description {
     font-size:1rem;
-  }
-  .platforms {
-    gap:8px;
-    font-size:.73rem;
   }
   .screen-story {
     flex-basis:238px;
