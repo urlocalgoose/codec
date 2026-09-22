@@ -132,6 +132,49 @@ test("a failed request does not fabricate an acknowledged revision or stop the q
   expect(server.queue()).toEqual(["a", "b"]);
 });
 
+test.each(["headers", "body"])("a stalled command %s times out without dropping the later explicit Pause", async phase => {
+  let requests = 0;
+  const kinds: string[] = [];
+  const server = playbackServer();
+  const fetcher = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    kinds.push(JSON.parse(String(init?.body)).kind);
+    if (++requests > 1) return server.fetcher(url, init);
+    const stalled = () => new Promise<never>((_, reject) => {
+      if (init?.signal?.aborted) reject(init.signal.reason);
+      else init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    });
+    if (phase === "headers") return stalled();
+    return { ok: true, status: 200, json: stalled } as unknown as Response;
+  }) as typeof fetch;
+  const results = await Promise.allSettled([
+    sendPlaybackCommandV2("http://codec.test", queueCommand("a"), fetcher, 15),
+    sendPlaybackCommandV2("http://codec.test", { command_id: "pause", device_id: "web", kind: "pause" }, fetcher, 15)
+  ]);
+  expect(results[0].status).toBe("rejected");
+  expect((results[0] as PromiseRejectedResult).reason.message).toContain("taking too long");
+  expect(results[1].status).toBe("fulfilled");
+  expect(requests).toBe(2); // The timed-out write is never retried.
+  expect(kinds).toEqual(["set_queue", "pause"]);
+});
+
+test("an applied command whose response stalls cannot silently overwrite the queue on the next edit", async () => {
+  const server = playbackServer();
+  let requests = 0;
+  const fetcher = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (++requests > 1) return server.fetcher(url, init);
+    await server.fetcher(url, init); // Server committed; acknowledgement was lost.
+    return new Promise<never>((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true }));
+  }) as typeof fetch;
+  const result = await Promise.allSettled([
+    sendPlaybackCommandV2("http://codec.test", queueCommand("a"), fetcher, 15),
+    sendPlaybackCommandV2("http://codec.test", queueCommand("b", 10, ["a", "b"]), fetcher, 15)
+  ]);
+  expect(result.every(item => item.status === "rejected")).toBe(true);
+  expect((result[1] as PromiseRejectedResult).reason.message).toContain("Playback changed");
+  expect(server.queue()).toEqual(["a"]);
+  expect(requests).toBe(2);
+});
+
 for (const reset of ["server", "auth", "disconnect"] as const) {
   test(`${reset} changes cancel unsent commands and isolate the new connection`, async () => {
     setSyncAuthToken("old-token");

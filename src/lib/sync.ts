@@ -30,6 +30,7 @@ interface PlaybackCommandQueue {
   tail: Promise<unknown>;
   pending: number;
   acknowledgedRevisions: Set<number>;
+  controller: AbortController;
 }
 let playbackCommandGeneration = 0;
 let playbackCommandQueue: PlaybackCommandQueue | null = null;
@@ -815,7 +816,8 @@ export async function fetchPlaybackStateV2(
 export async function sendPlaybackCommandV2(
   serverUrl: string,
   command: PlaybackCommandV2,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  timeoutMs?: number
 ): Promise<PlaybackStateV2> {
   const server = normalizeServerUrl(serverUrl);
   if (playbackCommandQueue && (playbackCommandQueue.server !== server || playbackCommandQueue.device !== command.device_id)) {
@@ -824,7 +826,7 @@ export async function sendPlaybackCommandV2(
   if (!playbackCommandQueue || playbackCommandQueue.pending === 0) {
     playbackCommandQueue = {
       server, device: command.device_id, tail: Promise.resolve(), pending: 0,
-      acknowledgedRevisions: new Set()
+      acknowledgedRevisions: new Set(), controller: new AbortController()
     };
   }
   const queue = playbackCommandQueue;
@@ -842,21 +844,26 @@ export async function sendPlaybackCommandV2(
     // conflicts at the server instead of overwriting that device's changes.
     let revision = expectedRevision;
     while (revision !== undefined && queue.acknowledgedRevisions.has(revision + 1)) revision++;
-    const response = await authorizedFetch(fetcher, `${server}/api/v2/playback/commands`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(revision === undefined ? {} : { "If-Match": `"${revision}"` })
-      },
-      body
-    });
-    if (response.status === 409) {
-      throw new Error("Playback changed on another device. Try the action again.");
-    }
-    if (!response.ok) {
-      throw syncApiError("Could not update playback", serverUrl, response);
-    }
-    const state = normalizePlaybackStateV2((await response.json()) as Partial<PlaybackStateV2>);
+    // Bound headers and body, without retrying an uncertain write. Later
+    // snapshots retain their revision guard; an explicit Pause still runs.
+    const state = await withSyncReadTimeout(async signal => {
+      const response = await authorizedFetch(fetcher, `${server}/api/v2/playback/commands`, {
+        signal,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(revision === undefined ? {} : { "If-Match": `"${revision}"` })
+        },
+        body
+      });
+      if (response.status === 409) {
+        throw new Error("Playback changed on another device. Try the action again.");
+      }
+      if (!response.ok) {
+        throw syncApiError("Could not update playback", serverUrl, response);
+      }
+      return normalizePlaybackStateV2((await response.json()) as Partial<PlaybackStateV2>);
+    }, queue.controller.signal, timeoutMs);
     if (generation !== playbackCommandGeneration) {
       throw new Error("The playback connection changed.");
     }
@@ -874,6 +881,7 @@ export async function sendPlaybackCommandV2(
 }
 
 export function resetPlaybackCommandQueue(): void {
+  playbackCommandQueue?.controller.abort();
   playbackCommandGeneration++;
   playbackCommandQueue = null;
 }

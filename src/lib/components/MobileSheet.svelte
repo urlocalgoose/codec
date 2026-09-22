@@ -2,6 +2,7 @@
   import { onMount, type Snippet } from "svelte";
   import { cubicOut } from "svelte/easing";
   import type { TransitionConfig } from "svelte/transition";
+  import DownloadStatus from "./DownloadStatus.svelte";
 
   let { title, onClose, children, wide = false, full = false, compact = false, presentation = "standard", leading, trailing, background }: {
     title: string;
@@ -91,8 +92,11 @@
   function canStartDrag(target: EventTarget | null): target is HTMLElement {
     if (!(target instanceof HTMLElement) || leaving || target.closest("dialog") !== dialog) return false;
     if (target.closest(".sheet-grabber")) return true;
-    if (presentation !== "player") return false;
     if (target.closest("button, a, input, select, textarea, label, [role='button'], [role='slider'], [contenteditable], [data-sheet-no-drag]")) return false;
+    // Queue rows own swipe/reorder/scroll gestures. Its noninteractive header
+    // provides a usable pull-down area without stealing those interactions.
+    if (presentation === "queue" && target.closest(".mobile-sheet-header")) return true;
+    if (presentation !== "player") return false;
     // A smaller screen can scroll the player. Never steal a gesture that
     // began below the top, including a nested scrolling region.
     for (let node: HTMLElement | null = target; node && node !== dialog; node = node.parentElement) {
@@ -181,7 +185,7 @@
   // the grabber's pointer interaction without processing a touch twice.
   function pointerStart(event: PointerEvent) {
     suppressGrabberClick = false;
-    if (event.pointerType === "touch" || event.pointerType === "mouse" || !event.isPrimary) return;
+    if (event.pointerType === "touch" || !event.isPrimary || event.button !== 0) return;
     startDrag(event.target, event.clientX, event.clientY, event.pointerId, "pointer");
     if (dragIdentifier !== null) dragTarget?.setPointerCapture(event.pointerId);
   }
@@ -238,5 +242,6 @@
       </header>
     {/if}
     <div class="mobile-sheet-body">{@render children()}</div>
+    <DownloadStatus />
   </div>
 </dialog>

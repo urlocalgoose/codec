@@ -18,6 +18,77 @@ function deferred<T>() {
 }
 
 describe('browser downloads', () => {
+  test('a canceled storage wait does not trap an immediate retry in the old download', async () => {
+    const cache = new MemoryCache();
+    const opened = deferred<AudioDownloadCache>();
+    const started = deferred<void>();
+    const controller = new AbortController();
+    let fetches = 0;
+    const api = createWebDownloads({ openCache: async () => { started.resolve(); return opened.promise; }, fetch: async () => { fetches++; return audio(); } });
+    const first = api.downloadTrack(server, 'fp', 'https://audio', { signal: controller.signal }).catch(error => error);
+    await started.promise;
+    controller.abort();
+    const retry = api.downloadTrack(server, 'fp', 'https://audio', { signal: new AbortController().signal });
+    opened.resolve(cache);
+    expect((await first).name).toBe('AbortError');
+    await retry;
+    expect(fetches).toBe(1);
+    expect(cache.entries.size).toBe(1);
+  });
+
+  test('reports byte progress, saves only the complete file, and clears the idle timer', async () => {
+    const cache = new MemoryCache();
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    let requestSignal: AbortSignal | undefined;
+    const started = deferred<void>();
+    const progress: number[] = [];
+    const api = createWebDownloads({ openCache: async () => cache, idleTimeoutMs: 30, fetch: async (_url, options) => {
+      requestSignal = options?.signal as AbortSignal;
+      return new Response(new ReadableStream({ start(controller) { body = controller; started.resolve(); } }), { headers: { 'Content-Type': 'audio/mpeg', 'Content-Length': '9' } });
+    } });
+    const download = api.downloadTrack(server, 'fp', 'https://audio', { onProgress: (loaded, total) => { expect(total).toBe(9); progress.push(loaded); } });
+    await started.promise;
+    body.enqueue(new TextEncoder().encode('ID3-'));
+    expect(cache.entries.size).toBe(0);
+    body.enqueue(new TextEncoder().encode('audio')); body.close();
+    await download;
+    await new Promise(resolve => setTimeout(resolve, 40));
+    expect(progress.at(-1)).toBe(9);
+    expect(requestSignal?.aborted).toBe(false);
+    expect(cache.entries.size).toBe(1);
+  });
+
+  test.each(['headers', 'body'])('times out stalled %s without saving a partial file and allows retry', async (phase) => {
+    const cache = new MemoryCache();
+    let canceled = false, attempts = 0;
+    const api = createWebDownloads({ openCache: async () => cache, idleTimeoutMs: 15, fetch: async () => {
+      if (++attempts > 1) return audio();
+      if (phase === 'headers') return new Promise<Response>(() => {});
+      return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode('ID3-')); }, cancel() { canceled = true; } }), { headers: { 'Content-Type': 'audio/mpeg' } });
+    } });
+    await expect(api.downloadTrack(server, 'fp', 'https://audio')).rejects.toThrow('stalled');
+    expect(cache.entries.size).toBe(0);
+    if (phase === 'body') expect(canceled).toBe(true);
+    await api.downloadTrack(server, 'fp', 'https://audio');
+    expect(cache.entries.size).toBe(1);
+  });
+
+  test('canceling a response body releases the reader without storing partial audio', async () => {
+    const cache = new MemoryCache();
+    const controller = new AbortController();
+    const progress = deferred<void>();
+    let canceled = false;
+    const api = createWebDownloads({ openCache: async () => cache, fetch: async () => new Response(new ReadableStream({
+      start(body) { body.enqueue(new TextEncoder().encode('ID3-')); }, cancel() { canceled = true; }
+    }), { headers: { 'Content-Type': 'audio/mpeg' } }) });
+    const pending = api.downloadTrack(server, 'fp', 'https://audio', { signal: controller.signal, onProgress: loaded => { if (loaded) progress.resolve(); } });
+    const outcome = pending.catch(error => error);
+    await progress.promise; controller.abort();
+    expect((await outcome).name).toBe('AbortError');
+    expect(canceled).toBe(true);
+    expect(cache.entries.size).toBe(0);
+  });
+
   test('normalizes server scope and never stores stream tokens or unsafe response headers', async () => {
     const cache = new MemoryCache();
     const api = createWebDownloads({ openCache: async () => cache, fetch: async () => new Response('ID3-audio', {

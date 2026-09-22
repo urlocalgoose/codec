@@ -10,30 +10,30 @@
 <p>There is no music catalog included. This project website is documentation, not your music server.</p>
 
 <h2 id="quick-start">Install on Ubuntu</h2>
-<p>These instructions use the <a href="https://github.com/urlocalgoose/codec/releases/tag/v0.1.6">v0.1.6 Linux server release</a>. Use a normal Ubuntu installation with systemd and an account that can run <code>sudo</code>.</p>
+<p>These instructions use the <a href="https://github.com/urlocalgoose/codec/releases/tag/v0.1.7">v0.1.7 Linux server release</a>. Use a normal Ubuntu installation with systemd and an account that can run <code>sudo</code>.</p>
 <ol>
   <li>
     <p><strong>Choose your server’s processor type.</strong> Run <code>uname -m</code>: <code>x86_64</code> means AMD64; <code>aarch64</code> means ARM64.</p>
     <ul>
-      <li>AMD64: <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.6/codec-server-v0.1.6-linux-amd64.tar.gz">server archive</a> and <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.6/codec-server-v0.1.6-linux-amd64.tar.gz.sha256">checksum</a>.</li>
-      <li>ARM64: <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.6/codec-server-v0.1.6-linux-arm64.tar.gz">server archive</a> and <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.6/codec-server-v0.1.6-linux-arm64.tar.gz.sha256">checksum</a>.</li>
+      <li>AMD64: <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.7/codec-server-v0.1.7-linux-amd64.tar.gz">server archive</a> and <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.7/codec-server-v0.1.7-linux-amd64.tar.gz.sha256">checksum</a>.</li>
+      <li>ARM64: <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.7/codec-server-v0.1.7-linux-arm64.tar.gz">server archive</a> and <a href="https://github.com/urlocalgoose/codec/releases/download/v0.1.7/codec-server-v0.1.7-linux-arm64.tar.gz.sha256">checksum</a>.</li>
     </ul>
   </li>
   <li>
     <p><strong>Download both files on the server.</strong> These commands are for AMD64; replace <code>amd64</code> with <code>arm64</code> for ARM64.</p>
     <pre><code>sudo apt-get update
 sudo apt-get install -y python3 ca-certificates curl
-curl -fLO https://github.com/urlocalgoose/codec/releases/download/v0.1.6/codec-server-v0.1.6-linux-amd64.tar.gz
-curl -fLO https://github.com/urlocalgoose/codec/releases/download/v0.1.6/codec-server-v0.1.6-linux-amd64.tar.gz.sha256
-sha256sum -c codec-server-v0.1.6-linux-amd64.tar.gz.sha256</code></pre>
+curl -fLO https://github.com/urlocalgoose/codec/releases/download/v0.1.7/codec-server-v0.1.7-linux-amd64.tar.gz
+curl -fLO https://github.com/urlocalgoose/codec/releases/download/v0.1.7/codec-server-v0.1.7-linux-amd64.tar.gz.sha256
+sha256sum -c codec-server-v0.1.7-linux-amd64.tar.gz.sha256</code></pre>
     <p>Continue only if the checksum says <strong>OK</strong>.</p>
   </li>
   <li>
     <p><strong>Extract and install from the same directory.</strong></p>
-    <pre><code>tar -xzf codec-server-v0.1.6-linux-amd64.tar.gz
-sudo ./codec-server-v0.1.6-linux-amd64/scripts/ubuntu-install.sh \
-  ./codec-server-v0.1.6-linux-amd64.tar.gz \
-  --sha256-file ./codec-server-v0.1.6-linux-amd64.tar.gz.sha256</code></pre>
+    <pre><code>tar -xzf codec-server-v0.1.7-linux-amd64.tar.gz
+sudo ./codec-server-v0.1.7-linux-amd64/scripts/ubuntu-install.sh \
+  ./codec-server-v0.1.7-linux-amd64.tar.gz \
+  --sha256-file ./codec-server-v0.1.7-linux-amd64.tar.gz.sha256</code></pre>
     <p>The installer checks the package again, creates protected credentials, starts Codec and enables it at boot. The download includes the server and web player, ready to run.</p>
   </li>
   <li>

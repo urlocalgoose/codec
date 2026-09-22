@@ -1,6 +1,16 @@
 /* Native iOS 26 geometry, expressed in CSS points. Safe areas come from Safari/PWA. */
-:root { --app-viewport-height: 100dvh; --app-safe-top: env(safe-area-inset-top,0px); --app-safe-bottom: env(safe-area-inset-bottom,0px); }
-.native-connect { display:grid; place-items:center; min-height:var(--app-viewport-height); padding:calc(32px + var(--app-safe-top)) 24px calc(32px + var(--app-safe-bottom)); background:var(--color-bg); }
+:root {
+ --app-viewport-height: 100dvh;
+ --app-viewport-top: 0px;
+ --app-viewport-bottom: 0px;
+ --app-safe-top: env(safe-area-inset-top,0px);
+ --app-safe-bottom: env(safe-area-inset-bottom,0px);
+ --app-control-safe-top: max(0px,calc(var(--app-safe-top) - var(--app-viewport-top)));
+ --app-control-safe-bottom: var(--app-safe-bottom);
+ --mobile-bottom-inset: max(12px,var(--app-control-safe-bottom));
+}
+:root[data-keyboard-open="true"] { --app-control-safe-bottom: 0px; }
+.native-connect { display:grid; place-items:center; min-height:var(--app-viewport-height); padding:calc(32px + var(--app-control-safe-top)) 24px calc(32px + var(--app-control-safe-bottom)); background:var(--color-bg); }
 .native-connect-form { width:100%; max-width:420px; display:grid; gap:32px; }
 .native-connect-brand { display:flex; align-items:center; gap:16px; }
 .native-connect-brand img { width:80px; height:80px; border-radius:18px; }
@@ -67,17 +77,20 @@
 .native-song-choice strong { font-size:15px; }
 .native-song-choice small { color:var(--color-muted); font-size:13px; }
 @media(max-width:980px) {
- .app-shell { display:flex; flex-direction:column; position:relative; width:100%; height:var(--app-viewport-height); min-height:0; overflow:hidden; padding:0; }
- .mobile-toolbar { display:flex; flex:none; justify-content:space-between; align-items:center; height:calc(66px + var(--app-safe-top)); min-height:calc(66px + var(--app-safe-top)); padding:calc(12px + var(--app-safe-top)) 20px 0; gap:8px; background:var(--color-bg); z-index:5; }
+ .app-shell { display:flex; flex-direction:column; position:fixed; inset:var(--app-viewport-top) 0 auto; width:100%; height:var(--app-viewport-height); min-height:0; overflow:hidden; padding:0; }
+ .mobile-toolbar { display:flex; flex:none; justify-content:space-between; align-items:center; height:calc(66px + var(--app-control-safe-top)); min-height:calc(66px + var(--app-control-safe-top)); padding:calc(12px + var(--app-control-safe-top)) 20px 0; gap:8px; background:var(--color-bg); z-index:5; }
  .mobile-toolbar h1 { font-size:34px; line-height:44px; font-weight:700; letter-spacing:-.6px; margin:0; min-width:0; }
  .mobile-toolbar h1.codec-title { font-size:40px; font-weight:900; letter-spacing:-1px; }
  .mobile-toolbar-actions { display:flex; align-items:center; gap:4px; height:44px; padding:0 6px; border:1px solid color-mix(in srgb,var(--color-text) 10%,transparent); border-radius:30px; background:color-mix(in srgb,var(--color-panel-2) 83%,transparent); }
  .mobile-toolbar-actions .mobile-aux-chip { background:none; padding:0 5px; font-size:13px; font-weight:800; letter-spacing:1px; gap:4px; }
  .mobile-toolbar-actions .mobile-icon-button { border-radius:50%; width:40px; min-width:40px; }
  .mobile-toolbar-actions .mobile-icon-button svg { width:24px; height:24px; }
- .app-shell>.content { flex:1; min-height:0; width:100%; overflow-y:auto; overflow-x:hidden; padding:4px 20px calc(99px + var(--app-safe-bottom)); scroll-padding-bottom:calc(99px + var(--app-safe-bottom)); overscroll-behavior-y:contain; }
- .app-shell.has-mobile-player>.content { padding-bottom:calc(157px + var(--app-safe-bottom) - 34px); scroll-padding-bottom:calc(157px + var(--app-safe-bottom) - 34px); }
- .mobile-bottom-controls { position:absolute; z-index:10; inset:auto 0 0; display:flex; flex-direction:column; gap:0; pointer-events:none; padding:0 0 max(12px,calc(var(--app-safe-bottom) - 13px)); background:transparent; border:0; }
+ .app-shell>.content { flex:1; min-height:0; width:100%; overflow-y:auto; overflow-x:hidden; padding:4px max(20px,env(safe-area-inset-right)) calc(var(--mobile-controls-height,var(--mobile-controls-fallback)) + var(--download-status-height,0px) + 12px) max(20px,env(safe-area-inset-left)); scroll-padding-bottom:calc(var(--mobile-controls-height,var(--mobile-controls-fallback)) + var(--download-status-height,0px) + 12px); overscroll-behavior-y:contain; }
+ .app-shell.has-mobile-player { --mobile-controls-fallback:calc(124px + var(--mobile-bottom-inset)); }
+ .app-shell { --mobile-controls-fallback:calc(62px + var(--mobile-bottom-inset)); }
+ .mobile-bottom-controls { position:absolute; z-index:10; inset:auto 0 0; display:flex; flex-direction:column; gap:0; pointer-events:none; padding:0 env(safe-area-inset-right) var(--mobile-bottom-inset) env(safe-area-inset-left); background:transparent; border:0; }
+ /* Paint through the home-indicator inset while keeping the controls as pills. */
+ .mobile-bottom-controls::before { content:""; position:absolute; inset:auto 0 0; height:var(--mobile-bottom-inset); background:var(--color-bg); pointer-events:none; }
  .mobile-bottom-controls>* { pointer-events:auto; }
  .mobile-tab-bar { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); height:62px; min-height:62px; margin:0 21px; padding:4px; border:1px solid color-mix(in srgb,var(--color-text) 14%,transparent); border-radius:40px; background:color-mix(in srgb,var(--color-panel-2) 73%,transparent); box-shadow:inset 0 1px 1px color-mix(in srgb,var(--color-text) 10%,transparent),0 3px 12px #0002; backdrop-filter:blur(18px) saturate(1.6); -webkit-backdrop-filter:blur(18px) saturate(1.6); }
  .mobile-tab-bar button { min-height:0; min-width:0; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:2px; padding:0; border:0; border-radius:30px; color:var(--color-text); }
@@ -89,10 +102,9 @@
  .mobile-search-field input { font-size:17px; padding:10px 0; }
  .app-shell[data-view="search"]>.content { padding-top:0; }
  .app-shell.mobile-empty-search .empty-state { display:none; }
- .app-shell[data-view="visualizer"]>.content.mobile-visualizer { padding:calc(var(--app-safe-top) + 6px) 12px calc(83px + max(0px,var(--app-safe-bottom) - 34px)); }
- .app-shell.has-mobile-player[data-view="visualizer"]>.content.mobile-visualizer { padding-bottom:calc(145px + max(0px,var(--app-safe-bottom) - 34px)); }
- .native-membership-sheet .mobile-sheet { width:calc(100% - 16px); max-height:52dvh; border-radius:34px; margin-bottom:8px; }
- .native-membership-sheet .mobile-sheet-panel { min-height:0; height:auto; max-height:52dvh; padding-bottom:12px; }
+ .app-shell[data-view="visualizer"]>.content.mobile-visualizer { padding:calc(var(--app-control-safe-top) + 6px) max(12px,env(safe-area-inset-right)) calc(var(--mobile-controls-height,var(--mobile-controls-fallback)) + var(--download-status-height,0px) + 6px) max(12px,env(safe-area-inset-left)); }
+ .native-membership-sheet .mobile-sheet { width:calc(100% - 16px); max-height:calc(var(--app-viewport-height) * .52); border-radius:34px; margin-bottom:8px; }
+ .native-membership-sheet .mobile-sheet-panel { min-height:0; height:auto; max-height:calc(var(--app-viewport-height) * .52); padding-bottom:12px; }
  .native-membership-sheet .mobile-sheet-body { flex:1; }
 }
 @media(max-width:359px) { .mobile-toolbar { padding-inline:16px; } .mobile-toolbar h1.codec-title { font-size:36px; } .mobile-toolbar-actions { gap:0; padding-inline:2px; } .mobile-toolbar-actions .mobile-icon-button { width:36px; min-width:36px; } .mobile-toolbar-actions .mobile-aux-chip { font-size:11px; } .native-palette-title { font-size:13px; } }
@@ -121,12 +133,7 @@
  .mobile-toolbar-actions .mobile-icon-button { width:36px; min-width:36px; }
 }
 @media(max-width:980px) { .mobile-tab-bar button span { font-weight:500; } }
-@media(max-width:980px) {
- .app-shell>.content { padding-bottom:calc(74px + max(12px,calc(var(--app-safe-bottom) - 13px))); scroll-padding-bottom:calc(74px + max(12px,calc(var(--app-safe-bottom) - 13px))); }
- .app-shell.has-mobile-player>.content { padding-bottom:calc(136px + max(12px,calc(var(--app-safe-bottom) - 13px))); scroll-padding-bottom:calc(136px + max(12px,calc(var(--app-safe-bottom) - 13px))); }
- .app-shell[data-view="visualizer"]>.content.mobile-visualizer { padding-bottom:calc(68px + max(12px,calc(var(--app-safe-bottom) - 13px))); }
- .app-shell.has-mobile-player[data-view="visualizer"]>.content.mobile-visualizer { padding-bottom:calc(130px + max(12px,calc(var(--app-safe-bottom) - 13px))); }
-}
+
 .native-alert { width:270px; max-width:calc(100% - 48px); padding:0; border:1px solid var(--color-border); border-radius:26px; background:color-mix(in srgb,var(--color-panel-2) 90%,transparent); color:var(--color-text); box-shadow:0 16px 50px #0004; backdrop-filter:blur(20px); }
 .native-alert::backdrop { background:#0006; }
 .native-alert-body { padding:20px 16px 18px; }
@@ -169,9 +176,16 @@
 @keyframes mobile-symbol-in { from { opacity:.4; transform:scale(.85); } to { opacity:1; transform:scale(1); } }
 @keyframes mobile-heart-in { 0% { transform:scale(.85); } 60% { transform:scale(1.1); } 100% { transform:scale(1); } }
 
-/* Installed shells fill the layout viewport. Only the controls are inset;
-   the page and sheet backgrounds continue underneath the home indicator. */
+/* Safari and Home Screen both use the visible viewport. Safe-area space is
+   inside that viewport, never subtracted from the app background itself. */
 @media (max-width: 980px) {
-  :root[data-standalone="true"]:has(.app-shell), :root[data-standalone="true"] body:has(.app-shell) { height: 100%; overflow: hidden; }
-  :root[data-standalone="true"] .app-shell { position: fixed; inset: 0; height: var(--app-viewport-height); }
+ :root:has(.app-shell), body:has(.app-shell) { height:100%; overflow:hidden; }
+ .mobile-toolbar { padding-inline-start:max(20px,env(safe-area-inset-left)); padding-inline-end:max(20px,env(safe-area-inset-right)); }
+ .app-shell[data-view="home"] .mobile-toolbar { padding-inline-end:max(16px,env(safe-area-inset-right)); }
+ .mobile-sheet { position:fixed; inset:auto 0 var(--app-viewport-bottom); margin:0 auto; }
+ .visualizer-stage.expanded { inset:var(--app-viewport-top) 0 auto; height:var(--app-viewport-height); }
+ .modal-backdrop { inset:var(--app-viewport-top) 0 auto; height:var(--app-viewport-height); padding-top:max(12px,var(--app-control-safe-top)); }
+ .app-modal { max-height:calc(var(--app-viewport-height) - max(12px,var(--app-control-safe-top))); padding-bottom:max(20px,var(--app-control-safe-bottom)); }
+ .native-connect { position:fixed; inset:var(--app-viewport-top) 0 auto; height:var(--app-viewport-height); min-height:0; overflow-y:auto; place-items:safe center; }
 }
+@media (max-width:359px) { .mobile-toolbar { padding-inline-start:max(16px,env(safe-area-inset-left)); padding-inline-end:max(16px,env(safe-area-inset-right)); } }

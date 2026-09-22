@@ -22,6 +22,30 @@ otherwise the script serves `build/` itself on an available loopback port.
 `--build-dir`, `--viewports 320,390,430,1024,1440`, `--themes oxide,paper`, and
 `--headed true` and `--browser chromium|webkit` are supported. WebKit uses its Playwright-managed browser and ignores `PLAYWRIGHT_BROWSER_PATH`. Both light and dark themes run by default.
 
+For focused checks, use one of `--interaction-only true`, `--viewport-only true`,
+`--download-only true`, or `--profile-only true`. Use `--display-mode standalone` with the
+viewport mode to exercise the installed-app contract. Pass `--viewports 390 --themes graphite` for a focused run; the ordinary matrix
+remains available for widths/themes.
+
+The interaction mode checks finger-following swipes, vertical direction lock,
+cancellation, accessible queue moves, and continuous edge scrolling beyond the
+mounted rows. Chromium additionally checks trusted touch pointer capture through
+CDP. The viewport mode simulates safe-area changes, keyboard geometry, viewport sizes,
+and installation flags; it checks the final row in Songs and Search.
+The download mode checks visible response failures, progress inside modal sheets,
+cancellation, persisted audio, two-transfer concurrency, and no cache-key rescan
+per saved song. WebKit uses an isolated temporary persistent browser profile for
+CacheStorage persistence; no user profile is opened.
+
+Profile mode reports mounted rows, DOM changes, artwork requests, interaction
+readiness time, and long tasks where the browser exposes them. Compare the same
+browser/fixture sequentially; these are host-browser observations, not physical
+phone frame rates. On September 22, the published v0.1.6 baseline already kept
+2,000-song lists and 1,200-item queues bounded, with no extra artwork requests
+when advancing a track. The changes target broken gestures, screen geometry,
+stalled requests, and download feedback rather than claiming a list-speed gain
+unsupported by those measurements.
+
 All API calls use generated fixtures: 2,000 songs, custom playlist artwork,
 a collage playlist, and a revision-checked playback server. Requests to other
 origins are blocked. No production credentials, library, or server are used.

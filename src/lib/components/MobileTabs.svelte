@@ -1,12 +1,41 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   let { selected, onSelect }: { selected: string; onSelect: (view: string) => void } = $props();
+  let navigation: HTMLElement;
   const tabs = [
     { id: "home", label: "Home" }, { id: "search", label: "Search" },
     { id: "library", label: "Library" }, { id: "visualizer", label: "Visualizer" }
   ];
+
+  onMount(() => {
+    const controls = navigation.closest<HTMLElement>(".mobile-bottom-controls");
+    const shell = navigation.closest<HTMLElement>(".app-shell");
+    if (!controls || !shell) return;
+    const root = document.documentElement;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const height = `${Math.ceil(controls.getBoundingClientRect().height)}px`;
+      if (shell.style.getPropertyValue("--mobile-controls-height") !== height) {
+        shell.style.setProperty("--mobile-controls-height", height);
+        root.style.setProperty("--mobile-controls-height", height);
+      }
+    };
+    // The mini player and any status feedback can change independently of the
+    // current tab. Reserve their actual total height for the last content row.
+    const observer = new ResizeObserver(() => { if (!frame) frame = requestAnimationFrame(update); });
+    observer.observe(controls, { box: "border-box" });
+    update();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      shell.style.removeProperty("--mobile-controls-height");
+      root.style.removeProperty("--mobile-controls-height");
+    };
+  });
 </script>
 
-<nav class="mobile-tab-bar" aria-label="Mobile navigation" style={`--selected-tab:${Math.max(0, tabs.findIndex(tab => tab.id === selected))}`}>
+<nav bind:this={navigation} class="mobile-tab-bar" aria-label="Mobile navigation" style={`--selected-tab:${Math.max(0, tabs.findIndex(tab => tab.id === selected))}`}>
   <i class="mobile-tab-selection" aria-hidden="true"></i>
   {#each tabs as tab (tab.id)}
     <button type="button" class:active={selected === tab.id} aria-current={selected === tab.id ? "page" : undefined} onclick={() => onSelect(tab.id)}>

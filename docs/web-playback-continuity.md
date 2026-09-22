@@ -147,3 +147,17 @@ generated audio and two isolated browser clients connected by real SSE. Existing
 playback continuity tests also pass without routine reloads or seeks. These
 checks exercise real media events and registered system callbacks; they do not
 press a physical Bluetooth headphone button.
+
+## Mobile command deadlines
+
+Playback commands now share the eight-second request/body deadline used by sync
+reads. A stalled request no longer keeps `pendingPlaybackCommands` elevated
+indefinitely. Switching server, credentials, or device aborts the previous
+command queue. Commands remain serialized and retain revision preconditions;
+there is no automatic retry of a write whose outcome is unknown. A later
+explicit Pause still runs after an earlier queue edit times out.
+
+The sync regressions cover stalled response headers and JSON bodies followed by
+Pause, plus a write that reaches the server but loses its response: the next
+stale queue snapshot conflicts instead of overwriting it. The mobile browser
+fixture separately checks swipe/drag cancellation when the remote queue changes.

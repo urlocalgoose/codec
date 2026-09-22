@@ -3651,3 +3651,37 @@ audio {
   background: var(--color-accent);
   transition: width 240ms ease;
 }
+
+
+/* Shared feedback remains visible in the active screen or modal, and its
+   measured height is reserved by each scroll container. */
+.download-status {
+  position: fixed;
+  z-index: 110;
+  right: 20px;
+  bottom: 20px;
+  width: min(400px, calc(100% - 32px));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-panel-2);
+  color: var(--color-text);
+  box-shadow: 0 4px 18px var(--button-shadow);
+}
+.download-status-copy { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.download-status-copy strong { font-size: 14px; line-height: 18px; font-weight: 600; }
+.download-status-copy small { font-size: 12px; line-height: 16px; color: var(--color-muted); }
+.download-status > button { grid-column: 2; grid-row: 1; width: 44px; height: 44px; border: 0; border-radius: 12px; display: grid; place-items: center; padding: 0; background: transparent; color: var(--color-muted); touch-action: manipulation; }
+.download-status > button:active { background: var(--color-surface); }
+.download-status > button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.download-status progress { grid-column: 1 / -1; display: block; width: 100%; height: 3px; margin: 0; border: 0; border-radius: 2px; accent-color: var(--color-accent); }
+.download-status[data-state="error"] { border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border)); }
+@media (max-width: 980px) {
+  .download-status { right: max(12px, env(safe-area-inset-right)); left: max(12px, env(safe-area-inset-left)); bottom: calc(var(--app-viewport-bottom, 0px) + var(--mobile-controls-height, 0px) + 8px); width: auto; }
+}
+.mobile-sheet-panel > .download-status { position: absolute; z-index: 6; inset: auto 16px max(12px, var(--app-control-safe-bottom, 0px)); width: auto; }
+.mobile-sheet-panel:has(> .download-status) > .mobile-sheet-body { padding-bottom: calc(var(--download-status-height) + 12px); scroll-padding-bottom: calc(var(--download-status-height) + 12px); }

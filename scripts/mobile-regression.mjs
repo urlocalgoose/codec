@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 // Usage and runtime configuration: scripts/mobile-regression.md
+// Selective profiling: --profile-only true --viewports 390 --themes graphite
+// Focused regression: --interaction-only, --viewport-only, or --download-only true, with
+// --viewports 390 --themes graphite. Run viewport mode in browser + standalone.
+// Optional --display-mode standalone simulates navigator.standalone for app
+// mode detection. It does not reproduce iOS Safari chrome or OS safe areas.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -44,6 +49,15 @@ const report = { baseURL, browser: browserName, startedAt: new Date().toISOStrin
 const browser = await browserType.launch({ headless: args.get('headed') !== 'true', ...(browserName === 'chromium' ? {executablePath: args.get('browser-path') ?? process.env.PLAYWRIGHT_BROWSER_PATH} : {}) });
 const widths = (args.get('viewports') ?? '320,390,430,1024,1440').split(',').map(Number);
 const themes = (args.get('themes') ?? 'oxide,paper').split(',');
+const profileOnly = args.get('profile-only') === 'true';
+const interactionOnly = args.get('interaction-only') === 'true';
+const viewportOnly = args.get('viewport-only') === 'true';
+const downloadOnly = args.get('download-only') === 'true';
+assert([profileOnly, interactionOnly, viewportOnly, downloadOnly].filter(Boolean).length <= 1, 'Select at most one focused mode');
+const displayMode = args.get('display-mode') ?? 'browser';
+assert(['browser', 'standalone'].includes(displayMode), '--display-mode must be browser or standalone');
+report.configuration = { buildDirectory: args.get('build-dir') ?? path.join(repo, 'build'), profileOnly, interactionOnly, viewportOnly, downloadOnly, displayMode,
+  fixtureTracks: 2000, fixtureArtworkVariants: 4, realIPhone: false };
 
 async function waitUntil(condition, message, timeout = 6000) {
   const deadline = Date.now() + timeout;
@@ -80,6 +94,7 @@ function fixtures(origin) {
   wave.writeUInt32LE(8000,24); wave.writeUInt32LE(16000,28); wave.writeUInt16LE(2,32); wave.writeUInt16LE(16,34);
   wave.write('data',36); wave.writeUInt32LE(1600,40);
   let audioRequests = 0;
+  let audioMode = 'valid', audioGate, releaseAudio, activeAudio = 0, maxActiveAudio = 0;
   let artworkRequests = 0;
   let received = 0;
   let release;
@@ -87,6 +102,10 @@ function fixtures(origin) {
   return {
     tracks, library, commands, mutations,
     get audioRequests() { return audioRequests; },
+    get maxActiveAudio() { return maxActiveAudio; },
+    setAudioResponse(mode) { audioMode = mode; },
+    holdAudioDownloads() { audioGate = new Promise(resolve => { releaseAudio = resolve; }); },
+    releaseAudioDownloads() { releaseAudio?.(); audioGate = undefined; },
     get artworkRequests() { return artworkRequests; },
     get state() { return state; },
     advanceSource() { state = { ...state, revision: state.revision + 1, track: ref(tracks[1]), context: { ...state.context, playback_index: 1 }, server_time_ms: Date.now() }; },
@@ -124,7 +143,17 @@ function fixtures(origin) {
         return route.fulfill({ json: state });
       }
       if (pathname.includes('/playback/devices') || pathname === '/api/v1/aux') return route.fulfill({ json: [] });
-      if (pathname.includes('/audio')) { audioRequests += 1; return route.fulfill({ contentType:'audio/wav', body:wave }); }
+      if (pathname.includes('/audio')) {
+        audioRequests += 1; activeAudio++; maxActiveAudio = Math.max(maxActiveAudio, activeAudio);
+        const mode = audioMode, gate = audioGate;
+        try {
+          if (gate) await gate;
+          if (mode === 'html') return await route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Proxy sign-in</title>' });
+          if (mode === 'empty') return await route.fulfill({ contentType: 'audio/wav', body: '' });
+          if (mode === 'unavailable') return await route.fulfill({ status: 503, json: { error: 'Fixture server unavailable' } });
+          return await route.fulfill({ contentType: 'audio/wav', body: wave, headers: { 'Content-Length': String(wave.length) } });
+        } finally { activeAudio--; }
+      }
       const playlistMatch = pathname.match(/^\/api\/v1\/playlists\/([^/]+)\/tracks(?:\/([^/]+))?$/);
       if (playlistMatch) {
         const playlist = playlists.find(p => p.id === decodeURIComponent(playlistMatch[1]));
@@ -156,17 +185,56 @@ async function listMetrics(page, selector = '.track-row', scrollSelector = '.con
 try {
   for (const { width, theme } of widths.flatMap((width) => themes.map((theme) => ({ width, theme })))) {
     const mobile = width <= 980;
-    const scenario = { width, theme, mobile, screenshots: [], errors: [], consoleErrors: [], issues: [], checks: {} };
+    const scenario = { width, theme, mobile, displayMode, screenshots: [], errors: [], consoleErrors: [], issues: [], checks: {} };
     report.scenarios.push(scenario);
-    const context = await browser.newContext({ viewport: { width, height: mobile ? 844 : 960 }, deviceScaleFactor: mobile ? 2 : 1, isMobile: mobile, hasTouch: mobile, serviceWorkers: 'block' });
-    await context.addInitScript((theme) => {
+    // Bundled WebKit's nonpersistent contexts discard CacheStorage on reload,
+    // even on an empty page. Downloads need an isolated real profile to test
+    // persistence; the profile is removed after this scenario.
+    const profileDirectory = downloadOnly && browserName === 'webkit' ? await fs.mkdtemp(path.join(os.tmpdir(), 'codec-webkit-download-')) : null;
+    const contextOptions = { viewport: { width, height: mobile ? 844 : 960 }, deviceScaleFactor: mobile ? 2 : 1, isMobile: mobile, hasTouch: mobile, serviceWorkers: 'block' };
+    const context = profileDirectory
+      ? await browserType.launchPersistentContext(profileDirectory, { ...contextOptions, headless: args.get('headed') !== 'true' })
+      : await browser.newContext(contextOptions);
+    scenario.storageContext = profileDirectory ? 'isolated temporary persistent profile' : 'isolated nonpersistent context';
+    await context.addInitScript(({ theme, displayMode, profileOnly, viewportOnly, downloadOnly }) => {
       localStorage.setItem('codec.theme', theme);
       localStorage.setItem('codec.syncServer', location.origin);
       localStorage.setItem('codec.deviceId', 'fixture-browser');
-    }, theme);
+      Object.defineProperty(navigator, 'standalone', { configurable: true, value: displayMode === 'standalone' });
+      if (viewportOnly) {
+        // Deliberately synthetic geometry: desktop WebKit does not provide
+        // actual iPhone Safari chrome, OS keyboard, or home-indicator insets.
+        const viewport = new EventTarget();
+        Object.assign(viewport, { height: 844, width: innerWidth, offsetTop: 0, offsetLeft: 0, pageTop: 0, pageLeft: 0, scale: 1 });
+        Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+        window.__setFixtureViewport = values => { Object.assign(viewport, values); viewport.dispatchEvent(new Event('resize')); };
+      }
+      if (downloadOnly) {
+        window.__cacheKeyScans = 0;
+        const keys = Cache.prototype.keys;
+        Cache.prototype.keys = function (...args) { window.__cacheKeyScans++; return keys.apply(this, args); };
+      }
+      if (profileOnly) {
+        const probe = window.__mobileProfile = { started: performance.now(), longTasks: [], longTaskSupported: PerformanceObserver.supportedEntryTypes.includes('longtask'),
+          addedRows: 0, removedRows: 0, attributes: 0, imageSourceChanges: 0, textChanges: 0 };
+        if (probe.longTaskSupported) new PerformanceObserver(list => {
+          for (const entry of list.getEntries()) probe.longTasks.push({ start: entry.startTime, duration: entry.duration });
+        }).observe({ type: 'longtask', buffered: true });
+        new MutationObserver(records => {
+          for (const record of records) {
+            if (record.type === 'attributes') { probe.attributes++; if (record.target instanceof HTMLImageElement && record.attributeName === 'src') probe.imageSourceChanges++; }
+            if (record.type === 'characterData') probe.textChanges++;
+            for (const kind of ['added', 'removed']) for (const node of record[`${kind}Nodes`] ?? []) {
+              if (node instanceof Element) probe[`${kind}Rows`] += Number(node.matches('.track-row,.mobile-queue-row')) + node.querySelectorAll('.track-row,.mobile-queue-row').length;
+            }
+          }
+        }).observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
+      }
+    }, { theme, displayMode, profileOnly, viewportOnly, downloadOnly });
     const fixture = fixtures(new URL(baseURL).origin);
+    if (profileOnly || interactionOnly) fixture.seedLargeManualQueue();
     const page = await context.newPage();
-    page.on('pageerror', (error) => scenario.errors.push(error.stack ?? error.message));
+    page.on('pageerror', (error) => scenario.errors.push(error.stack || error.message || String(error)));
     page.on('console', (message) => { if (message.type() === 'error') scenario.consoleErrors.push(message.text()); });
     await page.route('**/*', (route) => fixture.handle(route));
     page.setDefaultTimeout(8000);
@@ -213,6 +281,373 @@ try {
       scenario.checks[key] = metrics;
       await shot(key);
     };
+    const profile = async () => {
+      assert(mobile, '--profile-only is a focused mobile fixture');
+      const measures = scenario.profile = [];
+      const geometry = () => page.evaluate(() => {
+        const rect = selector => { const box = document.querySelector(selector)?.getBoundingClientRect(); return box ? { top: box.top, bottom: box.bottom, height: box.height } : null; };
+        return { innerHeight, visualViewportHeight: visualViewport?.height, visualViewportOffset: visualViewport?.offsetTop,
+          standalone: navigator.standalone, modeAttribute: document.documentElement.dataset.displayMode ?? document.querySelector('.app-shell')?.dataset.displayMode,
+          shell: rect('.app-shell'), content: rect('.content'), mini: rect('.mobile-mini-player'), tabs: rect('.mobile-tab-bar') };
+      });
+      const collect = async (name, action = async () => {}) => {
+        const artworkBefore = fixture.artworkRequests;
+        const before = await page.evaluate(() => ({ ...window.__mobileProfile, now: performance.now() }));
+        await action();
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const metrics = await page.evaluate(before => {
+          const p = window.__mobileProfile;
+          const tasks = p.longTasks.filter(task => task.start >= before.now);
+          return { completion_ms: performance.now() - before.now, elements: document.querySelectorAll('*').length,
+            songRows: document.querySelectorAll('.track-row').length, queueRows: document.querySelectorAll('.mobile-queue-row').length,
+            images: document.querySelectorAll('img').length, addedRows: p.addedRows - before.addedRows, removedRows: p.removedRows - before.removedRows,
+            attributeChanges: p.attributes - before.attributes, textChanges: p.textChanges - before.textChanges, imageSourceChanges: p.imageSourceChanges - before.imageSourceChanges,
+            longTaskSupported: p.longTaskSupported, longTaskCount: tasks.length, longTaskTotal_ms: tasks.reduce((sum, task) => sum + task.duration, 0),
+            longestTask_ms: Math.max(0, ...tasks.map(task => task.duration)) };
+        }, before);
+        measures.push({ name, ...metrics, artworkRequests: fixture.artworkRequests - artworkBefore });
+      };
+      await collect('home settled');
+      scenario.profileGeometry = [{ name: 'initial', ...await geometry() }];
+      await collect('open 2000-song collection', openSongs);
+      await collect('scroll songs to index ~100', async () => {
+        await page.locator('.content').evaluate(element => { element.scrollTop = 10000; });
+        await waitUntil(async () => (await listMetrics(page)).firstVisible?.includes('Sample track 0') && (await listMetrics(page)).scrollTop > 9000, 'Profile songs must scroll');
+      });
+      await collect('scroll songs to final row', async () => {
+        await page.locator('.content').evaluate(element => { element.scrollTop = element.scrollHeight; });
+        await page.getByRole('button', { name: 'Play Sample track 2000', exact: true }).waitFor();
+      });
+      scenario.profileLastRow = await page.getByRole('button', { name: 'Play Sample track 2000', exact: true }).evaluate(element => {
+        const row = element.getBoundingClientRect(), mini = document.querySelector('.mobile-mini-player').getBoundingClientRect();
+        return { rowBottom: row.bottom, miniTop: mini.top, clearance: mini.top - row.bottom };
+      });
+      await collect('open Now Playing', async () => {
+        await page.getByRole('button', { name: /^Open Now Playing:/ }).click();
+        await page.getByRole('dialog', { name: 'Now Playing', exact: true }).waitFor();
+      });
+      await collect('open 1200-manual + 1999-upcoming queue', async () => {
+        await page.getByRole('dialog', { name: 'Now Playing', exact: true }).getByRole('button', { name: 'Queue', exact: true }).click();
+        await page.locator('.native-queue-sheet [data-queue-group="manual"]').first().waitFor();
+      });
+      await shot('profile-queue');
+      await collect('advance current track while queue open', async () => {
+        fixture.advanceSource(); await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+        await page.locator('.native-queue-sheet .mobile-queue-row.current').getByText('Sample track 0002', { exact: true }).waitFor();
+      });
+      await collect('scroll large manual queue', async () => {
+        await page.locator('.native-queue-sheet .mobile-sheet-body').evaluate(element => { element.scrollTop = 10000; });
+        await waitUntil(async () => (await listMetrics(page, '.native-queue-sheet .mobile-queue-row', '.native-queue-sheet .mobile-sheet-body')).visible > 0, 'Profile queue must have visible rows');
+      });
+      await page.keyboard.press('Escape'); await page.getByRole('dialog', { name: 'Queue', exact: true }).waitFor({ state: 'detached' });
+      await page.keyboard.press('Escape');
+      for (const height of [700, 844]) {
+        await page.setViewportSize({ width, height });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        scenario.profileGeometry.push({ name: `viewport height ${height}`, ...await geometry() });
+      }
+      scenario.checks.selectiveProfile = 'Generated 2000-song fixture; timings include automation overhead and UI readiness plus two frames, not an FPS estimate.';
+      assert.deepEqual(scenario.errors, [], 'Unhandled browser errors during profile');
+      console.log(JSON.stringify({ width, theme, displayMode, profile: measures, geometry: scenario.profileGeometry, lastRow: scenario.profileLastRow }));
+    };
+    const nextFrames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const interactions = async () => {
+      assert(mobile, '--interaction-only is a focused mobile fixture');
+      scenario.simulation = 'Trusted browser mouse pointers exercise the shared swipe/reorder handlers; pointercancel is synthesized. This does not emulate iPhone touch scrolling physics.';
+      await page.getByRole('button', { name: /^Open Now Playing:/ }).click();
+      await page.getByRole('dialog', { name: 'Now Playing', exact: true }).getByRole('button', { name: 'Queue', exact: true }).click();
+      const queue = page.getByRole('dialog', { name: 'Queue', exact: true });
+      const first = () => queue.locator('[data-queue-group="manual"][data-queue-index="0"]');
+      const content = queue.locator('.mobile-queue-content');
+      const scroller = queue.locator('.mobile-sheet-body');
+      await first().waitFor();
+      const initialTrack = fixture.state.track.id;
+      const initialOrder = fixture.state.context.queued_tracks.map(track => track.id);
+      const beginSwipe = async () => {
+        const box = await first().locator('.mobile-queue-play').boundingBox();
+        const point = { x: box.x + box.width * .75, y: box.y + box.height / 2 };
+        await page.mouse.move(point.x, point.y); await page.mouse.down();
+        return point;
+      };
+      let point = await beginSwipe();
+      await page.mouse.move(point.x - 55, point.y + 2, { steps: 5 });
+      await waitUntil(async () => first().evaluate(row => {
+        const content = row.querySelector('.mobile-queue-row-content') ?? row.querySelector('.mobile-queue-play');
+        return row.classList.contains('queue-swiping') && new DOMMatrixReadOnly(getComputedStyle(content).transform).m41 < -20;
+      }), 'Queue artwork and text must follow the swipe before pointerup');
+      await page.mouse.move(point.x - 108, point.y + 2, { steps: 4 }); await page.mouse.up();
+      await waitUntil(async () => first().evaluate(row => row.classList.contains('queue-swipe-open')), 'Left swipe must reveal Remove');
+      await first().locator('.mobile-queue-play').dispatchEvent('click', { detail: 1 });
+      await nextFrames();
+      assert.equal(fixture.receivedCommands, 0, 'The click after a swipe must not play or remove anything');
+      assert.deepEqual(fixture.state.context.queued_tracks.map(track => track.id), initialOrder);
+      scenario.checks.liveSwipe = 'Artwork/text move during swipe; releasing exposes Remove; following click does not play or remove';
+
+      // Close the open action, then lock the next gesture vertically before
+      // taking it left. A scrolling gesture must never become a delete swipe.
+      await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+      point = await beginSwipe();
+      await page.mouse.move(point.x + 1, point.y + 35, { steps: 4 });
+      await page.mouse.move(point.x - 110, point.y + 45, { steps: 5 }); await page.mouse.up();
+      await first().locator('.mobile-queue-play').dispatchEvent('click', { detail: 1 });
+      await nextFrames();
+      assert.equal(await queue.locator('.queue-swipe-open').count(), 0, 'Vertical-first drag must not reveal Remove after changing direction');
+      assert.equal(fixture.receivedCommands, 0, 'Vertical-first drag must not play the row');
+      scenario.checks.verticalSwipeLock = 'Vertical-first gesture remains scrolling intent after moving sideways';
+
+      point = await beginSwipe();
+      await page.mouse.move(point.x - 70, point.y, { steps: 5 });
+      await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, pointerType: 'mouse', isPrimary: true, bubbles: true })));
+      await page.mouse.up();
+      await first().locator('.mobile-queue-play').dispatchEvent('click', { detail: 1 });
+      await nextFrames();
+      assert.equal(await queue.locator('.queue-swipe-open,.queue-swiping').count(), 0, 'Cancelled swipe must restore the row');
+      assert.equal(fixture.receivedCommands, 0, 'Cancelled swipe must not play or remove the row');
+      scenario.checks.cancelledSwipe = 'Pointer cancellation resets swipe and suppresses its trailing click';
+
+      if (browserName === 'chromium') {
+        // CDP creates trusted touch events, including the browser's implicit
+        // pointer capture and generated click. WebKit has no matching API.
+        const touch = await context.newCDPSession(page);
+        await page.evaluate(() => document.addEventListener('pointerdown', event => {
+          if (event.pointerType === 'touch') window.__queueTouchPointer = event.pointerId;
+        }, { once: true }));
+        const box = await first().locator('.mobile-queue-play').boundingBox();
+        const start = { x: box.x + box.width * .75, y: box.y + box.height / 2 };
+        const dispatch = (type, x = start.x, y = start.y) => touch.send('Input.dispatchTouchEvent', {
+          type, touchPoints: type === 'touchEnd' || type === 'touchCancel' ? [] : [{ x, y, id: 0, radiusX: 3, radiusY: 3 }]
+        });
+        await dispatch('touchStart');
+        await dispatch('touchMove', start.x - 65, start.y + 2);
+        await waitUntil(async () => first().evaluate(row => row.classList.contains('queue-swiping')), 'Trusted touch swipe must remain active after implicit capture moves to the persistent list');
+        assert(await content.evaluate(element => element.hasPointerCapture(window.__queueTouchPointer)), 'Trusted swipe must transfer capture to the persistent list');
+        await dispatch('touchMove', start.x - 110, start.y + 2); await dispatch('touchEnd');
+        await waitUntil(async () => first().evaluate(row => row.classList.contains('queue-swipe-open')), 'Trusted touch must reveal Remove');
+        assert.equal(fixture.receivedCommands, 0, 'Trusted touch release must not issue an accidental play');
+        await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        await dispatch('touchStart'); await dispatch('touchMove', start.x - 65, start.y); await dispatch('touchCancel');
+        await nextFrames();
+        assert.equal(await queue.locator('.queue-swiping,.queue-swipe-open').count(), 0, 'Trusted touch cancellation must close swipe');
+        assert.equal(fixture.receivedCommands, 0, 'Trusted touch cancellation must not play or remove');
+        await touch.detach();
+        scenario.checks.trustedTouchCapture = 'CDP trusted touch transfers implicit capture, swipes without play, and resets on native pointer cancellation';
+      }
+
+      await queue.getByRole('button', { name: 'Edit', exact: true }).click();
+      await first().locator('.queue-reorder-control').click();
+      await first().locator('.queue-move-actions').waitFor();
+      await first().getByRole('button', { name: 'Move Sample track 0101 down', exact: true }).click();
+      await waitUntil(() => fixture.state.context.queued_tracks[1]?.id === initialOrder[0], 'Tap-handle Move Down must move exactly one row');
+      assert.deepEqual(fixture.state.context.queued_tracks.slice(0, 3).map(track => track.id), [initialOrder[1], initialOrder[0], initialOrder[2]]);
+      scenario.checks.tapMove = 'Tapping the handle exposes an explicit one-position move';
+
+      const beforeDrag = fixture.state.context.queued_tracks.map(track => track.id);
+      const commandsBeforeDrag = fixture.receivedCommands;
+      const handle = await first().locator('.queue-reorder-control').boundingBox();
+      const bounds = await scroller.boundingBox();
+      await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2); await page.mouse.down();
+      await page.mouse.move(handle.x + handle.width / 2, Math.min(bounds.y + bounds.height - 4, 838), { steps: 12 });
+      await waitUntil(async () => scroller.evaluate(element => element.scrollTop > 1600), 'Holding a reorder at the bottom edge must autoscroll across virtual rows', 7000);
+      const duringDrag = await scroller.evaluate(element => ({ scrollTop: element.scrollTop,
+        mountedRows: element.querySelectorAll('.mobile-queue-row').length,
+        firstMounted: Number(element.querySelector('[data-queue-group="manual"]')?.getAttribute('data-queue-index')) }));
+      assert(duringDrag.firstMounted > 0, 'Edge reorder must survive the source row leaving the virtual window');
+      assert(duringDrag.mountedRows < 100, 'Edge reorder must keep queue rendering bounded');
+      await page.mouse.up();
+      await waitUntil(() => fixture.receivedCommands > commandsBeforeDrag, 'Releasing after edge scrolling must commit a reorder');
+      await waitUntil(() => fixture.commands.length === fixture.receivedCommands, 'Reorder must complete');
+      const afterDrag = fixture.state.context.queued_tracks.map(track => track.id);
+      const movedIndex = afterDrag.indexOf(beforeDrag[0]);
+      assert(movedIndex > 10, 'The source row must move beyond its initial viewport');
+      assert.deepEqual(afterDrag.filter(id => id !== beforeDrag[0]), beforeDrag.slice(1), 'Edge reorder must preserve every other queue entry in order');
+      assert.equal(afterDrag.length, beforeDrag.length, 'Edge reorder must not remove or duplicate entries');
+      assert.equal(fixture.state.track.id, initialTrack, 'Editing the queue must not change the playing song');
+      assert.equal(fixture.audioRequests, 0, 'Queue editing for the remote owner must not stream locally');
+      assert.equal(await content.evaluate(element => element.hasPointerCapture(1)), false, 'Reorder capture must be released');
+      scenario.checks.edgeAutoscroll = { ...duringDrag, movedIndex, queueLength: afterDrag.length };
+      await shot('interaction-queue-after-edge-move');
+
+      // A remote queue replacement can arrive while a row is held at the
+      // edge. The old gesture must stop instead of applying its stale index.
+      await scroller.evaluate(element => { element.scrollTop = 0; });
+      await first().waitFor();
+      const nextHandle = await first().locator('.queue-reorder-control').boundingBox();
+      const beforeCancelCommands = fixture.receivedCommands;
+      await page.mouse.move(nextHandle.x + nextHandle.width / 2, nextHandle.y + nextHandle.height / 2); await page.mouse.down();
+      await page.mouse.move(nextHandle.x + nextHandle.width / 2, Math.min(bounds.y + bounds.height - 4, 838), { steps: 10 });
+      await waitUntil(async () => scroller.evaluate(element => element.scrollTop > 400), 'Cancellation fixture must first start real edge scrolling');
+      await queue.locator('.queue-drag-preview').waitFor();
+      fixture.seedLargeManualQueue();
+      await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+      await queue.locator('.queue-drag-preview').waitFor({ state: 'detached' });
+      const stoppedAt = await scroller.evaluate(element => element.scrollTop);
+      await page.waitForTimeout(180);
+      assert(Math.abs(await scroller.evaluate(element => element.scrollTop) - stoppedAt) < 2, 'Remote queue replacement must stop the edge-scroll animation');
+      await page.mouse.up(); await nextFrames();
+      assert.equal(fixture.receivedCommands, beforeCancelCommands, 'Trailing pointerup after queue replacement must not commit a stale reorder');
+      assert.deepEqual(fixture.state.context.queued_tracks.map(track => track.id), initialOrder, 'Remote replacement must preserve the server queue exactly');
+      assert.equal(await content.evaluate(element => element.hasPointerCapture(1)), false, 'Canceled reorder capture must be released');
+      scenario.checks.remoteChangeCancelsDrag = 'Remote queue replacement removes the drag preview, stops edge scrolling, and suppresses stale pointerup reorder';
+      assert.deepEqual(scenario.errors, [], 'Unhandled browser errors');
+    };
+    const viewportChecks = async () => {
+      assert(mobile, '--viewport-only is a focused mobile fixture');
+      scenario.simulation = 'Synthetic VisualViewport, navigator.standalone, and CSS safe-area values. Real iPhone Safari chrome and HomeScreen installation still require device testing.';
+      await waitUntil(async () => page.locator('html').getAttribute('data-display-mode').then(mode => mode === displayMode), 'App must identify browser versus standalone mode');
+      await page.evaluate(() => {
+        document.documentElement.style.setProperty('--app-safe-bottom', '34px');
+        document.documentElement.style.setProperty('--app-safe-top', '59px');
+      });
+      const cases = scenario.viewportCases = [];
+      const capture = async (name, height, top = 0, keyboard = false) => {
+        await page.evaluate(values => window.__setFixtureViewport(values), { height, offsetTop: top, scale: 1 });
+        await waitUntil(async () => page.locator('.app-shell').evaluate((el, height) => Math.abs(el.getBoundingClientRect().height - height) < 1, height), `${name}: shell must follow visual viewport`);
+        await nextFrames();
+        const metric = await page.evaluate(() => {
+          const rect = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height }; };
+          const shell = document.querySelector('.app-shell'), content = document.querySelector('.content');
+          return { shell: rect('.app-shell'), controls: rect('.mobile-bottom-controls'), tabs: rect('.mobile-tab-bar'), mini: rect('.mobile-mini-player'),
+            reserved: parseFloat(getComputedStyle(content).paddingBottom), measuredControls: parseFloat(shell.style.getPropertyValue('--mobile-controls-height')),
+            keyboard: document.documentElement.dataset.keyboardOpen === 'true', overflowX: document.documentElement.scrollWidth > innerWidth + 1 };
+        });
+        cases.push({ name, ...metric });
+        assert(Math.abs(metric.shell.top - top) < 1, `${name}: shell must match visual viewport offset`);
+        assert(Math.abs(metric.shell.bottom - (top + height)) < 1, `${name}: shell must fill the visible area`);
+        assert.equal(metric.keyboard, keyboard, `${name}: keyboard classification must follow actual focused input`);
+        assert(Math.abs(metric.shell.bottom - metric.tabs.bottom - (keyboard ? 12 : 34)) < 1, `${name}: bottom inset must be applied exactly once`);
+        assert(Math.abs(metric.reserved - metric.controls.height - 12) <= 1, `${name}: content must reserve measured controls plus 12px (${metric.reserved} vs ${metric.controls.height} + 12)`);
+        assert(Math.abs(metric.measuredControls - metric.controls.height) <= 1, `${name}: control height must be observed`);
+        assert(!metric.overflowX, `${name}: no horizontal page overflow`);
+      };
+      await capture('full viewport with home-indicator inset', 844);
+      await capture('browser chrome reduces visual viewport', 700);
+      await capture('visible viewport is vertically offset', 690, 20);
+      // Pinch zoom changes scale, so layout must keep the last scale=1 geometry.
+      await page.evaluate(() => window.__setFixtureViewport({ height: 350, offsetTop: 80, scale: 2 }));
+      await nextFrames();
+      const zoom = await page.locator('.app-shell').boundingBox();
+      assert(Math.abs(zoom.height - 690) < 1 && Math.abs(zoom.y - 20) < 1, 'Pinch zoom must not shrink or reposition the app layout');
+      await capture('restore after zoom', 844);
+      await openSongs();
+      const finalRowClearance = async name => {
+        await page.locator('.content').evaluate(element => { element.scrollTop = element.scrollHeight; });
+        const last = page.getByRole('button', { name: 'Play Sample track 2000', exact: true });
+        await last.waitFor(); await nextFrames();
+        const clearance = await last.evaluate(element => document.querySelector('.mobile-bottom-controls').getBoundingClientRect().top - element.closest('.track-row').getBoundingClientRect().bottom);
+        assert(clearance >= 10, `${name}: final track must clear all bottom controls by at least 10px (got ${clearance})`);
+        scenario.checks[name] = clearance;
+      };
+      await finalRowClearance('songsFinalRow');
+      await capture('songs with shorter visible area', 700);
+      await finalRowClearance('shortSongsFinalRow');
+      await mobileTab('Search');
+      const search = page.locator('input[type="search"]:visible');
+      await search.fill('Sample');
+      await capture('keyboard while searching', 480, 0, true);
+      await finalRowClearance('searchKeyboardFinalRow');
+      await search.blur();
+      await capture('keyboard dismissed but chrome remains', 700);
+      await finalRowClearance('searchFinalRow');
+      await capture('full viewport restored for screenshot', 844);
+      await finalRowClearance('searchRestoredFinalRow');
+      await shot('viewport-search-final-row');
+      assert.deepEqual(scenario.errors, [], 'Unhandled browser errors');
+      scenario.checks.viewport = 'Browser/standalone mode, dynamic toolbar height and offset, pinch zoom, focused keyboard, measured controls, and last-row clearance';
+    };
+    const downloadChecks = async () => {
+      assert(mobile, '--download-only is a focused mobile fixture');
+      scenario.simulation = 'Real CacheStorage and browser fetch with isolated response fixtures. HTTP bodies can be held, failed, canceled, or replaced by HTML/empty content. Offline reopen/Blob playback are covered separately by mobile-download-regression.mjs.';
+      await openSongs();
+      const row = () => page.locator('.track-row').filter({ hasText: 'Sample track 0002' });
+      const status = () => page.locator('.app-shell > .download-status');
+      const start = async () => {
+        await page.locator('.content').evaluate(el => { el.scrollTop = 0; });
+        await row().dispatchEvent('contextmenu');
+        await page.getByRole('dialog', { name: 'Sample track 0002', exact: true }).getByRole('button', { name: 'Download', exact: true }).click();
+      };
+      const cached = () => page.evaluate(async () => {
+        const cache = await caches.open('codec-audio-downloads-v1');
+        return Promise.all((await cache.keys()).map(async request => ({ key: request.url, bytes: (await (await cache.match(request)).blob()).size })));
+      });
+      const dismiss = async () => { await status().getByRole('button', { name: 'Dismiss download status', exact: true }).click(); };
+      const failures = scenario.downloadFailures = [];
+      for (const mode of ['html', 'empty', 'unavailable']) {
+        fixture.setAudioResponse(mode);
+        await start();
+        await waitUntil(async () => await status().getAttribute('data-state') === 'error', `${mode}: invalid download must visibly fail`);
+        assert.equal(await row().getByLabel('Downloaded', { exact: true }).count(), 0, `${mode}: invalid response must not be marked downloaded`);
+        assert.deepEqual(await cached(), [], `${mode}: invalid response must never enter the audio cache`);
+        failures.push({ mode, message: await status().innerText() });
+        await dismiss();
+      }
+      scenario.checks.invalidDownloads = 'HTML, empty audio and HTTP503 show persistent errors without a saved badge or cached bytes';
+
+      fixture.setAudioResponse('valid'); fixture.holdAudioDownloads();
+      let requestsBefore = fixture.audioRequests;
+      await start();
+      await waitUntil(() => fixture.audioRequests > requestsBefore, 'Held download must reach fixture');
+      await waitUntil(async () => await status().getAttribute('data-state') === 'downloading', 'Pending download must be visible');
+      assert.equal(await row().getByLabel('Downloaded', { exact: true }).count(), 0, 'Held response must not be prematurely marked downloaded');
+      assert.deepEqual(await cached(), [], 'Held response must not enter audio cache before completion');
+      assert.equal(await status().getByRole('progressbar', { name: 'Download progress' }).count(), 1, 'Pending download exposes progress');
+      await status().getByRole('button', { name: 'Cancel downloads', exact: true }).click();
+      await status().getByText('Download canceled', { exact: true }).waitFor();
+      fixture.releaseAudioDownloads(); await nextFrames();
+      assert.deepEqual(await cached(), [], 'Canceled download must not become cached when the server finally replies');
+      await dismiss();
+      scenario.checks.cancelDownload = 'Pending state, progress and cancel are visible; cancel leaves no partial or delayed cached response';
+
+      fixture.holdAudioDownloads(); requestsBefore = fixture.audioRequests;
+      await start();
+      await waitUntil(() => fixture.audioRequests > requestsBefore, 'Second held download must reach fixture');
+      await page.getByRole('button', { name: /^Open Now Playing:/ }).click();
+      const player = page.getByRole('dialog', { name: 'Now Playing', exact: true });
+      await player.locator('.download-status[data-state="downloading"]').waitFor();
+      assert.equal(await player.getByRole('button', { name: 'Cancel downloads', exact: true }).isVisible(), true, 'Progress/cancel must be usable inside the top-layer sheet');
+      await shot('download-pending-in-now-playing');
+      fixture.releaseAudioDownloads();
+      await player.locator('.download-status[data-state="done"]').waitFor();
+      await page.keyboard.press('Escape'); await player.waitFor({ state: 'detached' });
+      await row().getByLabel('Downloaded', { exact: true }).waitFor();
+      const saved = await cached();
+      assert.equal(saved.length, 1); assert.equal(saved[0].bytes, 1644, 'Saved entry must contain the full generated WAV');
+      assert(saved[0].key.startsWith('https://codec-download.invalid/v1/') && !saved[0].key.includes('token'), 'Saved entry must have a credential-free stable key');
+      await page.reload();
+      await page.getByRole('button', { name: /^Open Now Playing:/ }).waitFor();
+      scenario.downloadsAfterReload = await cached();
+      assert.deepEqual(scenario.downloadsAfterReload, saved, 'Saved audio bytes must survive reload');
+      await openSongs(); await row().getByLabel('Downloaded', { exact: true }).waitFor();
+      assert.deepEqual(await cached(), saved, 'Saved audio and download membership must survive reload');
+      scenario.checks.downloadPersistence = { bytes: saved[0].bytes, savedEntries: saved.length, topLayerProgress: true };
+
+      await mobileTab('Library');
+      if (await page.locator('.mobile-library').count() === 0) await page.locator('.mobile-toolbar').getByRole('button', { name: 'Library', exact: true }).click();
+      await page.locator('.mobile-playlist-row').filter({ hasText: 'Weekend Records' }).click();
+      const scansBefore = await page.evaluate(() => window.__cacheKeyScans);
+      requestsBefore = fixture.audioRequests;
+      fixture.holdAudioDownloads();
+      await page.getByRole('button', { name: 'Download all songs', exact: true }).click();
+      await waitUntil(() => fixture.audioRequests >= requestsBefore + 2, 'Collection download must start two independent transfers');
+      await nextFrames();
+      assert.equal(fixture.audioRequests - requestsBefore, 2, 'Collection must bound parallel transfers at two');
+      assert.equal(await page.getByRole('button', { name: 'Downloading songs', exact: true }).isDisabled(), true);
+      fixture.releaseAudioDownloads();
+      await page.getByRole('button', { name: 'All songs downloaded', exact: true }).waitFor();
+      const scansAfter = await page.evaluate(() => window.__cacheKeyScans);
+      assert(scansAfter - scansBefore <= 1, 'Each completed song must not rescan all saved cache keys');
+      assert.equal(fixture.audioRequests - requestsBefore, 13, 'Bulk download must fetch only the thirteen unsaved songs');
+      assert.equal((await cached()).length, 14, 'Every playlist song must have real saved audio');
+      assert.equal(fixture.maxActiveAudio, 2, 'At most two fixture audio transfers may overlap');
+      assert(await page.locator('.track-row').count() < 100, 'Download status updates must keep row rendering bounded');
+      await page.locator('.content').evaluate(el => { el.scrollTop = el.scrollHeight; });
+      const last = page.getByRole('button', { name: 'Play Sample track 0014', exact: true });
+      await last.waitFor(); await nextFrames();
+      const clearance = await last.evaluate(el => document.querySelector('.download-status').getBoundingClientRect().top - el.closest('.track-row').getBoundingClientRect().bottom);
+      assert(clearance >= 10, `Download status must not obscure the final playlist row (clearance ${clearance})`);
+      scenario.checks.collectionDownloads = { fetched: fixture.audioRequests - requestsBefore, cached: 14, maxParallel: fixture.maxActiveAudio, cacheKeyScans: scansAfter - scansBefore, finalRowClearance: clearance };
+      await shot('download-complete-playlist');
+      assert.deepEqual(scenario.errors, [], 'Unhandled browser errors');
+    };
 
     try {
       await page.goto(baseURL);
@@ -224,6 +659,10 @@ try {
         scenario.checks.initialDesktopQueueRows = rows;
       }
       await shot('home');
+      if (profileOnly) { await profile(); continue; }
+      if (interactionOnly) { await interactions(); continue; }
+      if (viewportOnly) { await viewportChecks(); continue; }
+      if (downloadOnly) { await downloadChecks(); continue; }
 
       if (mobile) {
         for (const name of ['Search', 'Library', 'Visualizer', 'Home']) {
@@ -497,10 +936,14 @@ try {
       assert.deepEqual(scenario.issues, [], 'Layout and interaction failures');
     } catch (error) {
       fixture.releaseCommand();
+      fixture.releaseAudioDownloads();
       scenario.failure = error.stack ?? String(error);
       report.failures.push({ width, theme, error: scenario.failure });
       await shot('failure').catch(() => {});
-    } finally { await context.close(); }
+    } finally {
+      await context.close();
+      if (profileDirectory) await fs.rm(profileDirectory, { recursive: true, force: true });
+    }
     console.log(`${scenario.failure ? 'FAIL' : 'PASS'} ${width}px ${theme}: ${Object.keys(scenario.checks).join(', ')}`);
   }
 } finally {

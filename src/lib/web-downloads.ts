@@ -1,3 +1,4 @@
+import { abortable } from './abortable';
 /** Browser audio downloads. Stream URLs (which may contain tokens) never enter cache keys. */
 const CACHE_NAME = 'codec-audio-downloads-v1';
 const KEY_ROOT = 'https://codec-download.invalid/v1/';
@@ -13,11 +14,17 @@ export interface WebDownloadDependencies {
   openCache?: () => Promise<AudioDownloadCache>;
   fetch?: (url: string, options?: RequestInit) => Promise<Response>;
   createObjectURL?: (blob: Blob) => string;
+  idleTimeoutMs?: number;
+}
+
+export interface DownloadOptions {
+  signal?: AbortSignal;
+  onProgress?: (loaded: number, total: number | null) => void;
 }
 
 export interface WebDownloads {
   listDownloaded(server: string): Promise<Set<string>>;
-  downloadTrack(server: string, fingerprint: string, url: string): Promise<void>;
+  downloadTrack(server: string, fingerprint: string, url: string, options?: DownloadOptions): Promise<void>;
   downloadedTrackURL(server: string, fingerprint: string): Promise<string | null>;
   removeDownload(server: string, fingerprint: string): Promise<void>;
 }
@@ -49,13 +56,13 @@ function storageError(error: unknown): Error {
   return new Error('Offline downloads are unavailable in this browser.');
 }
 
-async function audioBlob(response: Response): Promise<Blob> {
+async function audioBlob(response: Response, suppliedBlob?: Blob): Promise<Blob> {
   if (response.status !== 200 || response.headers.has('content-range')) {
     throw new Error(response.status === 206 || response.headers.has('content-range')
       ? 'The server returned only part of this track. Please try again.'
       : `Could not download this track (HTTP ${response.status}).`);
   }
-  const blob = await response.blob();
+  const blob = suppliedBlob ?? await response.blob();
   if (!blob.size) throw new Error('The server returned an empty audio file.');
   const length = response.headers.get('content-length');
   if (length && /^\d+$/.test(length) && !response.headers.has('content-encoding') && Number(length) !== blob.size) {
@@ -81,10 +88,58 @@ async function audioBlob(response: Response): Promise<Blob> {
   return blob;
 }
 
+async function fetchAudio(url: string, dependencies: WebDownloadDependencies, options: DownloadOptions): Promise<Blob> {
+  const controller = new AbortController();
+  const cancel = () => controller.abort(new DOMException('Download canceled.', 'AbortError'));
+  options.signal?.addEventListener('abort', cancel, { once: true });
+  if (options.signal?.aborted) cancel();
+  let timer: ReturnType<typeof setTimeout>;
+  const resetTimer = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => controller.abort(new Error('The download stalled. Check your connection and try again.')), dependencies.idleTimeoutMs ?? 30_000);
+  };
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  try {
+    resetTimer();
+    const response = await abortable((dependencies.fetch ?? globalThis.fetch)(url, { cache: 'no-store', signal: controller.signal }), controller.signal);
+    // Reject error/partial responses before buffering their bodies.
+    if (response.status !== 200 || response.headers.has('content-range')) {
+      void response.body?.cancel().catch(() => {});
+      return await audioBlob(response);
+    }
+    reader = response.body?.getReader();
+    if (!reader) return await abortable(audioBlob(response), controller.signal);
+    const declared = Number(response.headers.get('content-length'));
+    const total = declared > 0 && !response.headers.has('content-encoding') ? declared : null;
+    const chunks: Uint8Array[] = [];
+    let loaded = 0, lastUpdate = 0;
+    options.onProgress?.(0, total);
+    while (true) {
+      const part = await abortable(reader.read(), controller.signal);
+      if (part.done) break;
+      resetTimer();
+      chunks.push(part.value);
+      loaded += part.value.byteLength;
+      const now = Date.now();
+      if (now - lastUpdate >= 150) { options.onProgress?.(loaded, total); lastUpdate = now; }
+    }
+    options.onProgress?.(loaded, total);
+    return await audioBlob(response, new Blob(chunks, { type: response.headers.get('content-type') ?? '' }));
+  } catch (error) {
+    if (controller.signal.aborted) throw controller.signal.reason;
+    if (error instanceof TypeError) throw new Error('Could not download this track. Check your connection and try again.');
+    throw error;
+  } finally {
+    clearTimeout(timer!);
+    options.signal?.removeEventListener('abort', cancel);
+    if (reader) { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+  }
+}
+
 /** Dependencies make the browser storage behavior testable without network or a DOM. */
 export function createWebDownloads(dependencies: WebDownloadDependencies = {}): WebDownloads {
   const versions = new Map<string, number>();
-  const downloads = new Map<string, { version: number; promise: Promise<void> }>();
+  const downloads = new Map<string, { version: number; promise: Promise<void>; signal?: AbortSignal }>();
   const reads = new Map<string, { version: number; promise: Promise<string | null> }>();
   const objectURLs = new Map<string, string>();
   const mutations = new Map<string, Promise<unknown>>();
@@ -119,20 +174,24 @@ export function createWebDownloads(dependencies: WebDownloadDependencies = {}): 
     return result;
   }
 
-  async function downloadTrack(server: string, fingerprint: string, url: string): Promise<void> {
+  async function downloadTrack(server: string, fingerprint: string, url: string, options: DownloadOptions = {}): Promise<void> {
     const key = trackKey(server, fingerprint);
     const version = versions.get(key) ?? 0;
     const pending = downloads.get(key);
+    if (pending?.version === version && pending.signal?.aborted) {
+      await pending.promise.catch(() => {});
+      return downloadTrack(server, fingerprint, url, options);
+    }
     if (pending?.version === version) return pending.promise;
     const promise = (async () => {
-      await mutations.get(key)?.catch(() => {});
-      const store = await cache();
+      const wait = <T>(operation: Promise<T>) => options.signal ? abortable(operation, options.signal) : operation;
+      await wait(mutations.get(key)?.catch(() => {}) ?? Promise.resolve());
+      const store = await wait(cache());
       if (await store.match(key)) return;
-      let response: Response;
-      try { response = await (dependencies.fetch ?? globalThis.fetch)(url, { cache: 'no-store' }); }
-      catch { throw new Error('Could not download this track. Check your connection and try again.'); }
-      const blob = await audioBlob(response);
+      options.signal?.throwIfAborted();
+      const blob = await fetchAudio(url, dependencies, options);
       await mutate(key, async () => {
+        options.signal?.throwIfAborted();
         if ((versions.get(key) ?? 0) !== version) throw new Error('The download was removed.');
         // Keep only audio data and safe metadata; omit original URLs, cookies, and headers.
         const saved = new Response(blob, { status: 200, headers: {
@@ -143,7 +202,7 @@ export function createWebDownloads(dependencies: WebDownloadDependencies = {}): 
         catch (error) { throw storageError(error); }
       });
     })();
-    const entry = { version, promise };
+    const entry = { version, promise, signal: options.signal };
     downloads.set(key, entry);
     try { await promise; }
     finally { if (downloads.get(key) === entry) downloads.delete(key); }

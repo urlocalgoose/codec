@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import type { Library, Playlist, Track } from "./types";
 import { refreshSyncStreamToken, setSyncAuthToken, trackAudioUrl } from "./sync";
+import { abortable } from "./abortable";
+import type { DownloadOptions } from "./web-downloads";
 
 const page = await Bun.file(new URL("../routes/+page.svelte", import.meta.url).pathname).text();
 
@@ -297,28 +299,211 @@ for (const change of ["changeConnection", "changeAuthentication"] as const) {
   });
 }
 
-test("changing servers during token refresh cannot send the new credential to the old download server", async () => {
-  const response = deferred<Response>();
-  const saved: string[][] = [];
+type DownloadAPI = {
+  refresh?: (server: string) => Promise<void>;
+  url?: (server: string, fingerprint: string) => string;
+  save?: (server: string, fingerprint: string, url: string, options: DownloadOptions) => Promise<void>;
+  list?: (server: string) => Promise<Set<string>>;
+  remove?: (server: string, fingerprint: string) => Promise<void>;
+  auth?: (token: string) => void;
+};
+
+function downloadsController(api: DownloadAPI = {}, saved: string[] = []) {
+  const functions = ["downloadKey", "showDownloadProgress", "startDownloads", "downloadSong", "refreshDownloads", "removeDownloadedSong"].map(controllerFunction).join("\n");
+  // Exercise the same Svelte connection guard as the mounted controller, rather
+  // than recreating its cancellation policy inside the fixture.
+  const guardStart = page.indexOf("  $: if (downloadRun &&");
+  if (guardStart < 0) throw new Error("Missing download connection guard");
+  const guard = page.slice(guardStart, page.indexOf("\n  }", guardStart) + 4);
   const source = `
     let syncServerUrl='https://server-a.test', syncTokenDraft='fixture-secret-a', guestMode=false;
-    let downloadedFingerprints=new Set(), downloadingKeys=new Set(), errorMessage='';
-    const refreshSyncStreamToken=api.refresh, trackAudioUrl=api.url, cacheDownload=api.save;
-    const refreshDownloads=async()=>{};
-    ${["downloadKey", "downloadSong"].map(controllerFunction).join("\n")}
-    return {start:downloadSong, change(){syncServerUrl='https://server-b.test';syncTokenDraft='fixture-secret-b';api.auth(syncTokenDraft)}, pending:()=>downloadingKeys.size};
+    let downloadedFingerprints=new Set(saved), downloadingKeys=new Set(), downloadEpoch=0, downloadRun=null;
+    let status=null;
+    const downloadStatus={set(next){status=next}};
+    const refreshSyncStreamToken=api.refresh ?? (async()=>{});
+    const trackAudioUrl=api.url ?? ((server, fingerprint)=>server+'/audio/'+fingerprint);
+    const cacheDownload=api.save ?? (async()=>{});
+    const listDownloaded=api.list ?? (async()=>new Set());
+    const deleteDownload=api.remove ?? (async()=>{});
+    ${functions}
+    function connectionChanged() { ${guard} }
+    return {
+      start:downloadSong, batch:startDownloads, refresh:refreshDownloads, remove:removeDownloadedSong,
+      cancel(){status?.cancel?.()},
+      change(server, token, nextSaved=[]) {
+        syncServerUrl=server;syncTokenDraft=token;downloadedFingerprints=new Set(nextSaved);
+        api.auth?.(token);connectionChanged();
+      },
+      guest(){guestMode=true;connectionChanged()},
+      state:()=>({downloaded:[...downloadedFingerprints],pending:[...downloadingKeys],status,running:Boolean(downloadRun)})
+    };
   `;
-  setSyncAuthToken("fixture-secret-a");
+  return new Function("api", "saved", "abortable", new Bun.Transpiler({ loader: "ts" }).transformSync(source))(api, saved, abortable);
+}
+
+function downloadTrack(fingerprint: string, direct = true): Track {
+  return { ...fixture().tracks[0], id: `track_${fingerprint}`, fingerprint,
+    title: `Song ${fingerprint}`, media_url: direct ? `https://server-a.test/audio/${fingerprint}` : undefined };
+}
+
+const settleDownloads = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
+test("downloads run at most two transfers, append new requests, and skip duplicate or already saved songs", async () => {
+  const fingerprints = ["a", "b", "c", "d", "e"];
+  const gates = new Map(fingerprints.map(id => [id, deferred()]));
+  const requests: string[] = [];
+  let active = 0, maximumActive = 0;
+  const c = downloadsController({ save: async (_server, fingerprint, _url, options) => {
+    requests.push(fingerprint);
+    active++; maximumActive = Math.max(maximumActive, active);
+    try {
+      options.onProgress?.(5, 10);
+      await gates.get(fingerprint)!.promise;
+    } finally { active--; }
+  } });
+  const pending = c.batch(["a", "b", "c", "d", "a"].map(id => downloadTrack(id)));
+  expect(requests).toEqual(["a", "b"]);
+  expect(c.state().pending).toHaveLength(4);
+  await c.batch([downloadTrack("b"), downloadTrack("e")]);
+  expect(requests).toEqual(["a", "b"]);
+  expect(c.state().pending).toHaveLength(5);
+  expect(c.state().status.progress).toBeCloseTo(1 / 5);
+  for (const fingerprint of fingerprints) { gates.get(fingerprint)!.resolve(); await settleDownloads(); }
+  await pending;
+  expect(maximumActive).toBe(2);
+  expect(requests).toEqual(fingerprints);
+  expect(c.state().downloaded.sort()).toEqual(fingerprints);
+  expect(c.state().pending).toEqual([]);
+  expect(c.state().running).toBe(false);
+  expect(c.state().status).toMatchObject({ state: "done", message: "5 songs downloaded" });
+  await c.batch(fingerprints.map(id => downloadTrack(id)));
+  expect(requests).toEqual(fingerprints);
+});
+
+test("cancel during shared token refresh settles promptly and retry owns only its new pending rows", async () => {
+  const token = deferred();
+  const saved: string[] = [];
+  const c = downloadsController({ refresh: () => token.promise, save: async (_server, fingerprint) => { saved.push(fingerprint); } });
+  const old = c.batch([downloadTrack("a", false), downloadTrack("b", false)]);
+  c.cancel();
+  let oldSettled = false;
+  void old.then(() => { oldSettled = true; });
+  const retry = c.start(downloadTrack("retry", false));
   try {
-    const c = new Function("api", new Bun.Transpiler({ loader: "ts" }).transformSync(source))({
-      refresh: (server: string) => refreshSyncStreamToken(server, (async () => response.promise) as unknown as typeof fetch),
-      url: trackAudioUrl, save: async (...args: string[]) => { saved.push(args); }, auth: setSyncAuthToken
-    });
-    const downloading = c.start({ fingerprint: "same-song" });
-    c.change();
-    response.resolve(new Response(JSON.stringify({ token: "fixture-stream-a", expires_at: Math.floor(Date.now() / 1000) + 900 }), { status: 201 }));
-    await downloading;
+    expect(c.state().pending).toEqual(["https://server-a.test\u0000retry"]);
+    await settleDownloads();
+    expect(oldSettled).toBe(true);
+    expect(c.state().status).toMatchObject({ state: "downloading", detail: "Song retry" });
     expect(saved).toEqual([]);
-    expect(c.pending()).toBe(0);
-  } finally { setSyncAuthToken(""); }
+  } finally {
+    token.resolve();
+    await Promise.all([old, retry]);
+  }
+  expect(saved).toEqual(["retry"]);
+  expect(c.state().downloaded).toEqual(["retry"]);
+  expect(c.state().pending).toEqual([]);
+  expect(c.state().status).toMatchObject({ state: "done", message: "Song downloaded" });
+});
+
+for (const nextServer of ["https://server-b.test", "https://server-a.test"]) {
+  test(`changing ${nextServer.includes("server-b") ? "server" : "authentication"} during token refresh never sends the new credential to the old download`, async () => {
+    const response = deferred<Response>();
+    const saves: string[][] = [], urls: string[][] = [], refreshes: Promise<void>[] = [];
+    setSyncAuthToken("fixture-secret-a");
+    const c = downloadsController({
+      refresh: (server) => {
+        const refresh = refreshSyncStreamToken(server, (async () => response.promise) as unknown as typeof fetch);
+        refreshes.push(refresh); return refresh;
+      },
+      url: (server, fingerprint) => { urls.push([server, fingerprint]); return trackAudioUrl(server, fingerprint); },
+      save: async (server, fingerprint, url) => { saves.push([server, fingerprint, url]); }, auth: setSyncAuthToken
+    });
+    try {
+      const pending = c.start(downloadTrack("same-song", false));
+      c.change(nextServer, "fixture-secret-b", ["new-connection-download"]);
+      await pending;
+      expect(saves).toEqual([]);
+      expect(urls).toEqual([]);
+      expect(c.state().downloaded).toEqual(["new-connection-download"]);
+      expect(c.state().pending).toEqual([]);
+      expect(c.state().status).toBeNull();
+    } finally {
+      response.resolve(new Response(JSON.stringify({ token: "fixture-stream-a", expires_at: Math.floor(Date.now() / 1000) + 900 }), { status: 201 }));
+      await Promise.all(refreshes);
+      setSyncAuthToken("");
+    }
+  });
+}
+
+test("an old storage operation finishing after connection change cannot alter new membership or feedback", async () => {
+  const oldStorage = deferred(), newStorage = deferred();
+  const c = downloadsController({ save: async (_server, fingerprint) => fingerprint === "old" ? oldStorage.promise : newStorage.promise });
+  const old = c.start(downloadTrack("old"));
+  c.change("https://server-b.test", "fixture-secret-b", ["existing"]);
+  const current = c.start(downloadTrack("new"));
+  oldStorage.resolve();
+  await old;
+  expect(c.state().downloaded).toEqual(["existing"]);
+  expect(c.state().pending).toEqual(["https://server-b.test\u0000new"]);
+  expect(c.state().status).toMatchObject({ state: "downloading", detail: "Song new" });
+  newStorage.resolve();
+  await current;
+  expect(c.state().downloaded).toEqual(["existing", "new"]);
+  expect(c.state().pending).toEqual([]);
+});
+
+test("a cache listing started before a completed download cannot erase the new saved membership", async () => {
+  const listing = deferred<Set<string>>();
+  const c = downloadsController({ list: () => listing.promise });
+  const refresh = c.refresh("https://server-a.test");
+  await c.start(downloadTrack("new"));
+  listing.resolve(new Set());
+  await refresh;
+  expect(c.state().downloaded).toEqual(["new"]);
+  expect(c.state().status).toMatchObject({ state: "done" });
+});
+
+test("one failed transfer stops the batch, clears pending rows, and reports the storage error", async () => {
+  const pending = deferred();
+  const requests: string[] = [];
+  const c = downloadsController({ save: async (_server, fingerprint, _url, options) => {
+    requests.push(fingerprint);
+    if (fingerprint === "b") throw new Error("Not enough browser storage.");
+    return abortable(pending.promise, options.signal!);
+  } }, ["saved-earlier"]);
+  await c.batch(["a", "b", "c", "d"].map(id => downloadTrack(id)));
+  expect(requests).toEqual(["a", "b"]);
+  expect(c.state().pending).toEqual([]);
+  expect(c.state().downloaded).toEqual(["saved-earlier"]);
+  expect(c.state().status).toMatchObject({ state: "error", message: "Download stopped", detail: "Not enough browser storage." });
+  pending.resolve();
+});
+
+test("entering guest mode cancels pending downloads without saving or leaving feedback", async () => {
+  const token = deferred();
+  let saves = 0;
+  const c = downloadsController({ refresh: () => token.promise, save: async () => { saves++; } });
+  const pending = c.start(downloadTrack("private", false));
+  c.guest();
+  await pending;
+  token.resolve();
+  expect(saves).toBe(0);
+  expect(c.state().pending).toEqual([]);
+  expect(c.state().status).toBeNull();
+  await c.start(downloadTrack("another"));
+  expect(saves).toBe(0);
+});
+
+test("removing an offline song updates membership, but a stale removal cannot clear the next server's membership", async () => {
+  const gate = deferred();
+  const c = downloadsController({ remove: () => gate.promise }, ["song"]);
+  const removing = c.remove(downloadTrack("song"));
+  c.change("https://server-b.test", "fixture-secret-b", ["song"]);
+  gate.resolve();
+  await removing;
+  expect(c.state().downloaded).toEqual(["song"]);
+  expect(c.state().status).toBeNull();
+  await c.remove(downloadTrack("song"));
+  expect(c.state().downloaded).toEqual([]);
+  expect(c.state().status).toMatchObject({ state: "done", message: "Download removed" });
 });

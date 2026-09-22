@@ -149,7 +149,7 @@ function preserveTransport(before, after, label, { allowIdlePause = false } = {}
 }
 try {
   browser = await engines[engineName].launch({ headless: true,
-    ...(process.env.PLAYWRIGHT_BROWSER_PATH ? { executablePath: process.env.PLAYWRIGHT_BROWSER_PATH } : {}),
+    ...(engineName === 'chromium' && process.env.PLAYWRIGHT_BROWSER_PATH ? { executablePath: process.env.PLAYWRIGHT_BROWSER_PATH } : {}),
     ...(engineName === 'chromium' ? { args: ['--autoplay-policy=no-user-gesture-required', '--mute-audio'] } : {}) });
   async function client(device) {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: 'block' });

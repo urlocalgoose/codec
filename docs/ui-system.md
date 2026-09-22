@@ -27,6 +27,22 @@ app's native language — not the other way around. (The older tape-deck
 Browser and PWA UI lives in `src/lib/components/`; global styling lives in
 `src/app.css`.
 
+Mobile Safari and Home Screen mode share visible-viewport geometry from
+`mobile-viewport.ts`. Detect installation through display mode or
+`navigator.standalone`; do not infer it from screen size or a user-agent string.
+Apply safe-area insets once inside controls and extend backgrounds through the
+home-indicator area. Preserve layout during pinch zoom. Reserve scroll clearance
+from measured bottom controls and download feedback, including padding changes.
+
+Queue swipes follow the pointer after horizontal direction lock. Vertical motion
+stays scrolling. Reorder gestures keep capture on the persistent queue container,
+scroll continuously at its edges, and cancel if queue membership/order changes.
+Provide tap/keyboard move controls as well as dragging.
+
+Download feedback belongs inside an open sheet's modal layer as well as the main
+page. Show real progress, cancellation and failures; reserve its occupied space
+so the final row remains reachable. Completed feedback clears after five seconds.
+
 ### Tokens
 
 All styling goes through CSS custom properties:

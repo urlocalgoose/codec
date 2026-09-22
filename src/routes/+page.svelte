@@ -6,6 +6,9 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { AlertCircle, ChevronLeft, LoaderCircle, Palette, Radio, Search, X } from "lucide-svelte";
   import MobileSymbol from "$lib/components/MobileSymbol.svelte";
+  import DownloadStatus from "$lib/components/DownloadStatus.svelte";
+  import { downloadStatus } from "$lib/download-status";
+  import { abortable } from "$lib/abortable";
   import VirtualRows from "$lib/components/VirtualRows.svelte";
   import MobileNewPlaylist from "$lib/components/MobileNewPlaylist.svelte";
   import MobileSettings from "$lib/components/MobileSettings.svelte";
@@ -201,6 +204,13 @@
   let downloadedFingerprints = new Set<string>();
   let downloadingKeys = new Set<string>();
   let downloadScope = "";
+  let downloadEpoch = 0;
+  type DownloadRun = {
+    server: string; token: string; controller: AbortController; tracks: Track[];
+    fingerprints: Set<string>; next: number; saved: number; failure: string;
+    progress: Map<string, number>;
+  };
+  let downloadRun: DownloadRun | null = null;
   let playlistHistory: Record<string, Record<string, number>> = {};
   let mobilePlaylistEditing = false;
   let addingSongs = false;
@@ -371,6 +381,10 @@
   $: downloadedIDs = new Set((library?.tracks ?? []).filter(track => downloadedFingerprints.has(track.fingerprint)).map(track => track.id));
   $: downloadingIDs = new Set((library?.tracks ?? []).filter(track => downloadingKeys.has(downloadKey(syncServerUrl, track.fingerprint))).map(track => track.id));
   $: if (syncServerUrl !== downloadScope) { downloadScope = syncServerUrl; downloadedFingerprints = new Set(); void refreshDownloads(syncServerUrl); }
+  $: if (downloadRun && (downloadRun.server !== syncServerUrl || downloadRun.token !== syncTokenDraft || guestMode)) {
+    downloadRun.controller.abort();
+    downloadStatus.set(null);
+  }
   $: homeItems = homeRecentItems(library);
   $: mobileTrackIndex = new Map(library?.tracks.map((track) => [track.id, track]) ?? []);
   $: playlistArtwork = new Map((library?.playlists ?? []).map((playlist) => {
@@ -636,6 +650,8 @@
 
     return () => {
       savePlaybackSessionNow();
+      downloadRun?.controller.abort();
+      downloadStatus.set(null);
       document.removeEventListener("keydown", keyHandler);
       window.removeEventListener("pagehide", persistPlayback);
       window.removeEventListener("beforeunload", persistPlayback);
@@ -3608,43 +3624,96 @@
   }
 
   async function refreshDownloads(server: string) {
-    const saved = server ? await listDownloaded(server).catch(() => new Set<string>()) : new Set<string>();
-    if (syncServerUrl === server) downloadedFingerprints = saved;
+    const epoch = ++downloadEpoch;
+    try {
+      const saved = server ? await listDownloaded(server) : new Set<string>();
+      if (syncServerUrl === server && epoch === downloadEpoch) downloadedFingerprints = saved;
+    } catch { /* Keep known downloads when browser storage is temporarily unavailable. */ }
   }
 
   function downloadKey(server: string, fingerprint: string): string { return `${server}\u0000${fingerprint}`; }
 
-  async function downloadSong(track: Track) {
-    if (!syncServerUrl || guestMode || downloadedFingerprints.has(track.fingerprint) || downloadingKeys.has(downloadKey(syncServerUrl, track.fingerprint))) return;
-    const server = syncServerUrl, token = syncTokenDraft, key = downloadKey(server, track.fingerprint);
-    const stillConnected = () => server === syncServerUrl && token === syncTokenDraft && !guestMode;
-    downloadingKeys = new Set([...downloadingKeys, key]);
-    try {
-      let url = track.media_url;
-      if (!url) {
-        await refreshSyncStreamToken(server);
-        // The URL helper reads the current credential. Never resolve A's URL
-        // after a connection change has installed B's credential.
-        if (!stillConnected()) return;
-        url = trackAudioUrl(server, track.fingerprint);
-      }
-      if (!stillConnected()) return;
-      await cacheDownload(server, track.fingerprint, url);
-      if (stillConnected()) await refreshDownloads(server);
-    } catch (error) { if (stillConnected()) errorMessage = error instanceof Error ? error.message : String(error); }
-    finally { downloadingKeys = new Set([...downloadingKeys].filter(id => id !== key)); }
+  function showDownloadProgress(run: DownloadRun) {
+    if (downloadRun !== run || run.controller.signal.aborted) return;
+    const partial = [...run.progress.values()].reduce((sum, value) => sum + value, 0);
+    downloadStatus.set({ state: "downloading", message: run.tracks.length === 1 ? "Downloading song" : `Downloading ${run.saved} of ${run.tracks.length}`,
+      detail: run.tracks.length === 1 ? run.tracks[0].title : "Saved songs are available offline.",
+      progress: (run.saved + partial) / run.tracks.length, cancel: () => run.controller.abort() });
   }
+
+  async function startDownloads(tracks: Track[]) {
+    if (!syncServerUrl || guestMode) return;
+    const existing = downloadRun;
+    const continuing = existing && !existing.controller.signal.aborted && existing.server === syncServerUrl && existing.token === syncTokenDraft;
+    const run: DownloadRun = continuing ? existing : { server: syncServerUrl, token: syncTokenDraft,
+      controller: new AbortController(), tracks: [], fingerprints: new Set(), next: 0, saved: 0, failure: "", progress: new Map() };
+    for (const track of tracks) {
+      if (!downloadedFingerprints.has(track.fingerprint) && !run.fingerprints.has(track.fingerprint)) {
+        run.fingerprints.add(track.fingerprint); run.tracks.push(track);
+      }
+    }
+    if (!run.tracks.length) return;
+    downloadRun = run;
+    downloadingKeys = new Set([...(continuing ? downloadingKeys : []), ...run.tracks.slice(run.next).map(track => downloadKey(run.server, track.fingerprint))]);
+    showDownloadProgress(run);
+    if (continuing) return;
+    const stillConnected = () => downloadRun === run && run.server === syncServerUrl && run.token === syncTokenDraft && !guestMode;
+    async function worker() {
+      while (run.next < run.tracks.length && !run.controller.signal.aborted && stillConnected()) {
+        const track = run.tracks[run.next++];
+        try {
+          let url = track.media_url;
+          if (!url) {
+            await abortable(refreshSyncStreamToken(run.server), run.controller.signal);
+            if (!stillConnected() || run.controller.signal.aborted) return;
+            url = trackAudioUrl(run.server, track.fingerprint);
+          }
+          await cacheDownload(run.server, track.fingerprint, url, { signal: run.controller.signal,
+            onProgress: (loaded, total) => { run.progress.set(track.fingerprint, total ? Math.min(1, loaded / total) : 0); showDownloadProgress(run); } });
+          run.saved++;
+          if (stillConnected()) {
+            ++downloadEpoch;
+            downloadedFingerprints = new Set([...downloadedFingerprints, track.fingerprint]);
+          }
+        } catch (error) {
+          if (!run.controller.signal.aborted) { run.failure = error instanceof Error ? error.message : String(error); run.controller.abort(); }
+        } finally {
+          run.progress.delete(track.fingerprint);
+          if (downloadRun === run) downloadingKeys = new Set([...downloadingKeys].filter(key => key !== downloadKey(run.server, track.fingerprint)));
+          showDownloadProgress(run);
+        }
+      }
+    }
+    // Two transfers keep collections moving without flooding a mobile connection.
+    await Promise.all([worker(), worker()]);
+    if (stillConnected()) {
+      const canceled = run.controller.signal.aborted && !run.failure;
+      downloadStatus.set({ state: run.failure ? "error" : "done",
+        message: run.failure ? "Download stopped" : canceled ? "Download canceled" : run.saved === 1 ? "Song downloaded" : `${run.saved} songs downloaded`,
+        detail: run.failure || (canceled ? `${run.saved} saved for offline listening.` : "Available in Library → Downloaded.") });
+    }
+    if (downloadRun === run) {
+      downloadingKeys = new Set();
+      downloadRun = null;
+    }
+  }
+
+  function downloadSong(track: Track) { return startDownloads([track]); }
 
   async function removeDownloadedSong(track: Track) {
-    const server = syncServerUrl;
-    try { await deleteDownload(server, track.fingerprint); await refreshDownloads(server); }
-    catch (error) { errorMessage = error instanceof Error ? error.message : String(error); }
+    const server = syncServerUrl, token = syncTokenDraft;
+    try {
+      await deleteDownload(server, track.fingerprint);
+      if (syncServerUrl !== server || syncTokenDraft !== token) return;
+      ++downloadEpoch;
+      downloadedFingerprints = new Set([...downloadedFingerprints].filter(fp => fp !== track.fingerprint));
+      downloadStatus.set({ state: "done", message: "Download removed", detail: track.title });
+    } catch (error) {
+      if (syncServerUrl === server && syncTokenDraft === token) downloadStatus.set({ state: "error", message: "Could not remove download", detail: error instanceof Error ? error.message : String(error) });
+    }
   }
 
-  async function downloadVisibleSongs() {
-    const server = syncServerUrl, token = syncTokenDraft;
-    for (const track of [...visibleTracks]) { if (server !== syncServerUrl || token !== syncTokenDraft) break; await downloadSong(track); }
-  }
+  function downloadVisibleSongs() { return startDownloads([...visibleTracks]); }
 
   function removeUpcoming(index: number) {
     const actual = playbackIndex + 1 + index;
@@ -4052,6 +4121,7 @@
         </div>
       </MobileSheet>
     {/if}
+    <DownloadStatus />
     <audio
       bind:this={audioEl}
       crossorigin="anonymous"
