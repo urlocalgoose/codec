@@ -1,8 +1,8 @@
 # Codec static site
 
-The project hostname is `codec.codie.sh`. This folder is currently a local/private
-preview; nothing here creates a site, changes DNS, or deploys it. App Review
-submission and public app release remain on hold.
+The project site is published at [codec.codie.sh](https://codec.codie.sh).
+This folder contains its source and build tools. Publishing the website is
+separate from App Review submission and public app release, which remain on hold.
 
 The page is plain HTML and CSS: no runtime JavaScript, framework,
 remote fonts, analytics, or music-server connection. Edit copy in `index.html`.
@@ -45,19 +45,28 @@ the relative input names and SHA-256 hashes, not local paths or credentials.
 Review the page at wide browser widths, 390 px and 320 px after replacing images. The
 horizontal screenshot gallery is intentionally scrollable on narrow screens.
 
-## Future Cloudflare deployment
+## Cloudflare deployment
 
-`wrangler.jsonc` is ready for Cloudflare Workers Static Assets: assets only,
-without a Worker script, database, secret, API or music-server dependency.
-No custom-domain route or account is configured. Nothing automatically deploys
-from this repository. The intended later domain is `codec.codie.sh`.
+`wrangler.jsonc` configures Cloudflare Workers Static Assets as `codec-site`,
+with the exact custom domain `codec.codie.sh`. It has no Worker script,
+database, secret, API or music-server dependency. The `workers.dev` address
+and deployment-preview URLs are disabled. Deployments are manual.
 
-After explicit deployment authorization, select the correct Cloudflare account,
-run the allowlist build, deploy this directory's Wrangler configuration, then
-attach the approved hostname. Keep music servers separate from this static site.
-Do not point a music server at this build. Validate HTTPS, 404 responses and the supplied security/cache
-headers after publishing. These checks have not been performed against a live
-Cloudflare deployment for this site.
+Use an authorized Cloudflare login and select the account that owns the domain.
+An account ID can be supplied through `CLOUDFLARE_ACCOUNT_ID`; credentials do
+not belong in this repository. From the repository root:
+
+```sh
+python3 site/build.py
+bunx wrangler@4.136.3 deploy --config site/wrangler.jsonc
+```
+
+The custom-domain route attaches only the project hostname. Keep music servers
+separate from this static site. Validate the homepage, guide and example links,
+HTTPS, 404 responses, and security/cache headers after publishing.
+`auto-trailing-slash` makes the homepage resolve and redirects existing `.html`
+links to their canonical pages. The local Python preview does not reproduce
+Cloudflare routing, so include a Wrangler runtime check when changing routing.
 
 Configuration follows [Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/)
 and the [assets configuration reference](https://developers.cloudflare.com/workers/static-assets/binding/).
@@ -88,7 +97,7 @@ website, self-hosted music servers and developer-operated demonstration servers.
 
 The hosting guide targets v0.1.5 Linux AMD64/ARM64 server archives and their
 individual checksums, with the bundled Ubuntu installer. Verify those assets
-before publishing the site. Match future guide updates to actual package
+when updating downloads. Match future guide updates to actual package
 filenames and runtime scripts.
 
 Keep host-specific operations, tokens, private source paths and dated deployment
