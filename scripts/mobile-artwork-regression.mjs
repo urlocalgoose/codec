@@ -252,10 +252,10 @@ async function loadingAndErrors(desktop) {
   await until(() => (heldVersions.get(base)?.length ?? 0) > 0);
   const loading = await artworkState(page, selector, 'loading'); await noPaintedBrokenImages(page);
   await page.screenshot({ path: path.join(output, `${family}-artwork-loading.png`) });
-  await page.evaluate(() => { document.documentElement.dataset.theme = 'paper'; });
+  await page.evaluate(() => { document.querySelectorAll('[data-theme]').forEach(node => { node.dataset.theme = 'paper'; }); });
   await artworkState(page, selector, 'loading');
   await page.screenshot({ path: path.join(output, `${family}-artwork-loading-paper.png`) });
-  await page.evaluate(() => { document.documentElement.dataset.theme = 'graphite'; });
+  await page.evaluate(() => { document.querySelectorAll('[data-theme]').forEach(node => { node.dataset.theme = 'graphite'; }); });
   releaseVersion(base); await artworkState(page, selector, 'ready');
   report.checks.push({ name: `${family}: held cover shows placeholder without painting a broken image`, loading });
 
@@ -286,7 +286,7 @@ async function loadingAndErrors(desktop) {
     const url = new URL(response.url());
     return url.pathname === '/api/v1/tracks/0/artwork' && Number(url.searchParams.get('v')) === sourceA;
   });
-  releaseVersion(sourceA, '#cc3344'); await (await lateResponse).finished(); await paintFrames(page);
+  releaseVersion(sourceA, '#cc3344'); await lateResponse; await paintFrames(page);
   await artworkState(page, selector, 'ready'); await noPaintedBrokenImages(page);
   assert.deepEqual(await coverPixel(page, selector), winner, 'Late red source A must not replace already-visible green source B');
   report.checks.push({ name: `${family}: late source A cannot replace source B`, pixel: winner });
@@ -318,7 +318,7 @@ async function loadingAndErrors(desktop) {
   clockOffset += 10 * 60_000 + 1000;
   await page.evaluate(offset => { window.__clockOffset = offset; }, clockOffset);
   await refreshLibrary(); await until(() => tokenNumber > beforeRefreshTokens);
-  await (await failedRefresh).finished();
+  await failedRefresh;
   // Observe several paints after rejection so a plain-image fallback cannot
   // briefly fail and escape the final ready/pixel assertion.
   for (let frame = 0; frame < 4; frame++) await paintFrames(page);
