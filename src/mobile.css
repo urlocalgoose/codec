@@ -31,7 +31,7 @@
 }
 .playlist-artwork { display: grid; place-items: center; width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 10px; background: var(--color-panel-2); color: var(--color-subtle); outline: 1px solid var(--color-border); outline-offset: -1px; }
 .playlist-artwork.collage { grid-template-columns: repeat(2,minmax(0,1fr)); grid-template-rows: repeat(2,minmax(0,1fr)); }
-.playlist-artwork img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: cover; }
+.playlist-artwork > .artwork-image, .playlist-artwork img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: cover; }
 .mobile-library-group { overflow: hidden; border-radius: 10px; background: var(--color-panel); }
 .mobile-library-group button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 10px 16px; border: 0; border-block-end: 1px solid var(--color-line); background: transparent; color: var(--color-subtle); text-align: start; cursor: pointer; }
 .mobile-library-group button:last-child { border-block-end: 0; }
