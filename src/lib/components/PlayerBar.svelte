@@ -1,6 +1,8 @@
 <script lang="ts">
   import ArtworkImage from "./ArtworkImage.svelte";
   import {
+    Heart,
+    ListPlus,
     Music2,
     Pause,
     Play,
@@ -17,6 +19,7 @@
 
   let {
     currentTrack,
+    guestMode = false,
     isPlaying,
     shuffle,
     repeatMode,
@@ -36,9 +39,12 @@
     onToggleRepeat,
     onSeekInput,
     onVolumeInput,
-    onDeviceChange
+    onDeviceChange,
+    onToggleLike,
+    onEditPlaylists
   }: {
     currentTrack: Track | null;
+    guestMode?: boolean;
     isPlaying: boolean;
     shuffle: boolean;
     repeatMode: RepeatMode;
@@ -59,6 +65,8 @@
     onSeekInput: (event: Event) => void;
     onVolumeInput: (event: Event) => void;
     onDeviceChange: (event: Event) => void;
+    onToggleLike: (track: Track) => void;
+    onEditPlaylists: (track: Track) => void;
   } = $props();
 
   const seekMax = $derived(Math.max(audioDuration || currentTrack?.duration_seconds || 1, 1));
@@ -74,10 +82,31 @@
       {:else}
         <span class="player-art placeholder"><Music2 size={20} /></span>
       {/if}
-      <div>
-        <strong>{currentTrack.title}</strong>
-        <span>{currentTrack.artist}</span>
+      <div class="player-track-copy">
+        <strong title={currentTrack.title}>{currentTrack.title}</strong>
+        <span title={currentTrack.artist}>{currentTrack.artist}</span>
       </div>
+      {#if !guestMode}
+        <div class="player-track-actions">
+          <button
+            class="title-icon-button player-like-button"
+            class:liked={currentTrack.is_liked}
+            type="button"
+            title={currentTrack.is_liked ? "Unlike" : "Like"}
+            aria-label={`${currentTrack.is_liked ? "Unlike" : "Like"} ${currentTrack.title}`}
+            aria-pressed={currentTrack.is_liked}
+            onclick={() => currentTrack && onToggleLike(currentTrack)}
+          ><Heart size={20} fill={currentTrack.is_liked ? "currentColor" : "none"} /></button>
+          <button
+            class="title-icon-button"
+            type="button"
+            title="Add to playlist"
+            aria-label={`Add ${currentTrack.title} to playlist`}
+            aria-haspopup="dialog"
+            onclick={() => currentTrack && onEditPlaylists(currentTrack)}
+          ><ListPlus size={20} /></button>
+        </div>
+      {/if}
     {:else}
       <span class="player-art placeholder"><Music2 size={20} /></span>
       <div>
@@ -152,3 +181,17 @@
     {/if}
   </div>
 </footer>
+
+<style>
+  .player-track-copy { flex: 0 1 auto; }
+  .now-playing .player-track-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0;
+  }
+  .player-track-actions .liked { color: var(--color-accent); }
+  .player-track-actions button:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+</style>

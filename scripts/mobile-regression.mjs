@@ -3,6 +3,7 @@
 // Selective profiling: --profile-only true --viewports 390 --themes graphite
 // Focused regression: --interaction-only, --song-gesture-only, --viewport-only, or --download-only true, with
 // --viewports 390 --themes graphite. Run viewport mode in browser + standalone.
+// Desktop footer actions: --desktop-player-only true --viewports 1024,1440 --themes graphite.
 // Optional --display-mode standalone simulates navigator.standalone for app
 // mode detection. It does not reproduce iOS Safari chrome or OS safe areas.
 import assert from 'node:assert/strict';
@@ -54,10 +55,11 @@ const interactionOnly = args.get('interaction-only') === 'true';
 const viewportOnly = args.get('viewport-only') === 'true';
 const downloadOnly = args.get('download-only') === 'true';
 const songGestureOnly = args.get('song-gesture-only') === 'true';
-assert([profileOnly, interactionOnly, viewportOnly, downloadOnly, songGestureOnly].filter(Boolean).length <= 1, 'Select at most one focused mode');
+const desktopPlayerOnly = args.get('desktop-player-only') === 'true';
+assert([profileOnly, interactionOnly, viewportOnly, downloadOnly, songGestureOnly, desktopPlayerOnly].filter(Boolean).length <= 1, 'Select at most one focused mode');
 const displayMode = args.get('display-mode') ?? 'browser';
 assert(['browser', 'standalone'].includes(displayMode), '--display-mode must be browser or standalone');
-report.configuration = { buildDirectory: args.get('build-dir') ?? path.join(repo, 'build'), profileOnly, interactionOnly, viewportOnly, downloadOnly, songGestureOnly, displayMode,
+report.configuration = { buildDirectory: args.get('build-dir') ?? path.join(repo, 'build'), profileOnly, interactionOnly, viewportOnly, downloadOnly, songGestureOnly, desktopPlayerOnly, displayMode,
   fixtureTracks: 2000, fixtureArtworkVariants: 4, realIPhone: false };
 
 async function waitUntil(condition, message, timeout = 6000) {
@@ -102,6 +104,7 @@ function fixtures(origin) {
   let audioMode = 'valid', audioGate, releaseAudio, activeAudio = 0, maxActiveAudio = 0;
   let failPlaylistDelete = false;
   let artworkRequests = 0;
+  let libraryReads = 0;
   let received = 0;
   let release;
   let gate;
@@ -114,7 +117,15 @@ function fixtures(origin) {
     holdAudioDownloads() { audioGate = new Promise(resolve => { releaseAudio = resolve; }); },
     releaseAudioDownloads() { releaseAudio?.(); audioGate = undefined; },
     get artworkRequests() { return artworkRequests; },
+    get libraryReads() { return libraryReads; },
     get state() { return state; },
+    clearPlayback() {
+      const previous = state;
+      state = { ...state, revision: state.revision + 1, active_device_id: null, track: null, state: 'paused',
+        context: { ...state.context, playback_source: [], playback_index: 0, queued_tracks: [], play_history: [] },
+        clock: { position_seconds: 0, started_at_ms: null, updated_at_ms: Date.now() }, server_time_ms: Date.now() };
+      return () => { state = { ...previous, revision: state.revision + 1, server_time_ms: Date.now() }; };
+    },
     advanceSource() { state = { ...state, revision: state.revision + 1, track: ref(tracks[1]), context: { ...state.context, playback_index: 1 }, server_time_ms: Date.now() }; },
     seedDesktopQueue() { state = { ...state, revision: state.revision + 1, context: { ...state.context, queued_tracks: [tracks[1], tracks[1], ...tracks.slice(100, 1300)].map(ref) } }; },
     get receivedCommands() { return received; },
@@ -133,7 +144,7 @@ function fixtures(origin) {
         const color = ['#ed6237', '#5c82b7', '#cca34b', '#68966b'][Number(pathname.split('/').at(-1)) % 4] ?? '#a76ac0';
         return route.fulfill({ contentType: 'image/svg+xml', body: `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="${color}"/><circle cx="128" cy="128" r="88" fill="#202323"/><circle cx="128" cy="128" r="27" fill="${color}"/><circle cx="128" cy="128" r="7" fill="#eeeecc"/></svg>` });
       }
-      if (pathname === '/api/v1/library') return route.fulfill({ json: library });
+      if (pathname === '/api/v1/library') { libraryReads++; return route.fulfill({ json: library }); }
       if (pathname === '/api/v1/auth/stream-token') return route.fulfill({ json: { token: 'stream_fixture', expires_at: Math.floor(Date.now() / 1000) + 600 } });
       if (pathname === '/api/v2/playback/events') return route.fulfill({ contentType: 'text/event-stream', body: ': fixture\n\n' });
       if (pathname === '/api/v2/playback') return route.fulfill({ json: state });
@@ -167,7 +178,7 @@ function fixtures(origin) {
         if (!track) return route.fulfill({ status: 404, json: { error: 'Unknown fixture track' } });
         track.is_liked = request.postDataJSON().liked;
         library.stats.likedCount = tracks.filter(track => track.is_liked).length;
-        mutations.push({ method: 'PUT', track: track.id, liked: track.is_liked });
+        mutations.push({ method: 'PUT', track: track.id, liked: track.is_liked, authenticated: request.headers().authorization === 'Bearer fixture-owner-token' });
         return route.fulfill({ json: {} });
       }
       const playlistMatch = pathname.match(/^\/api\/v1\/playlists\/([^/]+)\/tracks(?:\/([^/]+))?$/);
@@ -175,7 +186,7 @@ function fixtures(origin) {
         const playlist = playlists.find(p => p.id === decodeURIComponent(playlistMatch[1]));
         if (!playlist) return route.fulfill({status:404,json:{error:'Unknown fixture playlist'}});
         const body = request.method() === 'DELETE' ? null : request.postDataJSON();
-        mutations.push({method:request.method(),playlist:playlist.id,body});
+        mutations.push({method:request.method(),playlist:playlist.id,body,authenticated:request.headers().authorization === 'Bearer fixture-owner-token'});
         if (request.method() === 'PUT') playlist.track_ids = [...body.track_ids];
         else if (request.method() === 'POST') { const track = tracks.find(t=>t.fingerprint===body.fingerprint); if(track && !playlist.track_ids.includes(track.id))playlist.track_ids.push(track.id); }
         else if (request.method() === 'DELETE') playlist.track_ids = playlist.track_ids.filter(id=>id!==decodeURIComponent(playlistMatch[2]));
@@ -224,10 +235,11 @@ try {
       ? await browserType.launchPersistentContext(profileDirectory, { ...contextOptions, headless: args.get('headed') !== 'true' })
       : await browser.newContext(contextOptions);
     scenario.storageContext = profileDirectory ? 'isolated temporary persistent profile' : 'isolated nonpersistent context';
-    await context.addInitScript(({ theme, displayMode, profileOnly, viewportOnly, downloadOnly, songGestureOnly }) => {
+    await context.addInitScript(({ theme, displayMode, profileOnly, viewportOnly, downloadOnly, songGestureOnly, mobile }) => {
       localStorage.setItem('codec.theme', theme);
       localStorage.setItem('codec.syncServer', location.origin);
       localStorage.setItem('codec.deviceId', 'fixture-browser');
+      if (!mobile) localStorage.setItem('codec.syncToken', 'fixture-owner-token');
       Object.defineProperty(navigator, 'standalone', { configurable: true, value: displayMode === 'standalone' });
       if (songGestureOnly) {
         window.__songGestureEvents = [];
@@ -270,7 +282,7 @@ try {
           }
         }).observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
       }
-    }, { theme, displayMode, profileOnly, viewportOnly, downloadOnly, songGestureOnly });
+    }, { theme, displayMode, profileOnly, viewportOnly, downloadOnly, songGestureOnly, mobile });
     const fixture = fixtures(new URL(baseURL).origin);
     if (profileOnly || interactionOnly) fixture.seedLargeManualQueue();
     const page = await context.newPage();
@@ -933,6 +945,107 @@ try {
       assert.deepEqual(scenario.errors, [], 'Unhandled browser errors');
     };
 
+    const desktopPlayerChecks = async () => {
+      assert(!mobile, '--desktop-player-only requires a desktop viewport above 980px');
+      const footer = page.getByRole('contentinfo', { name: 'Player', exact: true });
+      const track = fixture.tracks.find(track => track.id === fixture.state.track?.id);
+      assert(track, 'Desktop footer fixture requires a current track');
+      const title = track.title, originalTrackID = track.id, revision = fixture.state.revision;
+      const like = liked => footer.getByRole('button', { name: `${liked ? 'Unlike' : 'Like'} ${title}`, exact: true });
+      const add = () => footer.getByRole('button', { name: `Add ${title} to playlist`, exact: true });
+      const ownerActions = () => footer.getByRole('button', { name: /^(?:Like |Unlike |Add .+ to playlist$)/ });
+      const refresh = async () => {
+        const before = fixture.libraryReads;
+        await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+        await waitUntil(() => fixture.libraryReads > before, 'Foreground refresh must read the remote library');
+      };
+      const beforeMutations = fixture.mutations.length, beforeCommands = fixture.receivedCommands, beforeAudioRequests = fixture.audioRequests;
+      await like(false).waitFor(); await add().waitFor();
+      for (const desired of [true, false]) {
+        const before = fixture.mutations.length;
+        await like(!desired).click();
+        await waitUntil(() => fixture.mutations.length > before && track.is_liked === desired, 'Footer Like must persist the selected state on the current song');
+        await like(desired).waitFor();
+        const mutation = fixture.mutations.at(-1);
+        assert.equal(mutation.track, originalTrackID); assert.equal(mutation.liked, desired);
+        assert.equal(mutation.authenticated, true, 'Footer Like must use the existing authenticated mutation handler');
+      }
+      assert.equal(fixture.mutations.length - beforeMutations, 2, 'Like on/off sends exactly two mutations');
+      scenario.checks.desktopFooterLike = 'Like/Unlike persists on the current song through authenticated requests';
+
+      // Keep the playback reference/revision unchanged, so only a library
+      // update can replace stale metadata in the mounted footer.
+      for (const desired of [true, false]) {
+        track.is_liked = desired;
+        fixture.library.stats.likedCount = fixture.tracks.filter(track => track.is_liked).length;
+        fixture.library.scanned_at++;
+        await refresh(); await like(desired).waitFor();
+        assert.equal(fixture.state.track.id, originalTrackID); assert.equal(fixture.state.revision, revision);
+      }
+      assert.equal(fixture.mutations.length - beforeMutations, 2, 'A remote library update must not echo a like mutation');
+      scenario.checks.desktopFooterLibraryRefresh = 'Same-track library refresh updates Like state without a playback change or echoed mutation';
+
+      await like(false).click();
+      await waitUntil(() => track.is_liked, 'Membership fixture must begin with a liked current song');
+      await like(true).waitFor();
+      const playlist = fixture.library.playlists.find(playlist => !playlist.is_liked);
+      const originalMember = playlist.track_ids.includes(originalTrackID);
+      const unaffected = fixture.library.playlists.filter(item => item.id !== playlist.id).map(item => [item.id, [...item.track_ids]]);
+      const playlistMutationStart = fixture.mutations.length;
+      for (const desired of [!originalMember, originalMember]) {
+        await add().click();
+        const modal = page.getByRole('dialog', { name: `Edit playlists for ${title}`, exact: true });
+        await modal.waitFor();
+        const choice = modal.getByRole('checkbox', { name: new RegExp(playlist.name) });
+        assert.equal(await choice.isChecked(), !desired, 'Footer playlist editor must reflect the latest saved membership');
+        await choice.setChecked(desired);
+        await modal.getByRole('button', { name: 'Save', exact: true }).click();
+        await modal.waitFor({ state: 'detached' });
+        await waitUntil(() => playlist.track_ids.includes(originalTrackID) === desired, 'Footer playlist Save must persist the current song membership');
+        assert.equal(fixture.mutations.at(-1).authenticated, true, 'Playlist Save must use the existing authenticated mutation handler');
+        assert.equal(track.is_liked, true, 'Editing ordinary playlists must not persist an unlike');
+        await like(true).waitFor();
+        await refresh();
+        await like(true).waitFor();
+      }
+      assert.equal(fixture.mutations.length - playlistMutationStart, 2, 'Playlist membership round trip sends one mutation per Save');
+      assert.deepEqual(fixture.library.playlists.filter(item => item.id !== playlist.id).map(item => [item.id, [...item.track_ids]]), unaffected);
+      await add().click();
+      const savedModal = page.getByRole('dialog', { name: `Edit playlists for ${title}`, exact: true });
+      assert.equal(await savedModal.getByRole('checkbox', { name: new RegExp(playlist.name) }).isChecked(), originalMember);
+      await savedModal.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await savedModal.waitFor({ state: 'detached' });
+      await like(true).click();
+      await waitUntil(() => !track.is_liked, 'Restore original Like state after playlist checks');
+      await like(false).waitFor();
+      assert.equal(fixture.state.track.id, originalTrackID); assert.equal(fixture.receivedCommands, beforeCommands);
+      assert.equal(fixture.audioRequests, beforeAudioRequests, 'Footer library actions must not start or reload local playback');
+      for (const button of [like(false), add()]) {
+        const bounds = await button.boundingBox();
+        assert(bounds && bounds.width > 0 && bounds.height > 0 && bounds.x >= 0 && bounds.x + bounds.width <= width, 'Footer actions must remain visible inside the desktop viewport');
+      }
+      await shot('desktop-footer-actions');
+      scenario.checks.desktopFooterPlaylists = 'Current-song PlaylistModal saves/removes membership, reopens with persisted selection, and preserves likes, other playlists and playback without a transport command';
+
+      const restorePlayback = fixture.clearPlayback();
+      await refresh(); await footer.getByText('Nothing playing', { exact: true }).waitFor();
+      assert.equal(await ownerActions().count(), 0, 'An empty player must expose no track mutation buttons');
+      await shot('desktop-footer-empty');
+      restorePlayback(); await refresh(); await footer.getByText(title, { exact: true }).waitFor();
+      scenario.checks.desktopFooterEmpty = 'No Like or playlist button when there is no current song';
+
+      const beforeGuestMutations = fixture.mutations.length;
+      const joined = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/aux/join');
+      await page.goto(`${baseURL}/?aux=ABCD`); await joined;
+      await footer.getByText(title, { exact: true }).waitFor();
+      assert.equal(await ownerActions().count(), 0, 'Aux guests must not receive owner-only footer mutation buttons');
+      assert.equal(fixture.mutations.length, beforeGuestMutations);
+      await shot('desktop-footer-guest');
+      scenario.checks.desktopFooterGuest = 'Aux guest footer hides Like and playlist actions without mutating the library';
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, 'Desktop footer actions must not cause horizontal page overflow');
+      assert.deepEqual(scenario.errors, [], 'Unhandled browser errors');
+    };
+
     try {
       await page.goto(baseURL);
       await page.locator('.app-shell').waitFor();
@@ -948,6 +1061,7 @@ try {
       if (viewportOnly) { await viewportChecks(); continue; }
       if (downloadOnly) { await downloadChecks(); continue; }
       if (songGestureOnly) { await songGestures(); continue; }
+      if (desktopPlayerOnly) { await desktopPlayerChecks(); continue; }
 
       if (mobile) {
         for (const name of ['Search', 'Library', 'Visualizer', 'Home']) {
@@ -1214,6 +1328,7 @@ try {
         await page.setViewportSize({ width: 1024, height: 960 });
         await waitUntil(async () => await rail.count() === 0, 'Hidden rail remained mounted after resize');
         await page.setViewportSize({ width, height: 960 });
+        await desktopPlayerChecks();
       }
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
       assert(!overflow, 'Page overflows horizontally');
@@ -1222,7 +1337,7 @@ try {
     } catch (error) {
       fixture.releaseCommand();
       fixture.releaseAudioDownloads();
-      scenario.fixtureDiagnostics = { commands: fixture.commands, currentTrack: fixture.state.track.id,
+      scenario.fixtureDiagnostics = { commands: fixture.commands, currentTrack: fixture.state.track?.id ?? null,
         queueLength: fixture.state.context.queued_tracks.length, queuedIDs: fixture.state.context.queued_tracks.slice(0, 30).map(track => track.id),
         mutations: fixture.mutations, audioRequests: fixture.audioRequests };
       if (songGestureOnly) scenario.gestureEvents = await page.evaluate(() => window.__songGestureEvents).catch(() => []);

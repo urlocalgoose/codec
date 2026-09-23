@@ -3543,7 +3543,7 @@
       nextTrackIds.add(candidate.id);
       return {
         ...candidate,
-        is_liked: likedPlaylist ? selectedIds.has(likedPlaylist.id) : false,
+        is_liked: likedPlaylist ? selectedIds.has(likedPlaylist.id) : candidate.is_liked,
         playlist_ids: activeLibrary.playlists
           .filter((playlist) => selectedIds.has(playlist.id))
           .map((playlist) => playlist.id)
@@ -4006,7 +4006,8 @@
     {/if}
 
     <PlayerBar
-      {currentTrack}
+      currentTrack={currentTrack ? mobileTrackIndex.get(currentTrack.id) ?? currentTrack : null}
+      {guestMode}
       {isPlaying}
       {shuffle}
       {repeatMode}
@@ -4027,6 +4028,8 @@
       onSeekInput={(event) => void setProgress(event)}
       onVolumeInput={(event) => void updateVolume(event)}
       onDeviceChange={handlePlaybackDeviceChange}
+      onToggleLike={(track) => void toggleLike(track)}
+      onEditPlaylists={openPlaylistMembershipModal}
     />
     {/if}
 

@@ -2411,7 +2411,7 @@ button.sidebar-aux-chip {
   display: grid;
   /* Equal outer columns keep the transport at the true center of the
      screen, whatever the now-playing and side controls need. */
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 720px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 1fr) minmax(280px, 720px) minmax(260px, 1fr);
   align-items: center;
   gap: 18px;
   margin: 0;
