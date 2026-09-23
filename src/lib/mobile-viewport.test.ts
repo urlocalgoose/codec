@@ -12,11 +12,19 @@ describe("mobile viewport policy", () => {
     expect(resolveViewportGeometry({ layoutHeight: 844, editableFocused: false }))
       .toEqual({ height: 844, top: 0, bottom: 0, keyboardOpen: false });
   });
-  test("follows expanding Safari chrome without treating it as a keyboard", () => {
+  test("follows CSS viewport changes without depending on lagging Safari visual measurements", () => {
     for (const height of [744, 700, 664, 744]) {
-      expect(resolveViewportGeometry({ layoutHeight: 744, visual: { height, offsetTop: 0, scale: 1 }, editableFocused: false }))
-        .toEqual({ height, top: 0, bottom: 744 - height, keyboardOpen: false });
+      expect(resolveViewportGeometry({ layoutHeight: height, visual: { height: 664, offsetTop: 0, scale: 1 }, editableFocused: false }))
+        .toEqual({ height, top: 0, bottom: 0, keyboardOpen: false });
     }
+  });
+  test("an undersized standalone VisualViewport cannot leave a strip below the app", () => {
+    expect(resolveViewportGeometry({ layoutHeight: 874, visual: { height: 780, offsetTop: 20, scale: 1 }, editableFocused: false }))
+      .toEqual({ height: 874, top: 0, bottom: 0, keyboardOpen: false });
+  });
+  test("blur restores the full viewport even before the keyboard reports its dismissal", () => {
+    expect(resolveViewportGeometry({ layoutHeight: 874, visual: { height: 430, offsetTop: 80, scale: 1 }, editableFocused: false }))
+      .toEqual({ height: 874, top: 0, bottom: 0, keyboardOpen: false });
   });
   test("keeps controls within the keyboard's visible area, including Safari focus panning", () => {
     expect(resolveViewportGeometry({ layoutHeight: 844, visual: { height: 430, offsetTop: 80, scale: 1 }, editableFocused: true }))
@@ -54,23 +62,51 @@ function viewportFixture() {
   const frames = new Map<number, FrameRequestCallback>();
   let sequence = 0;
   const visual = Object.assign(new EventTarget(), { height: 844, offsetTop: 0, scale: 1 });
+  const css = { height: 844, mounted: false };
+  const probe = { dataset: {} as Record<string, string>, style: { cssText: "" },
+    setAttribute: () => {}, getBoundingClientRect: () => ({ height: css.height }), remove: () => { css.mounted = false; } };
+  let resized: (() => void) | undefined;
   const mode = Object.assign(new EventTarget(), { matches: false });
   const doc = Object.assign(new EventTarget(), {
-    documentElement: root, visibilityState: "visible", activeElement: null as unknown
+    documentElement: root, visibilityState: "visible", activeElement: null as unknown,
+    createElement: () => probe, body: { append: () => { css.mounted = true; } }
   });
   const win = Object.assign(new EventTarget(), {
     innerHeight: 844, visualViewport: visual, navigator: { standalone: false },
     matchMedia: () => mode,
+    ResizeObserver: class {
+      constructor(callback: () => void) { resized = callback; }
+      observe() {}
+      disconnect() { resized = undefined; }
+    },
     requestAnimationFrame: (callback: FrameRequestCallback) => { frames.set(++sequence, callback); return sequence; },
     cancelAnimationFrame: (id: number) => frames.delete(id)
   });
-  return { root, styles, visual, mode, doc, win, frames,
+  return { root, styles, visual, mode, doc, win, frames, css, resize: () => resized?.(),
     flush: () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn(0)); },
     start: () => observeMobileViewport(win as unknown as Window, doc as unknown as Document)
   };
 }
 
 describe("viewport observation lifecycle", () => {
+  test("CSS resize replaces stale innerHeight/VisualViewport measurements and disconnects its probe", () => {
+    const fixture = viewportFixture();
+    const stop = fixture.start();
+    fixture.win.innerHeight = 750;
+    fixture.visual.height = 750;
+    fixture.css.height = 874;
+    fixture.mode.matches = true;
+    fixture.mode.dispatchEvent(new Event("change"));
+    fixture.resize();
+    fixture.flush();
+    expect(fixture.styles.get("--app-viewport-height")).toBe("874px");
+    expect(fixture.root.dataset.displayMode).toBe("standalone");
+    expect(fixture.css.mounted).toBe(true);
+    stop();
+    expect(fixture.css.mounted).toBe(false);
+    fixture.resize();
+    expect(fixture.frames.size).toBe(0);
+  });
   test("updates from visual-only keyboard events and display-mode changes", () => {
     const fixture = viewportFixture();
     const stop = fixture.start();
@@ -112,7 +148,7 @@ describe("viewport observation lifecycle", () => {
     fixture.doc.visibilityState = "visible";
     fixture.win.dispatchEvent(new Event("pageshow"));
     fixture.flush();
-    expect(fixture.styles.get("--app-viewport-height")).toBe("422px");
+    expect(fixture.styles.get("--app-viewport-height")).toBe("844px");
     fixture.visual.dispatchEvent(new Event("resize"));
     stop();
     expect(fixture.frames.size).toBe(0);

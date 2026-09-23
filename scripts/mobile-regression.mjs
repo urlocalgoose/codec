@@ -555,25 +555,43 @@ try {
     };
     const viewportChecks = async () => {
       assert(mobile, '--viewport-only is a focused mobile fixture');
-      scenario.simulation = 'Synthetic VisualViewport, navigator.standalone, and CSS safe-area values. Real iPhone Safari chrome and HomeScreen installation still require device testing.';
+      scenario.simulation = 'Independent synthetic CSS viewport height, VisualViewport, navigator.standalone, and safe-area values. Real iPhone Safari chrome and Home Screen installation still require device testing.';
       await waitUntil(async () => page.locator('html').getAttribute('data-display-mode').then(mode => mode === displayMode), 'App must identify browser versus standalone mode');
       await page.evaluate(() => {
         document.documentElement.style.setProperty('--app-safe-bottom', '34px');
         document.documentElement.style.setProperty('--app-safe-top', '59px');
       });
       const cases = scenario.viewportCases = [];
-      const capture = async (name, height, top = 0, keyboard = false) => {
-        await page.evaluate(values => window.__setFixtureViewport(values), { height, offsetTop: top, scale: 1 });
-        await waitUntil(async () => page.locator('.app-shell').evaluate((el, height) => Math.abs(el.getBoundingClientRect().height - height) < 1, height), `${name}: shell must follow visual viewport`);
+      const capture = async (name, { layoutHeight = 844, visualHeight = layoutHeight, visualTop = 0, keyboard = false, cssOnly = false } = {}) => {
+        // The installed viewport can be full-height while iOS still reports
+        // smaller JS geometry. Keeping these inputs separate prevents tests
+        // from endorsing the same stale measurement that leaves a bottom gap.
+        await page.evaluate(({ layoutHeight, visualHeight, visualTop, cssOnly }) => {
+          document.documentElement.style.setProperty('--app-layout-height', `${layoutHeight}px`);
+          if (!cssOnly) window.__setFixtureViewport({ height: visualHeight, offsetTop: visualTop, scale: 1 });
+        }, { layoutHeight, visualHeight, visualTop, cssOnly });
+        const height = keyboard ? visualHeight : layoutHeight;
+        const top = keyboard ? visualTop : 0;
+        await waitUntil(async () => page.locator('.app-shell').evaluate((el, expected) => {
+          const bounds = el.getBoundingClientRect();
+          return Math.abs(bounds.height - expected.height) < 1 && Math.abs(bounds.top - expected.top) < 1;
+        }, { height, top }), `${name}: shell must follow CSS viewport except during keyboard focus`);
         await nextFrames();
         const metric = await page.evaluate(() => {
           const rect = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { top: r.top, bottom: r.bottom, height: r.height }; };
           const shell = document.querySelector('.app-shell'), content = document.querySelector('.content');
-          return { shell: rect('.app-shell'), controls: rect('.mobile-bottom-controls'), tabs: rect('.mobile-tab-bar'), mini: rect('.mobile-mini-player'),
+          return { root: rect('html'), body: rect('body'), shell: rect('.app-shell'), probe: rect('[data-codec-viewport-probe]'), controls: rect('.mobile-bottom-controls'), tabs: rect('.mobile-tab-bar'), mini: rect('.mobile-mini-player'),
             reserved: parseFloat(getComputedStyle(content).paddingBottom), measuredControls: parseFloat(shell.style.getPropertyValue('--mobile-controls-height')),
             keyboard: document.documentElement.dataset.keyboardOpen === 'true', overflowX: document.documentElement.scrollWidth > innerWidth + 1 };
         });
-        cases.push({ name, ...metric });
+        cases.push({ name, input: { layoutHeight, visualHeight, visualTop, cssOnly }, ...metric });
+        assert(Math.abs(metric.probe.height - layoutHeight) < 1, `${name}: probe must measure independently supplied CSS height`);
+        for (const container of ['root', 'body']) {
+          assert(metric[container].height >= layoutHeight - 1,
+            `${name}: ${container} must cover the normal CSS layout, including while the keyboard shrinks the shell (${metric[container].height} vs ${layoutHeight})`);
+          assert(metric[container].bottom >= metric.shell.bottom - 1,
+            `${name}: ${container} must not clip the shell or bottom controls`);
+        }
         assert(Math.abs(metric.shell.top - top) < 1, `${name}: shell must match visual viewport offset`);
         assert(Math.abs(metric.shell.bottom - (top + height)) < 1, `${name}: shell must fill the visible area`);
         assert.equal(metric.keyboard, keyboard, `${name}: keyboard classification must follow actual focused input`);
@@ -582,15 +600,28 @@ try {
         assert(Math.abs(metric.measuredControls - metric.controls.height) <= 1, `${name}: control height must be observed`);
         assert(!metric.overflowX, `${name}: no horizontal page overflow`);
       };
-      await capture('full viewport with home-indicator inset', 844);
-      await capture('browser chrome reduces visual viewport', 700);
-      await capture('visible viewport is vertically offset', 690, 20);
+      await capture('full viewport with home-indicator inset');
+      await capture('stale visual viewport must not shorten the shell', { visualHeight: 700 });
+      await shot('viewport-home-stale-visual-height');
+      // iOS can resolve 100% root/body height smaller than 100vh. A taller
+      // independently measured CSS layout must expand its clipping ancestors,
+      // rather than only moving the shell's children below the painted area.
+      await capture('CSS layout exceeds percentage viewport without root clipping', { layoutHeight: 906, visualHeight: 844 });
+      await capture('unfocused visual offset must not move the shell', { visualHeight: 690, visualTop: 20 });
+      await capture('CSS viewport follows expanded browser chrome', { layoutHeight: 700 });
+      await capture('CSS-only resize is observed without a visual event', { layoutHeight: 730, visualHeight: 700, cssOnly: true });
       // Pinch zoom changes scale, so layout must keep the last scale=1 geometry.
       await page.evaluate(() => window.__setFixtureViewport({ height: 350, offsetTop: 80, scale: 2 }));
       await nextFrames();
       const zoom = await page.locator('.app-shell').boundingBox();
-      assert(Math.abs(zoom.height - 690) < 1 && Math.abs(zoom.y - 20) < 1, 'Pinch zoom must not shrink or reposition the app layout');
-      await capture('restore after zoom', 844);
+      assert(Math.abs(zoom.height - 730) < 1 && Math.abs(zoom.y) < 1, 'Pinch zoom must not shrink or reposition the app layout');
+      await capture('restore after zoom');
+      await page.locator('.content').evaluate(element => { element.scrollTop = element.scrollHeight; });
+      await nextFrames();
+      const homeClearance = await page.locator('.home-recent-grid .home-tile').last().evaluate(element =>
+        document.querySelector('.mobile-bottom-controls').getBoundingClientRect().top - element.getBoundingClientRect().bottom);
+      assert(homeClearance >= 10, `Home: final tile must clear bottom controls by at least 10px (got ${homeClearance})`);
+      scenario.checks.homeFinalTile = homeClearance;
       await openSongs();
       const finalRowClearance = async name => {
         await page.locator('.content').evaluate(element => { element.scrollTop = element.scrollHeight; });
@@ -601,21 +632,25 @@ try {
         scenario.checks[name] = clearance;
       };
       await finalRowClearance('songsFinalRow');
-      await capture('songs with shorter visible area', 700);
+      await capture('songs with shorter CSS viewport', { layoutHeight: 700 });
       await finalRowClearance('shortSongsFinalRow');
       await mobileTab('Search');
       const search = page.locator('input[type="search"]:visible');
       await search.fill('Sample');
-      await capture('keyboard while searching', 480, 0, true);
+      await capture('keyboard while searching', { visualHeight: 480, keyboard: true });
       await finalRowClearance('searchKeyboardFinalRow');
+      await capture('keyboard focus pans the visible area', { visualHeight: 430, visualTop: 80, keyboard: true });
+      await finalRowClearance('searchPannedKeyboardFinalRow');
       await search.blur();
-      await capture('keyboard dismissed but chrome remains', 700);
+      await capture('keyboard dismissed while visual geometry is stale', { visualHeight: 430, visualTop: 80 });
+      await finalRowClearance('searchDismissedKeyboardFinalRow');
+      await capture('keyboard dismissed but browser chrome remains', { layoutHeight: 700 });
       await finalRowClearance('searchFinalRow');
-      await capture('full viewport restored for screenshot', 844);
+      await capture('full viewport restored for screenshot');
       await finalRowClearance('searchRestoredFinalRow');
       await shot('viewport-search-final-row');
       assert.deepEqual(scenario.errors, [], 'Unhandled browser errors');
-      scenario.checks.viewport = 'Browser/standalone mode, dynamic toolbar height and offset, pinch zoom, focused keyboard, measured controls, and last-row clearance';
+      scenario.checks.viewport = 'Browser/standalone mode, root/body cover independent CSS layout including during keyboard focus, stale JS geometry, CSS-only resize, pinch zoom, keyboard focus/panning/dismissal, measured controls, and Home/Library/Search end clearance';
     };
     const downloadChecks = async () => {
       assert(mobile, '--download-only is a focused mobile fixture');

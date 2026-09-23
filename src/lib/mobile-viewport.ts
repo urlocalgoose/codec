@@ -15,16 +15,17 @@ export function isInstalledDisplayMode(displayModeStandalone: boolean, navigator
   return displayModeStandalone || navigatorStandalone === true;
 }
 
-// Browser chrome and keyboards can resize the visible area without resizing
-// the layout viewport. Keep layout stable during pinch zoom: zoom must magnify
-// existing content, not rearrange it or move controls away from the user's finger.
+// CSS supplies the normal viewport height: dynamic in a browser, full-height
+// in Home Screen mode. iOS can keep an undersized VisualViewport after opening
+// a saved app or dismissing its keyboard. Only a focused editor should let that
+// API shrink/pan the shell. Pinch zoom must magnify the existing layout.
 export function resolveViewportGeometry(input: ViewportInput): ViewportGeometry | null {
   if (!Number.isFinite(input.layoutHeight) || input.layoutHeight <= 0) return null;
   const visual = input.visual;
   if (visual && Number.isFinite(visual.scale) && Math.abs(visual.scale - 1) > 0.001) return null;
-  const height = visual && Number.isFinite(visual.height) && visual.height > 0
+  const height = input.editableFocused && visual && Number.isFinite(visual.height) && visual.height > 0
     ? Math.min(visual.height, input.layoutHeight) : input.layoutHeight;
-  const top = visual && Number.isFinite(visual.offsetTop)
+  const top = input.editableFocused && visual && Number.isFinite(visual.offsetTop)
     ? Math.min(Math.max(0, visual.offsetTop), input.layoutHeight - height) : 0;
   return {
     height,
@@ -40,6 +41,13 @@ export function observeMobileViewport(win: Window, doc: Document): () => void {
   const root = doc.documentElement;
   const standalone = win.matchMedia("(display-mode: standalone)");
   const visual = win.visualViewport;
+  // Measure an independent CSS viewport, not the app whose height we set.
+  // A ResizeObserver also catches toolbar changes which don't emit window.resize.
+  const probe = doc.createElement("div");
+  probe.dataset.codecViewportProbe = "";
+  probe.setAttribute("aria-hidden", "true");
+  probe.style.cssText = "position:fixed;top:0;left:0;width:0;height:var(--app-layout-height,100dvh);visibility:hidden;pointer-events:none;contain:strict;";
+  doc.body.append(probe);
   let frame = 0;
   let disposed = false;
   const properties = ["--app-viewport-height", "--app-viewport-top", "--app-viewport-bottom"];
@@ -55,7 +63,8 @@ export function observeMobileViewport(win: Window, doc: Document): () => void {
     const editableFocused = Boolean(active && (
       active.isContentEditable || active.matches("textarea:not([readonly]):not([disabled]), input:not([readonly]):not([disabled]):is([type=text],[type=search],[type=url],[type=email],[type=tel],[type=password],[type=number],:not([type]))")
     ));
-    const next = resolveViewportGeometry({ layoutHeight: win.innerHeight, visual, editableFocused });
+    const cssHeight = probe.getBoundingClientRect().height;
+    const next = resolveViewportGeometry({ layoutHeight: cssHeight || win.innerHeight, visual, editableFocused });
     if (!next) return;
     for (const [property, value] of [[properties[0], next.height], [properties[1], next.top], [properties[2], next.bottom]] as const) {
       const pixels = `${value}px`;
@@ -65,6 +74,8 @@ export function observeMobileViewport(win: Window, doc: Document): () => void {
     else delete root.dataset.keyboardOpen;
   };
   const schedule = () => { if (!frame && !disposed) frame = win.requestAnimationFrame(update); };
+  const resize = new (win as Window & { ResizeObserver: typeof ResizeObserver }).ResizeObserver(schedule);
+  resize.observe(probe);
   const events: [EventTarget, string][] = [
     [win, "resize"], [win, "pageshow"], [win, "orientationchange"],
     [doc, "visibilitychange"], [doc, "focusin"], [doc, "focusout"],
@@ -77,6 +88,8 @@ export function observeMobileViewport(win: Window, doc: Document): () => void {
     disposed = true;
     win.cancelAnimationFrame(frame);
     for (const [target, event] of events) target.removeEventListener(event, schedule);
+    resize.disconnect();
+    probe.remove();
     for (const property of properties) root.style.removeProperty(property);
     delete root.dataset.displayMode;
     delete root.dataset.standalone;

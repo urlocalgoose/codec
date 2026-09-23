@@ -36,8 +36,11 @@ It uses the same isolated generated fixtures as the ordinary matrix.
 The interaction mode checks finger-following swipes, vertical direction lock,
 cancellation, accessible queue moves, and continuous edge scrolling beyond the
 mounted rows. Chromium additionally checks trusted touch pointer capture through
-CDP. The viewport mode simulates safe-area changes, keyboard geometry, viewport sizes,
-and installation flags; it checks the final row in Songs and Search.
+CDP. The viewport mode independently simulates CSS viewport height, stale
+VisualViewport values, safe areas, keyboard geometry, and installation flags.
+It checks CSS-only resize notifications, keyboard dismissal, pinch stability,
+and the final content in Home, Songs, and Search. See the
+[viewport policy and device verification](../docs/mobile-web-viewport.md).
 The download mode checks visible response failures, progress inside modal sheets,
 cancellation, persisted audio, two-transfer concurrency, and no cache-key rescan
 per saved song. WebKit uses an isolated temporary persistent browser profile for

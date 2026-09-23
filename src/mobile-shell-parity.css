@@ -1,5 +1,6 @@
 /* Native iOS 26 geometry, expressed in CSS points. Safe areas come from Safari/PWA. */
 :root {
+ --app-layout-height: 100dvh;
  --app-viewport-height: 100dvh;
  --app-viewport-top: 0px;
  --app-viewport-bottom: 0px;
@@ -9,6 +10,10 @@
  --app-control-safe-bottom: var(--app-safe-bottom);
  --mobile-bottom-inset: max(12px,var(--app-control-safe-bottom));
 }
+/* Installed iOS can report VisualViewport/svh with safe areas already removed.
+   The full covered viewport owns the background; controls inset themselves. */
+@media (display-mode:standalone) { :root { --app-layout-height:100vh; } }
+:root[data-display-mode="standalone"] { --app-layout-height:100vh; }
 :root[data-keyboard-open="true"] { --app-control-safe-bottom: 0px; }
 .native-connect { display:grid; place-items:center; min-height:var(--app-viewport-height); padding:calc(32px + var(--app-control-safe-top)) 24px calc(32px + var(--app-control-safe-bottom)); background:var(--color-bg); }
 .native-connect-form { width:100%; max-width:420px; display:grid; gap:32px; }
@@ -89,8 +94,8 @@
  .app-shell.has-mobile-player { --mobile-controls-fallback:calc(124px + var(--mobile-bottom-inset)); }
  .app-shell { --mobile-controls-fallback:calc(62px + var(--mobile-bottom-inset)); }
  .mobile-bottom-controls { position:absolute; z-index:10; inset:auto 0 0; display:flex; flex-direction:column; gap:0; pointer-events:none; padding:0 env(safe-area-inset-right) var(--mobile-bottom-inset) env(safe-area-inset-left); background:transparent; border:0; }
- /* Paint through the home-indicator inset while keeping the controls as pills. */
- .mobile-bottom-controls::before { content:""; position:absolute; inset:auto 0 0; height:var(--mobile-bottom-inset); background:var(--color-bg); pointer-events:none; }
+ /* Fade scrolling artwork beneath the pills and paint through the home indicator. */
+ .mobile-bottom-controls::before { content:""; position:absolute; z-index:-1; inset:0; background:linear-gradient(to bottom,transparent,var(--color-bg) 72%); pointer-events:none; }
  .mobile-bottom-controls>* { pointer-events:auto; }
  .mobile-tab-bar { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); height:62px; min-height:62px; margin:0 21px; padding:4px; border:1px solid color-mix(in srgb,var(--color-text) 14%,transparent); border-radius:40px; background:color-mix(in srgb,var(--color-panel-2) 73%,transparent); box-shadow:inset 0 1px 1px color-mix(in srgb,var(--color-text) 10%,transparent),0 3px 12px #0002; backdrop-filter:blur(18px) saturate(1.6); -webkit-backdrop-filter:blur(18px) saturate(1.6); }
  .mobile-tab-bar button { min-height:0; min-width:0; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:2px; padding:0; border:0; border-radius:30px; color:var(--color-text); }
@@ -176,10 +181,13 @@
 @keyframes mobile-symbol-in { from { opacity:.4; transform:scale(.85); } to { opacity:1; transform:scale(1); } }
 @keyframes mobile-heart-in { 0% { transform:scale(.85); } 60% { transform:scale(1.1); } 100% { transform:scale(1); } }
 
-/* Safari and Home Screen both use the visible viewport. Safe-area space is
-   inside that viewport, never subtracted from the app background itself. */
+/* CSS owns normal Safari/Home Screen geometry. VisualViewport is used only
+   for a focused keyboard; safe areas remain inside the app background. */
 @media (max-width: 980px) {
- :root:has(.app-shell), body:has(.app-shell) { height:100%; overflow:hidden; }
+ /* The document must cover the same CSS viewport as the shell. In installed
+    iOS, 100% can resolve below 100vh and clip fixed children at the old edge.
+    Keep this independent of the keyboard's smaller visual viewport. */
+ :root:has(.app-shell), body:has(.app-shell) { height:var(--app-layout-height); overflow:hidden; }
  .mobile-toolbar { padding-inline-start:max(20px,env(safe-area-inset-left)); padding-inline-end:max(20px,env(safe-area-inset-right)); }
  .app-shell[data-view="home"] .mobile-toolbar { padding-inline-end:max(16px,env(safe-area-inset-right)); }
  .mobile-sheet { position:fixed; inset:auto 0 var(--app-viewport-bottom); margin:0 auto; }
