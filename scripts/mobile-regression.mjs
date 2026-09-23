@@ -947,7 +947,8 @@ try {
 
     const desktopPlayerChecks = async () => {
       assert(!mobile, '--desktop-player-only requires a desktop viewport above 980px');
-      const footer = page.getByRole('contentinfo', { name: 'Player', exact: true });
+      // A footer inside the app's section has no implicit contentinfo role.
+      const footer = page.locator('footer.player[aria-label="Player"]');
       const track = fixture.tracks.find(track => track.id === fixture.state.track?.id);
       assert(track, 'Desktop footer fixture requires a current track');
       const title = track.title, originalTrackID = track.id, revision = fixture.state.revision;
@@ -998,7 +999,10 @@ try {
         await modal.waitFor();
         const choice = modal.getByRole('checkbox', { name: new RegExp(playlist.name) });
         assert.equal(await choice.isChecked(), !desired, 'Footer playlist editor must reflect the latest saved membership');
-        await choice.setChecked(desired);
+        // The existing editor styles a custom checkbox over its input; use
+        // the associated visible label, just as a pointer user does.
+        await modal.locator('label.playlist-choice').filter({ hasText: playlist.name }).click();
+        assert.equal(await choice.isChecked(), desired);
         await modal.getByRole('button', { name: 'Save', exact: true }).click();
         await modal.waitFor({ state: 'detached' });
         await waitUntil(() => playlist.track_ids.includes(originalTrackID) === desired, 'Footer playlist Save must persist the current song membership');
