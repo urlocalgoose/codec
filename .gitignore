@@ -23,14 +23,6 @@ vite.config.ts.timestamp-*
 xcuserdata/
 DerivedData/
 
-# Promo/demo generation
-/promo/__pycache__
-/promo/blog-demo
-/promo/.DS_Store
-/promo/output/render-assets
-/promo/output/sample-*.png
-/promo/output/codec-promo-sample.png
-
 # Secrets / env
 .env
 .env.*
@@ -40,5 +32,7 @@ DerivedData/
 /dist/
 /dist-bin/
 /release-artifacts/
+/.codec-dev/
+/.wrangler/
 __pycache__/
 *.pyc

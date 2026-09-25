@@ -1,6 +1,5 @@
 import type {
   AlbumSummary,
-  ArtistSummary,
   Library,
   LibraryStats,
   Playlist,
@@ -229,27 +228,6 @@ export function shuffleTracks(tracks: Track[], random = Math.random): Track[] {
   return shuffled;
 }
 
-export function artistSummaries(library: Library): ArtistSummary[] {
-  const artists = new Map<string, { tracks: Track[]; albums: Set<string> }>();
-
-  for (const track of library.tracks) {
-    const key = normalize(track.artist);
-    const existing = artists.get(key) ?? { tracks: [], albums: new Set<string>() };
-    existing.tracks.push(track);
-    existing.albums.add(normalize(track.album));
-    artists.set(key, existing);
-  }
-
-  return [...artists.entries()]
-    .map(([, value]) => ({
-      name: value.tracks[0]?.artist ?? "Unknown Artist",
-      trackCount: value.tracks.length,
-      albumCount: value.albums.size,
-      durationSeconds: value.tracks.reduce((sum, track) => sum + (track.duration_seconds ?? 0), 0)
-    }))
-    .sort((a, b) => b.trackCount - a.trackCount || a.name.localeCompare(b.name));
-}
-
 /** First available album artwork per artist, keyed by the same display name
  * artist summaries use, so the Artists grid can show real art instead of a
  * generic glyph. */
@@ -269,25 +247,6 @@ export function artistCovers(library: Library | null): Map<string, string> {
   }
 
   return covers;
-}
-
-export function albumSummaries(library: Library): AlbumSummary[] {
-  const albums = new Map<string, Track[]>();
-
-  for (const track of library.tracks) {
-    const key = `${normalize(track.album_artist ?? track.artist)}|${normalize(track.album)}`;
-    albums.set(key, [...(albums.get(key) ?? []), track]);
-  }
-
-  return [...albums.values()]
-    .map((tracks) => ({
-      name: tracks[0]?.album ?? "Unknown Album",
-      artist: tracks[0]?.album_artist ?? tracks[0]?.artist ?? "Unknown Artist",
-      trackCount: tracks.length,
-      durationSeconds: tracks.reduce((sum, track) => sum + (track.duration_seconds ?? 0), 0),
-      artwork_url: tracks.find((track) => track.artwork_url)?.artwork_url ?? null
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function formatDuration(seconds: number | null | undefined): string {
@@ -330,18 +289,6 @@ export function formatLongDuration(seconds: number): string {
 
 export function formatCount(count: number, singular: string, plural = `${singular}s`): string {
   return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
-}
-
-export function formatDate(timestamp: number | null): string {
-  if (!timestamp) {
-    return "Unknown";
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric"
-  }).format(new Date(timestamp * 1000));
 }
 
 function compareBy(project: (track: Track) => string) {

@@ -1,6 +1,5 @@
 export type RepeatMode = "off" | "all" | "one";
 export type SortKey = "default" | "title" | "artist" | "album" | "added" | "duration";
-export type ViewId = "home" | "all" | "liked" | "artists" | "albums" | "queue" | string;
 
 export interface Library {
   root_path: string;

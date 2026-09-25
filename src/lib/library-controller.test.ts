@@ -35,6 +35,7 @@ function controller(initial: Library, api: Record<string, (...args: any[]) => an
   const functions = ["createPlaylistFromLibrary", "commitPlaylistRename", "savePlaylistMemberships", "closePlaylistMembershipModal", "applyLocalPlaylistMemberships", "playlistSelectionForTrack", "refreshRemoteLibraryState", "enqueuePlaylistWrite", "movePlaylistSong", "removePlaylistSong", "addPlaylistSong", "deleteUserPlaylist"].map(controllerFunction).join("\n");
   const keyHandler = page.slice(page.indexOf("    const keyHandler ="), page.indexOf('    document.addEventListener("keydown", keyHandler)'));
   const source = `
+    let auxConnection = null, auxBridge = null, auxInvitation = null;
     let library = initial, lastRemoteLibrary = initial, remoteLibraryRefresh = null, remoteLibraryRefreshAgain = false;
     let lastLibraryRefreshAt = 0, syncReadGeneration = 0;
     let rootPath = initial.root_path, syncServerUrl = 'http://codec.test', syncTokenDraft = 'secret', syncServerReady = true;
@@ -521,6 +522,7 @@ function downloadsController(api: DownloadAPI = {}, saved: string[] = []) {
   if (guardStart < 0) throw new Error("Missing download connection guard");
   const guard = page.slice(guardStart, page.indexOf("\n  }", guardStart) + 4);
   const source = `
+    let auxConnection = null, auxBridge = null, auxInvitation = null;
     let syncServerUrl='https://server-a.test', syncTokenDraft='fixture-secret-a', guestMode=false;
     let downloadedFingerprints=new Set(saved), downloadingKeys=new Set(), downloadEpoch=0, downloadRun=null;
     let status=null;

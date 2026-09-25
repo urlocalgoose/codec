@@ -1,4 +1,7 @@
 <script lang="ts">
+  import ImportProgress from "./ImportProgress.svelte";
+  import type { ImportPhase } from "$lib/import-job";
+  import type { ImportJobStatus } from "$lib/sync";
   import {
     Archive,
     CloudDownload,
@@ -14,6 +17,7 @@
   } from "lucide-svelte";
 
   let {
+    importPhase, importFraction, importJob, importMessage, importConnectionError, onCancelImport, onRetryImport, onDismissImport,
     activeThemeName,
     syncing,
     canUpload,
@@ -36,6 +40,8 @@
     onEndAux,
     onClose
   }: {
+    importPhase:ImportPhase; importFraction:number; importJob:ImportJobStatus|null; importMessage:string; importConnectionError:string;
+    onCancelImport:()=>void; onRetryImport:()=>void; onDismissImport:()=>void;
     activeThemeName: string;
     syncing: boolean;
     canUpload: boolean;
@@ -146,13 +152,14 @@
           <CloudDownload size={17} />
           <span>Pull from server</span>
         </button>
-        {#if syncMessage}
+        {#if syncMessage && importPhase === "idle"}
           <p class="settings-note">{syncMessage}</p>
         {/if}
       </div>
 
       <div class="settings-group">
         <span class="settings-label">Library</span>
+        <ImportProgress phase={importPhase} fraction={importFraction} job={importJob} message={importMessage} connectionError={importConnectionError} onCancel={onCancelImport} onRetry={onRetryImport} onDismiss={onDismissImport}/>
         {#if importDisabled}
           <!-- Remote library: MP3s upload straight to the sync server. -->
           <button class="settings-row" disabled={importing} type="button" onclick={() => importInputEl?.click()}>

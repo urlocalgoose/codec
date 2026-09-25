@@ -9,11 +9,9 @@ const hmrHost = process.env.VITE_HMR_HOST || process.env.VITE_DEV_HOST || tauriH
 export default defineConfig(async () => ({
   plugins: [sveltekit()],
 
-  // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
-  //
-  // 1. prevent Vite from obscuring rust errors
+  // Keep diagnostics visible when running alongside the API server.
   clearScreen: false,
-  // 2. tauri expects a fixed port, fail if that port is not available
+  // A fixed port keeps local clients and the retained Tauri shell in sync.
   server: {
     port: 1420,
     strictPort: true,
@@ -26,7 +24,7 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
+      // Backend changes do not require a web reload.
       ignored: ["**/src-tauri/**"],
     },
   },

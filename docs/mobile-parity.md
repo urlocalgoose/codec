@@ -1,6 +1,6 @@
 # Current native / mobile web parity
 
-The current SwiftUI app on iOS 26.2 is the reference. This pass changes the web client at widths up to 980 px; it does not redesign or reinstall native iOS. The desktop shell remains separate.
+The SwiftUI app is the visual reference for the web client at widths up to 980 px. The desktop web shell remains separate. Web updates do not reinstall or update the native app.
 
 ## Screens and behavior
 
@@ -11,6 +11,14 @@ The current SwiftUI app on iOS 26.2 is the reference. This pass changes the web 
 - Now Playing keeps its cover sharp. Its artwork-derived halo, color wash and immersive background fade through the native 24-second cycle. Artwork sampling and blur are cached; the animation changes opacity. Reduced motion uses a static halo. Hidden or covered players pause the animation.
 - Queue has native grouped sections, Edit / Clear controls, swipe removal and reorder handles. Keyboard reordering follows the moved row. Large lists, Add Songs and queues render only visible rows plus overscan.
 - Settings uses the native grouped server, Aux and reconnect sections. Palettes shows the actual 22 dark / 11 light previews. Aux uses the native QR layout and styled symbol, with copy/share controls. Connect uses the actual Codec logo and server/token fields, with no optional-token claim.
+
+
+Fresh connections default to Graphite, including the document, browser chrome
+and Home Screen manifest; an existing saved palette takes precedence. Sheets,
+alerts, tab selection and content transitions animate without replacing playback.
+Reduced motion suppresses those transitions. Touch avoids tap flashes while
+keyboard navigation retains visible focus. A fresh connection form does not
+attempt an unsolicited anonymous login.
 
 ## Browser downloads and continuity
 
@@ -38,6 +46,7 @@ Native/web comparisons use Oxide and Paper with the same four-track fixture and 
 
 The frontend checks cover cached downloads, sync/token reuse, library lookup/order and playback continuation. The browser suite covers 2,000-song lists, 1,200-entry queues, empty-list transitions, final-row clearance, playlist and queue pointer/keyboard edits, real downloads, guest restrictions and desktop preservation. The audio continuity regression checks benign polling/context changes versus intentional remote seeks.
 
-September 21 verification: **119 frontend tests passed**, with zero Svelte/TypeScript diagnostics and a successful production build. The full layout/interaction matrix passed in Chromium at 320/390/430/1440 px in Oxide and Paper (8 scenarios), and WebKit at 390 px in both palettes. Final 390 px replays cover the published controller changes. The isolated audio/download suites verify uninterrupted polling, deliberate seeks, worker updates preserving downloads, and offline Blob playback. An independent Vision QR reader decoded both palette variants of the Aux screenshot.
-
-Final review also fixed credential changes during downloads, serialized order and membership writes, discarded library reads from before a playlist edit, and prevented retrying a failed first-song add from creating duplicate playlists. These race cases are covered by controller regressions.
+For each candidate, record the actual build, browser matrix and results
+outside source. Old passing counts are not a substitute for running the current
+checks. Actual Safari/Home Screen coverage and its limitations are recorded in
+[the viewport reference](mobile-web-viewport.md).

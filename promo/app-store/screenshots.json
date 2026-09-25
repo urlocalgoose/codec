@@ -1,0 +1,60 @@
+{
+  "locale": "en-US",
+  "copy_status": "Editable draft; not approved for App Review submission",
+  "screens": [
+    {
+      "id": "01-your-music",
+      "source": "01-home.png",
+      "label": "Self hosted",
+      "headline": [
+        "Self hosted"
+      ],
+      "caption": "Connect to your own Codec server."
+    },
+    {
+      "id": "02-now-playing",
+      "source": "04-now-playing.png",
+      "label": "Now playing",
+      "headline": [
+        "Now playing"
+      ],
+      "caption": "Playback controls and album artwork."
+    },
+    {
+      "id": "03-playlists",
+      "source": "02-library.png",
+      "label": "Playlists",
+      "headline": [
+        "Playlists"
+      ],
+      "caption": "Browse playlists with custom covers."
+    },
+    {
+      "id": "04-offline",
+      "source": "03-downloaded.png",
+      "label": "Offline listening",
+      "headline": [
+        "Offline listening"
+      ],
+      "caption": "Download songs to listen offline."
+    },
+    {
+      "id": "05-visualizer",
+      "source": "05-visualizer.png",
+      "label": "Visualizer",
+      "headline": [
+        "Visualizer"
+      ],
+      "caption": "Live audio visualization with artwork colors."
+    },
+    {
+      "id": "06-palettes",
+      "source": "06-palettes.png",
+      "label": "Color palettes",
+      "headline": [
+        "Color palettes"
+      ],
+      "caption": "Choose a light or dark palette."
+    }
+  ]
+}

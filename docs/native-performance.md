@@ -42,11 +42,14 @@ the implementation to its regression tests and explains how to measure changes.
 
 ## Build configuration matters
 
-Use `-configuration Release` for everyday phone installs and performance
-measurements. Debug uses Swift `-Onone` and remains appropriate for interactive
-debugging and the standard regression suite. Keep the installed app's bundle
-identifier and signing identity when updating a phone so its connection,
-downloads, and app data survive.
+Use `-configuration Release` for performance measurements. Debug uses Swift
+`-Onone` and remains appropriate for interactive debugging and the standard
+regression suite. Device testing uses the separate [Codec Test identity](local-test-app.md)
+so the listening app's connection, downloads and data stay intact. Native work
+resumed on September 24; the current release request authorizes a new App Store
+build. Follow [AGENTS.md](../AGENTS.md) and the
+[release checklist](release-checklist.md). An upload or simulator result does
+not establish physical-device performance or authorize replacing the listening app.
 
 ## Regression coverage
 
@@ -58,8 +61,17 @@ tests cover blocked analysis, uninterrupted history, silence decay, ring
 wraparound, and actual Metal pixels against WebKit output.
 
 `NativePerformanceTests` also checks playlist edit bursts without unnecessary
-index, search-text, or sorting work. `ArtworkAtmosphereTests` verifies processed
-sample reuse, retry after failure, and cancellation behavior.
+index, search-text, or sorting work. The 1,888-track edit workload checks that
+playlist rename/cover/order changes, membership changes, acknowledgments and
+rollback require no extra full index build, regenerated search text or recent
+sort. Metadata updates, likes, equal-date ordering, duplicate identifiers and
+album-only refreshes retain their own regression cases. These are work counts,
+not a frame-rate claim.
+
+`ArtworkAtmosphereTests` verifies processed sample reuse, retry after failure,
+and cancellation behavior. A warm cached result must never call its lazy
+original-image loader; a cached transparent image is distinct from a failed
+request, which remains retryable.
 
 `NativeScrollPerformanceTests` is an opt-in app-hosted workload using 1,888
 synthetic songs, 28 playlists, generated covers, a slow local download and

@@ -67,6 +67,7 @@ final class PlayerController {
         return items
     }
 
+    var auxTransport: ((String) -> Void)?
     var client: CodecClient?
     var downloads: DownloadStore?
 
@@ -95,6 +96,8 @@ final class PlayerController {
     /// Set by the app so context references resolve against the library.
     var resolveTrack: ((CodecTrackReference) -> CodecTrack?)?
     var refreshLibrary: (() async -> Bool)?
+    /// Owner-only event invalidations retain their originating connection.
+    var refreshAuxSession: ((CodecClient) async -> Void)?
     var reportSyncError: ((String) -> Void)?
     var reportSyncFailure: ((Error) -> Void)?
     private(set) var isSyncAvailable = true
@@ -133,6 +136,12 @@ final class PlayerController {
     @ObservationIgnored private var eventStreamSequence = 0
     @ObservationIgnored private let makePlayer: @MainActor (AVPlayerItem) -> AVPlayer
     @ObservationIgnored private let activateAudioSession: @MainActor () throws -> Void
+
+    var auxDiscoveryPollInterval: Duration {
+        guard syncEnabled, isSyncAvailable, let lastEventStreamActivity,
+              lastEventStreamActivity.duration(to: .now) < eventStreamTimeout else { return .seconds(3) }
+        return .seconds(30)
+    }
 
     init(
         syncPollInterval: Duration = .seconds(30),
@@ -388,6 +397,7 @@ final class PlayerController {
     // MARK: - Transport
 
     func togglePlayback(playlistID: String? = nil) {
+        if let auxTransport { auxTransport("toggle"); return }
         guard canEditCurrentPlayback else { return }
         let wasPlaying = isPlaying
         let canResumeLocally = isActiveSyncDevice && player != nil && currentTrack != nil
@@ -465,6 +475,7 @@ final class PlayerController {
     /// Also accepts a lock-screen pause while an interruption has already
     /// made the local engine silent.
     func pausePlayback() {
+        if let auxTransport { auxTransport("pause"); return }
         resumeAfterInterruption = false
         if isPlaying {
             togglePlayback()
@@ -474,6 +485,7 @@ final class PlayerController {
     }
 
     func next() {
+        if let auxTransport { auxTransport("next"); return }
         guard canEditCurrentPlayback else { return }
         if !isSyncAvailable { discardUnavailableUpcomingTracks() }
         if syncEnabled {
@@ -500,6 +512,7 @@ final class PlayerController {
     /// second press within the window steps to the previous song (and keeps
     /// stepping back on further presses).
     func previous() {
+        guard auxTransport == nil else { return }
         guard canEditCurrentPlayback else { return }
         let now = Self.nowMS()
         let steppingBack = now - lastPreviousTapMS < Self.previousDoubleTapWindowMS
@@ -1013,9 +1026,8 @@ final class PlayerController {
         let center = MPRemoteCommandCenter.shared()
         center.playCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                if self?.isPlaying == false {
-                    self?.togglePlayback()
-                }
+                if let auxTransport = self?.auxTransport { auxTransport("resume") }
+                else if self?.isPlaying == false { self?.togglePlayback() }
             }
             return .success
         }
@@ -1183,6 +1195,8 @@ extension PlayerController {
         }
         self.client = client
         syncEnabled = true
+        MPRemoteCommandCenter.shared().previousTrackCommand.isEnabled = true
+        MPRemoteCommandCenter.shared().changePlaybackPositionCommand.isEnabled = true
         if isSyncAvailable { startSyncTasks() }
     }
 
@@ -1192,6 +1206,32 @@ extension PlayerController {
         presenceTask = Task { [weak self] in
             await self?.runPresenceLoop()
         }
+    }
+
+    /// Transfers local audio to the isolated Aux listener without pausing the
+    /// selected host speaker. No global playback command is emitted.
+
+    func detachForAux(preserveAudio: Bool) -> (player: AVPlayer, fingerprint: String)? {
+        stopSync()
+        configureRemoteCommands()
+        let inherited = player
+        let fingerprint = loadedFingerprint
+        if let timeObserver, let player { player.removeTimeObserver(timeObserver) }
+        timeObserver = nil
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = nil
+        if !preserveAudio { inherited?.pause() }
+        player = nil
+        currentTrack = nil
+        nowPlayingArtworkFingerprint = ""
+        loadedFingerprint = nil
+        preloadedItem = nil
+        isPlaying = false
+        resumeAfterInterruption = false
+        MPRemoteCommandCenter.shared().previousTrackCommand.isEnabled = false
+        MPRemoteCommandCenter.shared().changePlaybackPositionCommand.isEnabled = false
+        if let inherited, let fingerprint, preserveAudio { return (inherited, fingerprint) }
+        return nil
     }
 
     func stopSync() {
@@ -1716,6 +1756,7 @@ extension PlayerController {
                     // The stream supplies fresh playback/devices snapshots.
                     // Library changes while disconnected still need one fetch.
                     self.refreshLibraryFromEvent(generation: generation)
+                    self.refreshAuxSessionFromEvent(generation: generation)
                 case .line(let line):
                     if line == ": heartbeat" {
                         self.lastEventStreamActivity = .now
@@ -1745,17 +1786,29 @@ extension PlayerController {
         }
     }
 
+    private func refreshAuxSessionFromEvent(generation: Int) {
+        Task { [weak self] in
+            guard let self, self.syncEnabled, self.isSyncAvailable,
+                  generation == self.syncGeneration, let client = self.client else { return }
+            await self.refreshAuxSession?(client)
+        }
+    }
+
     private func handleEventPayload(_ json: String) -> Bool {
         guard let data = json.data(using: .utf8),
               let payload = try? JSONDecoder().decode(PlaybackEventPayload.self, from: data),
               let type = payload.type,
-              ["library", "devices", "device", "playback_state"].contains(type)
+              ["library", "devices", "device", "playback_state", "aux_changed"].contains(type)
         else {
             return false
         }
 
         if type == "library" {
             refreshLibraryFromEvent(generation: syncGeneration)
+        }
+        if type == "aux_changed" {
+            refreshAuxSessionFromEvent(generation: syncGeneration)
+            return true
         }
         if let devices = payload.devices {
             playbackDevices = devices.sorted { $0.updatedAt > $1.updatedAt }

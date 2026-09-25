@@ -12,13 +12,19 @@ function controllerFunction(name: string) {
 }
 
 function controller() {
-  const functions = ["applyPlaybackStateV2", "syncLocalAudioToPlaybackState", "audioSourceIdentity", "publishPlaybackDeviceState", "startPlaybackDevicePolling", "selectedPlaybackTargetDeviceId", "currentPlaybackTimeForSave", "usePlaybackSync", "playbackDeviceChoices", "isActiveSyncDevice", "syncDuration", "handleAudioError", "handleAudioPlay", "handleAudioPause", "playLocalAudio", "pauseLocalAudio", "publishLocalMediaState", "handleSystemPlayback", "canControlLocalMedia", "resumeLocalAudioGraphAfterForeground", "refreshPlaybackSyncOnForeground"].map(controllerFunction).join("\n");
+  const functions = ["applyPlaybackStateV2", "syncLocalAudioToPlaybackState", "audioSourceIdentity", "publishPlaybackDeviceState", "startPlaybackDevicePolling", "selectedPlaybackTargetDeviceId", "currentPlaybackTimeForSave", "usePlaybackSync", "playbackDeviceChoices", "isActiveSyncDevice", "syncDuration", "handleAudioError", "handleAudioPlay", "handleAudioPause", "playLocalAudio", "pauseLocalAudio", "publishLocalMediaState", "handleSystemPlayback", "canControlLocalMedia", "resumeLocalAudioGraphAfterForeground", "refreshPlaybackSyncOnForeground", "attachAux", "prepareAuxAudio"].map(controllerFunction).join("\n");
   const source = `
+    let auxConnection = null, auxBridge = null;
+    async function refreshAuxState() {}
+    let auxInheritedFingerprint='',auxState=null,auxInviteSecret='',auxCode='',guestMode=false,auxInvitation=null,auxCreateOpen=false,settingsModalOpen=false;
+    let syncReadGeneration=0,playbackConnectionGeneration=0;
+    const visualizerSampler=null;
+    const savePlaybackSessionNow=()=>{},resetPlaybackCommandQueue=()=>{},saveAuxConnection=()=>{};
     let playbackStateV2 = null, pendingPlaybackCommands = 0, deferredPlaybackState = null;
-    let playbackApplyGeneration = 0, localPlaybackGeneration = 0, playbackClockOffsetMs = 0, lastAppliedPlaybackRevision = 0;
+    let playbackApplyGeneration = 0, localPlaybackGeneration = 0, playbackClockOffsetMs = 0;
     let currentTrack = null, currentTime = 0, isPlaying = false, volume = 1, audioDuration = 0, errorMessage = "";
     let audioGraphContext = null, visualizerAnalyser = null;
-    const playbackAudioSession = {begin(){},release(){},isInterrupted(){return false}};
+    const playbackAudioSession = {begin(){},release(){counts.graphReleases++},isInterrupted(){return false}};
     let expectedAudioPlayEvents = 0, expectedAudioPauseEvents = 0;
     const commands = [];
     const navigator = {userActivation:{hasBeenActive:false}};
@@ -32,7 +38,7 @@ function controller() {
     const SYNC_SELECTED_DEVICE_STORAGE_KEY = '', VOLUME_STORAGE_KEY = '', PLAYBACK_DEVICE_POLL_MS = 30000;
     const track = {id:'song',fingerprint:'song',duration_seconds:300};
     const library = {tracks:[track]};
-    const counts = {loads:0,plays:0,pauses:0,presence:0,seeks:0,commands:0,graphSuspends:0,graphResumes:0};
+    const counts = {loads:0,plays:0,pauses:0,presence:0,seeks:0,commands:0,graphSuspends:0,graphResumes:0,graphReleases:0};
     let token = 'first', metadata = Promise.resolve(), playCompletion = Promise.resolve(), refreshCompletion = Promise.resolve(), interval, rejectPlay = false;
     const window = {setInterval(fn) {interval=fn;return 1}};
     let audioTime = 0;
@@ -95,6 +101,7 @@ function controller() {
       advanceAudio:(position)=>{audioTime=position},
       changeToken:()=>{token='second'},
       delayMetadata:()=>{let release;metadata=new Promise(resolve=>{release=resolve});return release},
+      attachAux:()=>attachAux({role:"host",session_id:"aux-session"},null),
       startPolling:startPlaybackDevicePolling,
       poll:()=>interval()
     };
@@ -208,6 +215,8 @@ test("queue edits build on a pending remote play context before its acknowledgem
   const replies: Array<(state: PlaybackStateV2) => void> = [];
   const functions = ["sendPlaybackCommand", "applyPlaybackContextV2", "playbackContextSnapshot"].map(controllerFunction).join("\n");
   const source = `
+    let auxConnection = null, auxBridge = null;
+    async function refreshAuxState() {}
     let syncServerUrl = 'http://codec.test', deviceId = 'web', syncServerReady = true;
     let playbackConnectionGeneration = 0, playbackApplyGeneration = 0, localPlaybackGeneration = 0;
     let applyingRemotePlayback = false, pendingPlaybackCommands = 0, deferredPlaybackState = null;
@@ -278,6 +287,8 @@ test("late legacy session restore cannot overwrite a live native session", async
   let release!: (value: unknown) => void;
   const pending = new Promise(resolve => { release = resolve; });
   const source = `
+    let auxConnection = null, auxBridge = null;
+    async function refreshAuxState() {}
     let syncServerUrl = 'http://codec.test', syncReadGeneration = 1, playbackStateV2 = null;
     const PLAYBACK_SESSION_STORAGE_KEY = '';
     let applied = 0, saved = 0;
@@ -381,6 +392,8 @@ test("transferring playback away suspends the browser audio graph", async () => 
 
 test("a remote or paused visualizer never creates or resumes a silent audio session", () => {
   const source = `
+    let auxConnection = null, auxBridge = null;
+    async function refreshAuxState() {}
     let audioGraphContext = null, visualizerAnalyser = null, visualizerSampler = null;
     const playbackAudioSession = {begin(){},release(){},isInterrupted(){return false}};
     let local = false;
@@ -568,9 +581,15 @@ test("hardware controls cannot undo an outgoing transfer before its acknowledgem
 });
 
 function endedController(synced = true, repeat = "one") {
-  const functions = ["handleEnded", "startPlayback", "audioSourceIdentity", "playLocalAudio"]
+  const functions = ["handleEnded", "startPlayback", "audioSourceIdentity", "playLocalAudio", "attachAux"]
     .map(controllerFunction).join("\n");
   const source = `
+    let auxConnection = null, auxBridge = null;
+    async function refreshAuxState() {}
+    let auxInheritedFingerprint='',auxState=null,auxInviteSecret='',auxCode='',guestMode=false,auxInvitation=null,auxCreateOpen=false,settingsModalOpen=false;
+    let playbackConnectionGeneration=0,playbackApplyGeneration=0,pendingPlaybackCommands=0,deferredPlaybackState=null;
+    const visualizerSampler=null;
+    const savePlaybackSessionNow=()=>{},resetPlaybackCommandQueue=()=>{},saveAuxConnection=()=>{},stopPlaybackClock=()=>{};
     let currentTime = 300, currentTrack = {id:"song",fingerprint:"song",duration_seconds:300};
     let repeatMode = repeat, localPlaybackGeneration = 0, syncReadGeneration = 1;
     let playbackClockSuppressUntil = 0, isPlaying = false, errorMessage = "";
@@ -603,6 +622,7 @@ function endedController(synced = true, repeat = "one") {
       position:()=>({page:currentTime,audio:audioEl.currentTime}),
       transfer:()=>{playbackStateV2.active_device_id="phone"},
       switchConnection:()=>{syncReadGeneration++},
+      attachAux:()=>attachAux({role:"host",session_id:"aux-session"},null),
       holdNext:()=>{let release;nextCompletion=new Promise(resolve=>{release=resolve});return release}
     };
   `;
@@ -619,7 +639,7 @@ for (const synced of [false, true]) {
   });
 }
 
-for (const change of ["transfer", "switchConnection"] as const) {
+for (const change of ["transfer", "switchConnection", "attachAux"] as const) {
   test(`a delayed ended transition cannot publish after ${change}`, async () => {
     const c = endedController(true, "off");
     const release = c.holdNext();
@@ -639,4 +659,57 @@ test("a delayed ended transition still publishes while connection and owner stay
   release();
   await ending;
   expect(c.notifications).toEqual([{before:"song",kind:"next"}]);
+});
+
+
+test("Aux handoff invalidates an owner metadata read without stopping the inherited element", async () => {
+  const c = controller();
+  const release = c.delayMetadata();
+  const loading = c.apply(state(1));
+  await Promise.resolve();
+  c.attachAux();
+  c.audioEl.paused = false; // The Aux listener inherited this selected host element.
+  const pauses = c.counts.pauses;
+  release();
+  await loading;
+  expect(c.counts.plays).toBe(0);
+  expect(c.counts.pauses).toBe(pauses);
+  expect(c.audioEl.paused).toBe(false);
+});
+
+test("a pending owner graph suspension cannot release the new Aux listener", async () => {
+  const c = controller();
+  const release = c.delayedGraph();
+  await c.apply(state(1, "playing", "phone"));
+  c.attachAux();
+  c.audioEl.paused = false;
+  const releases = c.counts.graphReleases;
+  release();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(c.counts.graphResumes).toBe(1);
+  expect(c.counts.graphReleases).toBe(releases);
+  expect(c.audioEl.paused).toBe(false);
+});
+
+test("Aux local pause/play/error events never send personal playback commands", async () => {
+  const c = controller();
+  await c.apply(state(1));
+  c.attachAux();
+  c.audioEl.paused = true;
+  c.mediaPause();
+  c.audioEl.paused = false;
+  c.mediaPlay();
+  c.mediaError();
+  await Promise.resolve();
+  expect(c.commands).toEqual([]);
+  expect(c.audioEl.paused).toBe(false);
+});
+
+test("the personal command entrypoint rejects late commands after Aux attaches", async () => {
+  let sent = 0;
+  const source = `let auxConnection={session_id:"aux"},auxBridge=null;${controllerFunction("sendPlaybackCommand")}return sendPlaybackCommand;`;
+  const send = new Function("sendPlaybackCommandV2", new Bun.Transpiler({loader:"ts"}).transformSync(source))(() => { sent++; });
+  await expect(send("pause")).rejects.toThrow();
+  expect(sent).toBe(0);
 });

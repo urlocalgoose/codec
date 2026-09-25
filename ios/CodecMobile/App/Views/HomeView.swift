@@ -325,54 +325,12 @@ struct ServerSettingsView: View {
                 .listRowBackground(theme.panel)
 
                 Section {
-                    if app.activeAuxCode.isEmpty {
-                        Button {
-                            Task {
-                                await app.startAux()
-                                if !app.activeAuxCode.isEmpty {
-                                    showAuxSheet = true
-                                }
-                            }
-                        } label: {
-                            Label(app.auxBusy ? "Starting Aux…" : "Start Aux", systemImage: "qrcode")
-                        }
-                        .disabled(app.auxBusy || !app.isConnected)
-                    } else {
-                        Button {
-                            showAuxSheet = true
-                        } label: {
-                            HStack {
-                                Label(
-                                    app.activeAuxIsGuest ? "Joined Aux" : "Aux Live",
-                                    systemImage: app.activeAuxIsGuest ? "person.2" : "dot.radiowaves.left.and.right"
-                                )
-                                Spacer()
-                                Text(app.activeAuxCode)
-                                    .font(.body.monospaced().weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        Button(app.activeAuxIsGuest ? "Leave Aux" : "End Aux", role: .destructive) {
-                            Task {
-                                await app.endAux()
-                                app.syncPlayer(player)
-                            }
-                        }
-                        .disabled(app.auxBusy)
-                    }
-
-                    Button {
-                        showJoinPrompt = true
-                    } label: {
-                        Label("Join Aux", systemImage: "person.2")
-                    }
-                    .disabled(app.auxBusy || app.serverURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                } header: {
-                    Text("Aux")
-                } footer: {
-                    Text("Guests can browse, stream, and control the shared queue. They can't change your library.")
-                }
+                    Button { dismiss(); app.aux.showCreate = true } label: {
+                        Label("Start Aux", systemImage: "person.wave.2")
+                    }.disabled(!app.isConnected)
+                    Text("Share a selected playlist or songs. Open an invitation link to join someone else’s Aux.")
+                        .font(.footnote).foregroundStyle(theme.muted)
+                } header: { Text("Aux") }
                 .listRowBackground(theme.panel)
 
                 Section {

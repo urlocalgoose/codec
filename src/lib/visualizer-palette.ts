@@ -23,9 +23,6 @@ function rgb(value: string): RGB {
 export const spectrumBrightness = (color: RGB): number => color[0] * .2126 + color[1] * .7152 + color[2] * .0722;
 const mix = (a: RGB, b: RGB, t: number): RGB => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const css = (color: RGB): string => `rgb(${color.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255)).join(" ")})`;
-export function spectrumLuminance(color: RGB): number {
-  return spectrumBrightness(color.map(channel => channel <= .04045 ? channel / 12.92 : Math.pow((channel + .055) / 1.055, 2.4)) as unknown as RGB);
-}
 
 type SpectrumSample = Pick<ArtworkSample, "cool" | "warm" | "deep"> & Partial<Pick<ArtworkSample, "spectrum">>;
 

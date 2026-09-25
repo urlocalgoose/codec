@@ -90,6 +90,6 @@ a real background relaunch. Record the tested build and device; installation
 alone does not verify these behaviors or battery use.
 
 See [the architecture map](app-architecture.md) for the distinction between
-the native app, web PWA, desktop app, and server, and
+the native app, web PWA, import tooling and server, and
 [the continuity checklist](native-playback-continuity.md) for audio-route and
 interruption checks.

@@ -36,6 +36,8 @@ struct RootView: View {
     var body: some View {
         content
             .background { SpectrumAppearanceObserver() }
+            .sheet(isPresented: Binding(get: { app.aux.pendingInvitation != nil }, set: { if !$0 { app.aux.pendingInvitation = nil } })) { AuxJoinView() }
+            .sheet(isPresented: Binding(get: { app.aux.showCreate }, set: { app.aux.showCreate = $0 })) { AuxCreateView() }
             .overlay(alignment: .top) {
                 if app.hasLibrary, !app.errorMessage.isEmpty {
                     ErrorToast(message: app.errorMessage)
@@ -118,7 +120,9 @@ struct RootView: View {
 
     @ViewBuilder
     private var mainContent: some View {
-        if !app.hasLibrary {
+        if app.aux.isActive || app.aux.requiresRestore {
+            AuxSessionView()
+        } else if !app.hasLibrary {
             ConnectView()
         } else {
             AppTabsView()

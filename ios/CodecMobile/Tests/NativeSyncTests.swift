@@ -197,6 +197,44 @@ final class NativeSyncTests: XCTestCase {
         XCTAssertEqual(stream.connections, 1)
     }
 
+    func testAuxOwnerInvalidationAndReconnectDiscoverImmediatelyBetweenPolls() async throws {
+        let server = PlaybackFixture()
+        let stream = PlaybackStreamFixture()
+        let player = makeEfficientPlayer(server, stream: stream)
+        defer { player.stopSync() }
+        var origins: [URL] = []
+        player.refreshAuxSession = { origins.append($0.baseURL) }
+        try await eventually { origins.count == 1 }
+        XCTAssertEqual(player.auxDiscoveryPollInterval, .seconds(30))
+        let baseline = await server.readCounts
+
+        stream.send("data: {\"type\":\"aux_changed\"}")
+        try await eventually { origins.count == 2 }
+        XCTAssertEqual(origins, [server.client.baseURL, server.client.baseURL])
+        let reads = await server.readCounts
+        let commands = await server.commands
+        XCTAssertEqual(reads, baseline, "Aux invalidation must not reconcile global playback")
+        XCTAssertTrue(commands.isEmpty)
+
+        stream.disconnect()
+        try await eventually { stream.connections == 2 && origins.count == 3 }
+    }
+
+    func testQueuedAuxInvalidationCannotEscapeDetachedOwnerStream() async throws {
+        let server = PlaybackFixture()
+        let stream = PlaybackStreamFixture()
+        let player = makeEfficientPlayer(server, stream: stream)
+        var discoveries = 0
+        player.refreshAuxSession = { _ in discoveries += 1 }
+        try await eventually { discoveries == 1 }
+        stream.send("data: {\"type\":\"aux_changed\"}")
+        _ = player.detachForAux(preserveAudio: false)
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(discoveries, 1, "A guest attachment or stopped owner connection must invalidate queued owner callbacks")
+        XCTAssertFalse(player.syncEnabled)
+        XCTAssertEqual(player.auxDiscoveryPollInterval, .seconds(3))
+    }
+
     func testLibraryAndPlaybackEventsRemainImmediateBetweenSafetyPolls() async throws {
         let server = PlaybackFixture()
         let stream = PlaybackStreamFixture()

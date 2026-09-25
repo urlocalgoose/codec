@@ -7,6 +7,7 @@ pull requests right now; the source is available under the [MIT license](../LICE
 ## Themes
 
 - Svelte themes live in `src/app.css` and are listed in `src/lib/themes.ts`.
+- Mobile layout and interaction styles live in `src/mobile*.css`.
 - iOS themes are generated into `ios/CodecMobile/App/Themes.generated.swift`.
 - Run `bun run gen:ios-themes` after changing theme tokens.
 - Do not hardcode component colors. Use theme tokens.
@@ -18,8 +19,9 @@ pull requests right now; the source is available under the [MIT license](../LICE
 - iOS shared view primitives live in `ios/CodecMobile/App/Views/Components.swift`.
 - iOS app state lives in `ios/CodecMobile/App/AppModel.swift`.
 
-Rows should play on tap. Transport controls use raised or latched deck-button
-states. Guest-mode UI must hide sync, upload, like, and playlist mutation.
+Rows should play on tap. Transport controls use flat glyphs with theme tint for
+active states and scale feedback when pressed. Guest-mode UI hides sync, upload,
+like and playlist mutations; the server must enforce those restrictions too.
 
 ## Server/API
 

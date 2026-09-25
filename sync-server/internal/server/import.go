@@ -114,9 +114,17 @@ func (s *Server) handleImportBundle(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	file.Close()
+	if err := file.Close(); err != nil {
+		os.Remove(bundlePath)
+		writeError(w, http.StatusInternalServerError, errors.New("could not finish saving the upload"))
+		return
+	}
+	s.startImportJob(id, bundlePath)
+	writeJSON(w, http.StatusAccepted, map[string]string{"id": id})
+}
 
-	job := &ImportJob{ID: id, State: "running", StartedAtMs: s.now().UnixMilli()}
+func (s *Server) startImportJob(id, bundlePath string) {
+	job := &ImportJob{ID: id, State: "running", Current: "Waiting to import", StartedAtMs: s.now().UnixMilli()}
 	s.importMu.Lock()
 	if s.importJobs == nil {
 		s.importJobs = map[string]*ImportJob{}
@@ -125,7 +133,6 @@ func (s *Server) handleImportBundle(w http.ResponseWriter, r *http.Request) {
 	s.importMu.Unlock()
 
 	go s.runBundleImport(job, bundlePath)
-	writeJSON(w, http.StatusAccepted, map[string]string{"id": id})
 }
 
 func (s *Server) handleImportJob(w http.ResponseWriter, r *http.Request) {
@@ -164,6 +171,7 @@ func (s *Server) runBundleImport(job *ImportJob, bundlePath string) {
 	// Two bundle jobs must not race their additive identity/presence decisions.
 	s.bundleImportMu.Lock()
 	defer s.bundleImportMu.Unlock()
+	s.updateImportJob(job, func(j *ImportJob) { j.Current = "Checking ZIP archive" })
 	ctx := context.Background()
 	fail := func(err error) {
 		s.updateImportJob(job, func(j *ImportJob) {
@@ -197,6 +205,7 @@ func (s *Server) runBundleImport(job *ImportJob, bundlePath string) {
 		fail(fmt.Errorf("source.base_path: %w", err))
 		return
 	}
+	s.updateImportJob(job, func(j *ImportJob) { j.Total = len(manifest.Tracks); j.Current = "Checking music and playlists" })
 	// Derive metadata-based identities from the same tags/filename fallbacks
 	// that will be stored, before matching or building any playlist references.
 	// Reading the bounded ID3 prefix does not extract audio or mutate the library.
@@ -364,7 +373,6 @@ func (s *Server) runBundleImport(job *ImportJob, bundlePath string) {
 		validCandidates = append(validCandidates, candidate)
 	}
 	candidates = validCandidates
-	s.updateImportJob(job, func(j *ImportJob) { j.Total = len(manifest.Tracks) })
 	for index, track := range manifest.Tracks {
 		identity := importIdentity(track)
 		s.updateImportJob(job, func(j *ImportJob) {
@@ -519,23 +527,6 @@ func (s *Server) attachBundleAudio(ctx context.Context, identity, filename, audi
 		}
 	}
 	return false, nil
-}
-
-func (s *Server) knownFingerprints(ctx context.Context) (map[string]bool, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT fingerprint FROM tracks`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	known := map[string]bool{}
-	for rows.Next() {
-		var fingerprint string
-		if err := rows.Scan(&fingerprint); err != nil {
-			return nil, err
-		}
-		known[fingerprint] = true
-	}
-	return known, rows.Err()
 }
 
 // --- Identity (docs/codec-import-v1.md; mirrors src-tauri util.rs) ----------

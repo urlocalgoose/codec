@@ -78,6 +78,8 @@ jobs:
       - run: python scripts/test-import-schema.py
       - run: python scripts/test-server-release.py
       - run: python -m unittest discover -s deploy/ubuntu -p 'test_*.py'
+      - name: Check local lab isolation
+        run: python scripts/test-local-dev.py
       - name: Validate static site release references
         run: |
           python site/test_release_config.py
@@ -144,9 +146,26 @@ jobs:
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
   ios:
-    name: CodecKit (swift test)
+    name: CodecKit, installed owner APIs and Aux v1 retirement
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: sync-server/go.sum
       - run: swift test
         working-directory: ios/CodecMobile
+      - name: Check separate test-app identity
+        run: python3 scripts/local-test-app.py check
+      # Aux v1 is an explicit security retirement. Keep frozen build 7 owner
+      # APIs compatible and require legacy Aux to return 410, including restart.
+      - name: Verify unchanged shipped owner APIs and declared Aux v1 retirement
+        run: python3 scripts/check-client-compatibility.py --aux-v1-retirement --report-dir "$RUNNER_TEMP/codec-client-compatibility"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installed-client-compatibility
+          path: ${{ runner.temp }}/codec-client-compatibility/
+          if-no-files-found: warn
+          retention-days: 14

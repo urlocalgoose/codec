@@ -112,6 +112,21 @@ describe("artwork bundle selection", () => {
 });
 
 describe("ZIP64 storage writer", () => {
+  test("cancelling preparation stops reading the remaining audio slices", async () => {
+    const controller = new AbortController();
+    const audio = new File([new Uint8Array(2 * 1024 * 1024)], "song.mp3");
+    const originalSlice = audio.slice.bind(audio);
+    let reads = 0;
+    audio.slice = (start, end, type) => {
+      reads++;
+      controller.abort();
+      return originalSlice(start, end, type);
+    };
+    const manifest = json("codec-import.json", { schema: "loud.import.v1", tracks: [{ file: "song.mp3" }] });
+    await expect(buildImportBundle([manifest, audio], () => {}, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(reads).toBe(1);
+  });
+
   test("keeps original bytes, CRC32 and Unicode paths with valid end records", async () => {
     const manifest = json("loud-import.json", { schema: "loud.import.v1", tracks: [] });
     const content = new File(["123456789"], "café.png");

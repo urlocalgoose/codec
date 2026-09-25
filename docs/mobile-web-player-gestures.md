@@ -13,11 +13,13 @@ movement and gestures beginning in scrolled content remain native scrolling.
 The nested Queue does not drag its parent player. Touch listeners are removed
 when each sheet unmounts.
 
-The regular browser layout still uses `100dvh`. Installed apps use a shared
-`--app-viewport-height` measured from `window.innerHeight`, refreshed on resize,
-orientation, foregrounding, and pageshow. The shell and sheets use that same
-height; safe-area padding is applied inside the sheet once. The login form
-retains document scrolling rather than inheriting the shell's overflow lock.
+The regular browser layout uses `100dvh`; standalone mode uses `100vh`.
+An independent CSS layout probe sizes the document root and shell so stale
+WebKit percentage heights cannot clip the bottom controls. VisualViewport
+shrinks the shell only while an editable control has focus; pinch zoom retains
+the layout. Safe-area padding is applied inside the sheet once. The login form
+retains document scrolling. See [the viewport contract](mobile-web-viewport.md)
+for implementation and regression details.
 
 ## Verification
 

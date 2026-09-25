@@ -24,9 +24,15 @@ function controller(api: Record<string, (signal?: AbortSignal) => Promise<unknow
   const functions = [
     "startPlaybackDevicePolling", "refreshPlaybackSyncOnForeground", "stopPlaybackDevicePolling",
     "startPlaybackEvents", "handlePlaybackEvent", "mergePlaybackDevice", "refreshPlaybackDevices",
-    "refreshRemoteLibraryState", "publishPlaybackDeviceState", "refreshPlaybackDeviceList"
+    "refreshRemoteLibraryState", "publishPlaybackDeviceState", "refreshPlaybackDeviceList", "attachAux"
   ].map(controllerFunction).join("\n");
   const source = `
+    let auxConnection = null, auxBridge = null;
+    async function refreshAuxState() { counts.auxRefreshes++; }
+    let auxInheritedFingerprint='',auxState=null,auxInviteSecret='',auxCode='',guestMode=false,auxInvitation=null,auxCreateOpen=false,settingsModalOpen=false;
+    let playbackConnectionGeneration=0,playbackApplyGeneration=0,localPlaybackGeneration=0,pendingPlaybackCommands=0,deferredPlaybackState=null,deletePlaylistCandidate=null;
+    const currentTrack=null,visualizerSampler=null;
+    const savePlaybackSessionNow=()=>{},saveAuxConnection=()=>{};
     let now = 1000000, interval;
     const Date = {now:()=>now};
     let syncServerUrl = 'http://codec.test', syncServerReady = true, syncTokenDraft = 'secret', deviceId = 'web';
@@ -44,7 +50,7 @@ function controller(api: Record<string, (signal?: AbortSignal) => Promise<unknow
     let pendingPlaylistWrites = 0, playlistMutationEpoch = 0;
     let remoteLibraryRefresh = null, remoteLibraryRefreshAgain = false, lastRemoteLibrary = null;
     const PLAYBACK_DEVICE_POLL_MS = 30000;
-    const counts = {presence:0,devices:0,playback:0,library:0,applied:0,librariesApplied:0,reconnect:0};
+    const counts = {presence:0,devices:0,playback:0,library:0,applied:0,librariesApplied:0,reconnect:0,auxRefreshes:0};
     const streams = [];
     class EventSource {
       readyState = 0; handlers = {}; onopen; onerror;
@@ -84,6 +90,7 @@ function controller(api: Record<string, (signal?: AbortSignal) => Promise<unknow
       refreshPlayback:refreshPlaybackDevices,
       refreshLibrary:refreshRemoteLibraryState,
       enablePresenceEvents() {presenceEvents=true},
+      attachAux:()=>attachAux({role:"host",session_id:"aux-session"},null),
       tick(ms=30000) {now+=ms;interval()},
       resetCounts() {for(const key of Object.keys(counts))counts[key]=0},
       changeConnection(sameServer=false) {stopPlaybackDevicePolling();if(!sameServer){syncServerUrl='http://other.test';syncTokenDraft='new-secret'}},
@@ -443,4 +450,60 @@ test("foreground supersedes a suspended state request without waiting for its de
   old.resolve({revision:1});
   await suspended;
   expect(c.state().playback.revision).toBe(99);
+});
+
+
+test("Aux handoff invalidates a personal playback response already in flight", async () => {
+  const response = deferred<unknown>();
+  const c = controller({ playback: () => response.promise });
+  const reading = c.refreshPlayback();
+  await settle();
+  c.attachAux();
+  response.resolve({ revision: 44 });
+  await reading;
+  expect(c.counts.applied).toBe(0);
+  expect(c.state().playback).toBe(null);
+});
+
+test("foreground and heartbeat while in Aux cannot publish owner presence", async () => {
+  const c = await connected();
+  c.attachAux();
+  c.resetCounts();
+  c.foreground();
+  c.tick();
+  await settle();
+  expect(c.counts.presence).toBe(0);
+  expect(c.counts.auxRefreshes).toBe(1);
+});
+
+test("Aux saves the personal resume position before handoff and never replaces it with listener time", () => {
+  const functions = ["attachAux", "schedulePlaybackSessionSave", "savePlaybackSessionNow", "currentPlaybackTimeForSave"]
+    .map(controllerFunction).join("\n");
+  const source = `
+    let auxConnection=null,auxBridge=null,auxInheritedFingerprint='',auxState=null,auxInviteSecret='',auxCode='',guestMode=false,auxInvitation=null,auxCreateOpen=false,settingsModalOpen=false;
+    let syncReadGeneration=0,playbackConnectionGeneration=0,pendingPlaybackCommands=0,deferredPlaybackState=null,playbackApplyGeneration=0,localPlaybackGeneration=0;
+    const visualizerSampler=null,resetPlaybackCommandQueue=()=>{},stopPlaybackClock=()=>{},saveAuxConnection=()=>{};
+    let playbackSessionRestored=true,rootPath="personal-root",playbackSaveTimer=null,lastSavedPlaybackSession="";
+    const PLAYBACK_SAVE_DELAY_MS=100,PLAYBACK_SESSION_STORAGE_KEY="personal-resume";
+    const currentTrack={id:"personal-song",fingerprint:"personal-song"},queuedTracks=[],playbackSource=[currentTrack],sourcePlaylistID="personal-playlist",playHistory=[],selectedView="home",playbackIndex=0,audioDuration=300,currentTime=12;
+    const audioEl={currentTime:12};
+    const usePlaybackSync=()=>false,trackReference=track=>track;
+    const writes=[];let pendingTimer;
+    const window={setTimeout(fn){pendingTimer=fn;return 1},clearTimeout(){}};
+    const writeStoredValue=(key,value)=>writes.push({key,value:JSON.parse(value)});
+    ${functions}
+    return {writes,schedule:schedulePlaybackSessionSave,save:savePlaybackSessionNow,
+      queuedSave:()=>pendingTimer(),changeAudio:time=>audioEl.currentTime=time,
+      attach:()=>attachAux({role:"guest",session_id:"aux-session"},null)};
+  `;
+  const c = new Function(new Bun.Transpiler({loader:"ts"}).transformSync(source))();
+  c.schedule();
+  c.attach();
+  c.changeAudio(177);
+  c.queuedSave(); // A timer already delivered before cancellation must also be inert.
+  c.save(); // Visibility/unload calls the immediate save path.
+  c.schedule();
+  expect(c.writes).toHaveLength(1);
+  expect(c.writes[0].value.current_track.fingerprint).toBe("personal-song");
+  expect(c.writes[0].value.current_time).toBe(12);
 });

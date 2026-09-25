@@ -6,7 +6,8 @@
 
 Codec is a self-hosted music player. Run the server, add your music files, and
 listen through the web player or the iPhone/iPad app. The server stores your
-library, playlists, artwork and playback state. Each device plays its own audio.
+library, playlists, artwork and playback state. Audio plays on the selected
+playback device.
 
 [Project site](https://codec.codie.sh) · [Documentation](https://codec.codie.sh/docs.html) · [Server downloads](https://github.com/urlocalgoose/codec/releases/latest)
 
@@ -32,9 +33,12 @@ iOS distribution is managed separately.
 ## Run the server
 
 The current server release supports **Linux amd64 and arm64**. Each archive
-contains the Go server, built web player, Ubuntu/systemd installer and checksums.
+contains the Go server, built web player, systemd installation tools and checksums.
 It starts with an empty library; your music and auth token are never included in
 a release download.
+
+Use the guided installer on a systemd host, or run the same Linux binary with
+your distribution's service manager.
 
 Start with [Hosting Codec](https://codec.codie.sh/docs/hosting.html), or use the
 [included release guide](docs/server-release.md). Keep the archive and its
@@ -75,8 +79,19 @@ The [repository docs index](docs/README.md) links the source references. Start
 in `sync-server/` for the Go server, `src/` for the Svelte web player,
 `ios/CodecMobile/` for the Swift app, and `site/` for the static project website.
 
+Develop against the [persistent two-server local environment](docs/local-development.md).
+It keeps testing separate from listening libraries. Use the separate
+[Codec Test app](docs/local-test-app.md) for optional phone testing, and follow
+the [release checklist](docs/release-checklist.md) before publishing to GitHub,
+deploying servers, or updating the project site. Server changes must pass
+[installed-client compatibility](docs/client-compatibility.md) without requiring
+users to update the native app.
+
 ```sh
 bun install --frozen-lockfile
+bun run local:up               # Two isolated demo servers and local site preview
+bun run local:check            # Automated local checks; see release checklist
+bun run local:stop             # Stop the lab; retain its music and state
 bun run dev                    # Web development
 bun run build                  # Built web player in build/
 go -C sync-server build ./cmd/codec-sync-server

@@ -2,7 +2,7 @@
 
 This package runs one Codec music server and its web interface on Linux. Choose
 `linux-amd64` for an x86-64 host or `linux-arm64` for a 64-bit ARM host. It includes
-the compiled server, built web files, Ubuntu install/update tools, this guide,
+the compiled server, built web files, systemd install/update tools, this guide,
 import documentation, and the MIT license. No music or credentials are included.
 
 Native iPhone/iPad builds are separate;
@@ -31,12 +31,17 @@ directory containing `codec-sync-server`, `web/`, `release.json`, `SHA256SUMS`,
 `LICENSE`. `release.json` identifies the
 version, architecture, source revision, and toolchains.
 
-## Install on Ubuntu
+<a id="install-on-ubuntu"></a>
 
-Use a supported Ubuntu LTS host with systemd and enough disk space for your
-music, artwork, backups, and future imports. The prebuilt server needs no Go,
-Rust, Bun, or Node installation. The installer needs Python 3; install the
-runtime prerequisites:
+## Install on Linux with systemd
+
+The guided installer needs Linux, systemd, root access and the standard
+`useradd` account-management tool. Its deployment checks currently run on Ubuntu;
+other Linux configurations need their own runtime verification. For a different
+service manager, see [running the binary directly](#other-linux-setups-and-source).
+Allow enough disk space for music, artwork, backups and future imports.
+The prebuilt server needs no Go, Rust, Bun or Node installation. Install Python 3
+and CA certificates using your distribution's package manager. For Debian/Ubuntu:
 
 ```sh
 sudo apt-get update
@@ -122,8 +127,9 @@ archive and checksum; database restore is a separate operation.
 
 The server binary can also run directly with explicit `--addr`, `--data`, and
 `--web` paths. Auth can come from `CODEC_AUTH_TOKEN`; omitting auth leaves the API
-open. The packaged installer is specifically for Ubuntu/systemd layouts, not a
-universal service manager.
+open. The packaged installer uses a systemd service and the paths documented
+above. Direct installations can use their distribution's service manager and
+chosen persistent data paths.
 
 Source and release history are at [urlocalgoose/codec](https://github.com/urlocalgoose/codec).
 We’re not accepting contributions or pull requests right now. The source is

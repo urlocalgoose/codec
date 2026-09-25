@@ -67,7 +67,7 @@ stores SQLite and managed media; keep it outside the application release folder
 and include it in backups. Its actual location depends on setup.
 
 The server release bundles the Go executable, built web files, and an
-Ubuntu/systemd installer. Its service can run without a signed-in user.
+Linux/systemd installer. Its service can run without a signed-in user.
 The [hosting guide](https://codec.codie.sh/docs/hosting.html) explains setup;
 the [server release guide](server-release.md) covers archive verification,
 installation, auth-token retrieval, updates, and persistent storage. Other

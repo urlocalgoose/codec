@@ -216,11 +216,23 @@ existing membership. Use `append` for ordinary imports.
 
 Browser folder selection preserves paths. Flat file selection is accepted only
 when filename references are unambiguous. Loose selections are packaged into
-ZIP64 and sent to the same server importer as an uploaded ZIP. Once uploaded,
-job progress survives a browser refresh while the server stays running. ZIP64
-supports archives over 4 GiB; this does not bypass upload limits imposed by your
-browser, reverse proxy, or server. Large collections are better imported with
-the CLI, which sends missing audio files individually.
+ZIP64 and sent to the same server importer as an uploaded ZIP.
+
+The local September 24 candidate sends bundles larger than 8 MiB in 8 MiB
+chunks, with confirmed byte offsets and recovery for lost responses. This avoids
+sending a whole large ZIP in one request; a proxy must still accept each chunk.
+The browser shows upload progress separately from the server's import progress,
+with errors and cancellation rather than an indefinite loading state. The web
+and server changes must be released together before claiming this behavior on
+an existing deployment.
+
+Once the server acknowledges an import job, progress survives a browser refresh
+while that server stays running. An unfinished upload does not resume across a
+page reload, and restarting the server requires selecting the bundle again.
+Imports merge additively, so retrying must not duplicate completed tracks or
+playlist memberships. ZIP64 supports archives over 4 GiB; actual imports still
+depend on browser resources, server limits, storage and the proxy configuration.
+For very large collections, the CLI can send missing audio files individually.
 
 Build and run the CLI from the repository root:
 

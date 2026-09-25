@@ -250,13 +250,6 @@ h1 span {
   background:var(--panel-2);
 }
 
-.release-note {
-  font-size:.75rem;
-  line-height:1.6;
-  margin-block-start:12px;
-  max-inline-size:37ch;
-}
-
 .hero-screens {
   position:relative;
   min-block-size:660px;
@@ -426,12 +419,6 @@ h1 span {
   grid-template-columns:1.2fr 1fr;
   gap:80px;
   align-items:end;
-}
-
-.start-heading>p {
-  font-size:var(--body);
-  max-inline-size:36ch;
-  padding-block-end:4px;
 }
 
 .steps {
@@ -755,9 +742,6 @@ h1 span {
     grid-template-columns:1fr;
     gap:25px;
   }
-  .start-heading>p {
-    max-inline-size:46ch;
-  }
   .steps {
     grid-template-columns:1fr;
     gap:36px;
@@ -836,10 +820,6 @@ h1 span {
     padding:13px 19px;
     gap:12px;
     min-block-size:50px;
-  }
-  .release-note {
-    font-size:.7rem;
-    max-inline-size:40ch;
   }
   .hero-screens {
     min-block-size:445px;

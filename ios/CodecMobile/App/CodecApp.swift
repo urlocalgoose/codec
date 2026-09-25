@@ -67,7 +67,17 @@ struct CodecApp: App {
                             await app.connect()
                             app.syncPlayer(player)
                         }
+                        await app.aux.restore(personal: app.client, player: player)
                     }
+                    .task {
+                        while !Task.isCancelled {
+                            try? await Task.sleep(for: player.auxDiscoveryPollInterval)
+                            guard !Task.isCancelled else { return }
+                            if app.aux.requiresRestore { await app.aux.restore(personal: app.client, player: player) }
+                            else { await app.refreshAuthorizedHostSession(player: player) }
+                        }
+                    }
+                    .onChange(of: app.aux.isActive) { app.syncPlayer(player) }
                     .onChange(of: app.canReachServer) {
                         app.syncPlayer(player)
                         if app.canReachServer {
@@ -86,7 +96,9 @@ struct CodecApp: App {
                                 await app.refreshIfNeeded()
                                 guard scenePhase == .active, !Task.isCancelled else { return }
                                 app.syncPlayer(player)
-                                await player.reconcilePlayback()
+                                await app.refreshAuthorizedHostSession(player: player)
+                                if app.aux.isActive { await app.aux.refresh() }
+                                else { await player.reconcilePlayback() }
                             }
                         }
                     }
@@ -102,24 +114,31 @@ struct CodecApp: App {
         downloads.prepareArtwork(for: library.tracks, using: client)
     }
 
-    /// The web shell hands off join links as codec://aux?server=...&code=...
-    /// so a scanned QR lands in the app instead of Safari.
+    /// Opening an invitation only presents the join screen. Joining requires
+    /// an explicit action and never changes the saved personal connection.
     private func handleAuxLink(_ url: URL) {
-        guard url.scheme == "codec",
-              url.host == "aux",
+        #if LOCAL_TEST
+        let auxScheme = "codec-test"
+        #else
+        let auxScheme = "codec"
+        #endif
+        guard url.scheme == auxScheme else { return }
+        guard url.host == "aux-v2",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
-              !code.isEmpty
+              let secret = components.queryItems?.first(where: { $0.name == "invite" })?.value,
+              !secret.isEmpty,
+              let address = components.queryItems?.first(where: { $0.name == "server" })?.value,
+              let server = URL(string: address),
+              ["https", "http"].contains(server.scheme?.lowercased() ?? ""),
+              server.host != nil, server.user == nil, server.password == nil,
+              server.query == nil, server.fragment == nil
         else {
+            app.errorMessage = "Ask the host for a new Aux invitation. This link uses an unsupported version."
             return
         }
-        let server = components.queryItems?.first(where: { $0.name == "server" })?.value
-
-        Task {
-            await app.joinAux(code: code, server: server)
-            app.syncPlayer(player)
-        }
+        app.aux.presentInvitation(server: server, secret: secret)
     }
+
 }
 
 /// Notification Center and system overlays temporarily make the scene inactive.

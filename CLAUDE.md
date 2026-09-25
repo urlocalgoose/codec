@@ -1,82 +1,114 @@
-# CLAUDE.md
+# Working on Codec
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Follow [AGENTS.md](AGENTS.md) for local testing, release authorization, native
+review holds, and installed-client compatibility. This file maps the source;
+it does not override those rules.
 
-## What Codec Is
+## Product and commands
 
-Codec (formerly Loud) is a self-hosted music server with a SvelteKit web/PWA player and a separate native SwiftUI iPhone/iPad app. The Go server serves both the web interface and API. Rust library and CLI import code lives in the existing `src-tauri` crate. Desktop GUI distribution and promotion are paused; do not add desktop installers, download links, or product claims. Keep the shared Rust code and import tests.
+Codec is a self-hosted Go music server with a Svelte web/PWA player and a
+separate SwiftUI iPhone/iPad app. The server serves the web player and API from
+one address. Desktop GUI distribution is paused. The shared library and import
+CLI in `src-tauri/` remain supported tooling; keep their tests.
 
-**Naming rule:** "Codec" is the brand (UI strings, app names, docs, code identifiers). The `loud.*` wire schemas, `.loud/` state folder, and `loud://` roots are historical compatibility IDs and MUST stay without a migration. New env vars, docs, storage keys, and generated names should use `codec.*` / `CODEC_*`; old `LOUD_*` and `loud.*` app preferences are read only as aliases.
+Bun is the package manager and frontend test runner:
 
-## Commands
-
-Bun is the package manager and JS test runner.
-
-```bash
-bun run dev              # Vite dev server only (UI debugging, port 1420)
-bun run server:dev       # Build web UI, then run Go sync server on :8787 (mobile/PWA flow)
-bun run build            # vite build -> build/
-bun run check            # svelte-check + typescript
-
-bun run test             # frontend (bun test) + rust tests
-bun test src/lib/sync.test.ts                        # single frontend test file
-bun test -t "name"                                   # filter by test name
-cargo test --manifest-path src-tauri/Cargo.toml      # rust tests
-cargo test --manifest-path src-tauri/Cargo.toml some_test_name   # single rust test
-cd sync-server && go test ./...                      # Go server tests (NOT in `bun run test`)
-cd ios/CodecMobile && swift test                      # iOS tests (runs on macOS)
+```sh
+bun install --frozen-lockfile
+bun run local:up                 # Two isolated demo servers and site preview
+bun run local:check              # Local candidate checks
+bun run local:stop               # Stop the lab, retain its data
+bun run dev                      # Vite UI development
+bun run build                    # Static web player in build/
+bun run check:quick              # Parallel web, Go and contract checks
+bun run test:frontend
+bun run test:server
+bun run test:rust
+(cd ios/CodecMobile && swift test)  # CodecKit models/client, not app-hosted tests
 ```
 
-## Architecture
+`server:dev`, `server`, and `dev:mobile` are aliases for the isolated local lab.
+See [local development](docs/local-development.md) and the
+[native test guide](ios/CodecMobile/Tests/README.md) for the separate app-hosted
+suite. Do not use listening servers or personal libraries as test fixtures.
 
-The web and native clients share the server contract; the Rust CLI imports and transfers libraries:
+## Source map
 
-1. **Web player and Rust import tools** — `src/` (Svelte web UI) + `src-tauri/` (shared library and CLI code).
-   - Rust core is `src-tauri/src/library/` (mod.rs holds types + public API; scan/ops/import/state/summaries/artwork/util/tests split per concern). App truth lives in `.loud/state.json` inside the user's music folder; new MP3s are copied to `.loud/audio/Artist/Album/`; likes and playlists are references to canonical tracks by fingerprint, never file copies.
-   - `src-tauri/src/lib.rs` is Tauri commands + wiring only; `media_server.rs` is the token-per-path localhost stream server for the WebView; `sync_transfer.rs` moves MP3s/artwork to/from the sync server.
-   - Frontend: `src/routes/+page.svelte` is the orchestrator (state + playback engine); markup lives in `src/lib/components/` (PlayerBar, TrackList, Sidebar, modals, etc. — Svelte 5 runes components); pure logic in `src/lib/*.ts` where the tests live. Keep new logic in `src/lib` so it stays testable. All styling is `src/app.css` (global, theme via `data-theme` attribute; themes defined in `src/lib/themes.ts` + app.css blocks).
-   - **UI vibe is intentional**: native Apple styling, mirroring the iOS app — flat tinted controls, hairline cards, thin accent sliders, a floating player card. No raised/3D "deck key" chrome; latched states (shuffle/repeat) show as accent tint, not press depth. The older tape-deck skin is archived on the `deck-ui` branch — do not bring it back.
+- `src/routes/+page.svelte`: web orchestration and playback. Components live in
+  `src/lib/components/`; reusable logic and its tests live in `src/lib/`.
+- `src/app.css`: shared web styles and theme definitions. `src/mobile*.css`
+  contains the mobile layout, player, library and gesture styles.
+  `src/lib/themes.ts` lists palettes.
+- `sync-server/internal/server/`: Go routing, SQLite library state, media,
+  playback commands and SSE, imports and Aux. `playback_v2.go` owns the shared
+  playback state machine; `aux_v2.go` owns scoped sessions; `aux_transfer.go` owns selected-track sharing
+  and durable saves. `aux_sessions.go` retires unsafe legacy guest access.
+- `ios/CodecMobile/`: SwiftUI app and CodecKit API models/client. App-hosted
+  playback/rendering tests are separate from the Swift package tests.
+- `src-tauri/src/library/`: local import library, scanning, identity, artwork,
+  likes and playlists. `src-tauri/src/bin/codec_import.rs` is the CLI;
+  `sync_transfer.rs` transfers libraries. Existing bridge/desktop code is not
+  a current distribution target.
+- `site/`: static project website, documentation and release metadata. The site
+  is `codec.codie.sh`; listening servers are not project/marketing destinations.
+- `deploy/ubuntu/` and `scripts/build-server-release.py`: verified server/web
+  packaging, persistent data isolation, install/update/rollback tooling.
 
-2. **Go sync server** — `sync-server/`, module `codec-sync-server`, single dependency (`modernc.org/sqlite`, no cgo). One package split by concern: `server.go` (setup/routing/migrations), `hub.go` (SSE pub/sub), `handlers.go`, `store_library.go`, `store_playback.go`, `playback_v2.go` (playback state machine), `aux.go` (pass-the-aux sessions: join codes, scoped guest tokens, cross-server media grants), `auth_tokens.go` (short-lived stream URL tokens), `httputil.go`, `summaries.go`, `helpers.go`. Optional shared-token auth via `CODEC_AUTH_TOKEN` (legacy alias `LOUD_AUTH_TOKEN`; Basic for browsers, Bearer for API clients; `/health` and the static web shell stay public — join links must load the app).
+## Contracts and identity
 
-3. **iOS app** — `ios/CodecMobile/` (SwiftPM + xcodeproj). Speaks the same v1/v2 API as the web client.
+"Codec" is the product name. Keep `loud.*` wire schemas, `.loud/` local state
+and `loud://` identifiers compatible; renaming requires a migration. Use
+`CODEC_*` / `codec.*` for new configuration while preserving supported legacy
+aliases.
 
-### Sync contracts
+- `loud.sync.v1`: Rust, Go, web and native library/snapshot contract.
+- `loud.playback.v2`: shared queue, playback position, devices and SSE state.
+- `loud.import.v1`: external import manifest; see
+  [the format reference](docs/codec-import-v1.md) and its JSON Schema.
 
-- `loud.sync.v1` — snapshot/push schema shared between Rust (`SYNC_SCHEMA` in `src-tauri/src/lib.rs`), the Go server, and `src/lib/sync.ts`. Changing it means touching all three.
-- `loud.playback.v2` — shared playback state (queue/position/devices) over SSE; state machine in `sync-server/internal/server/playback_v2.go`, client in `src/lib/sync.ts`.
-- `loud.import.v1` — import manifest for external downloaders, documented in `docs/codec-import-v1.md` with JSON schema at `docs/codec-import.schema.json`.
+Server merge matches exact fingerprints, preserves existing records, unions
+likes and appends missing playlist members. Identity derivation for records
+without a fingerprint belongs to the importer; do not fuzzy-merge distinct
+supplied fingerprints. Playlists and likes reference canonical tracks rather
+than copied audio. Repeated entries of one track within a playlist collapse.
 
-### Aux (shared listening)
+## UI and playback
 
-The host starts an aux from Settings (web) and gets a 4-char code + QR; the join link carries the full server URL. Guests trade the code for a scoped token: they can browse, stream, and drive the shared queue, but never sync/upload/like/playlist (guest-blocked UI is gated by `guestMode` / `.hidden-for-guests`). Ending the aux revokes every guest token. Cross-server tracks ride on `loud.playback.v2` track refs (optional title/artist/media_url/artwork_url) backed by media grants (`POST /api/v1/media-grants`, 24h, scoped to the granted tracks). Server logic in `sync-server/internal/server/aux.go`; client flow in `src/routes/+page.svelte` (`joinAuxAsGuest`, `?aux=` param) + `src/lib/components/AuxModal.svelte`.
+[The UI system](docs/ui-system.md) is the visual reference. Preserve the current
+native appearance: flat themed controls, restrained borders, compact lists and
+artwork. Do not restore the older raised tape-deck button styling.
 
-### UI conventions (web)
+Use existing tokens and components, keep styles in the shared CSS files, and
+verify both light and dark palettes. Browser focus must remain visible for
+keyboard users. Match mobile layouts and gestures while respecting browser and
+native platform limitations. Artwork visualizer colors come from the song's
+image; new colors apply to new history columns, never recolor old ones.
 
-Read `docs/ui-system.md` before UI work. The current Codec style is not a generic app shell: it is theme-token driven, music-first, and tape-deck influenced.
+Keep ordinary library refreshes, navigation and presence checks separate from
+audio ownership and intentional transport commands. Downloads take precedence
+over streaming. See [web continuity](docs/web-playback-continuity.md),
+[native continuity](docs/native-playback-continuity.md), and
+[offline playback](docs/native-offline-playback.md).
 
-- Web styling lives in `src/app.css`; Svelte components do not get `<style>` blocks.
-- Use existing theme tokens (`--color-*`, `--button-*`, `--radius-*`) and existing primitives (`.ui-button`, `.title-icon-button`, `.queue-button`, `.app-modal`, `.modal-header`, `.modal-actions`).
-- Buttons are raised physical controls: no outlines, fill differs from background, rest/hover/press/latched depth matters. Connected button stacks round only the outside corners.
-- The bottom transport is the reference: play is wider and accent-filled; shuffle/repeat/play can latch down; skip/previous are momentary.
-- Sidebar and list rows stay quiet. Selection is a muted active fill, not a bright rail. Track rows play on click; do not add play buttons to every row.
-- Modals follow one pattern: `.modal-backdrop` > `.app-modal <name>-modal` > `header.modal-header` > scrollable body > `footer.modal-actions`. There is no bare `.modal` class.
-- Aux should look like a Codec pass: logo/code/QR/theme/grain, with a high-contrast scan plate. Guests can browse/stream/control playback but cannot mutate library state.
+## Auth and Aux
 
-For iOS, mirror the same visual language with SwiftUI and `CodecTheme` tokens (`theme.bg`, `theme.panel`, `theme.surface`, `theme.accent`, `theme.buttonShadow`, etc.). `NowPlayingView.swift`, `Components.swift`, and the Aux pass in `HomeView.swift` are the current references.
+The server accepts configured owner authentication and restricted media tokens;
+`/health` and the static web shell remain public. Review
+[the actual security model](docs/secure-sync.md) before changing credentials or
+permissions. UI hiding is not an authorization boundary.
 
-### Track identity
+Aux v2 is implemented locally in the server, web player and native app. It uses
+separate guest credentials, explicitly shared catalogs, Shared speaker and Listen
+together modes, and an independent timeline. Guests cannot access owner playback,
+libraries, playlists, likes, history or device registries. See the [wire contract](docs/aux-v2-protocol.md)
+and [selected-track transfer contract](docs/aux-transfer-protocol.md).
+The [historical review](docs/aux-security-review.md) explains the retired v1 risks.
+Old Aux invitations deliberately return update-required; ordinary owner APIs stay
+compatible. Coordinate updated server/web/native deployment before advertising Aux.
 
-Cross-device matching uses a canonical identity chosen in priority order: `fingerprint`, then ISRC, MusicBrainz recording ID, Spotify track ID, YouTube video ID, then normalized title+artist+album (identity strings like `isrc:...`, `spotify:track:...`). Playlists and likes always reference canonical identities. See `docs/codec-import-v1.md`.
+## Reference
 
-### API
-
-The Go server's endpoints are listed in `docs/codec-sync.md` (`/api/v1/library`, `/api/v1/sync/*`, `/api/v1/tracks/{fingerprint}/*`, `/api/v2/playback*`). The server returns `Library` JSON matching the types in `src/lib/types.ts`.
-
-### History note
-
-An earlier Cloudflare Worker backend and its device-key `loud.sync.v3` protocol were removed (recoverable from git history). Cloudflare's only role is DNS/HTTPS/Tunnel in front of the Go server. Do not resurrect the worker.
-
-## Docs to read before touching sync
-
-`docs/codec-sync.md` (server + flows), `docs/secure-sync.md` (auth model), `docs/codec-import-v1.md` (import manifest and identity rules), `docs/modding.md` (where to change things), `DEPLOY.md` (publish path), `docs/device-friends-sharing-plan.md` (future auth/sharing plan).
+Start with [the docs index](docs/README.md). Before changing sync/imports, read
+[the API](docs/codec-sync.md), [security](docs/secure-sync.md),
+[import format](docs/codec-import-v1.md), and
+[installed-client compatibility](docs/client-compatibility.md).

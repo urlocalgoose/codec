@@ -1,6 +1,10 @@
 # Device Management, Friends, And Library Sharing Plan
 
-This is a plan only. It is not implemented yet.
+This earlier design sketch is not implemented or an approved implementation
+contract. Current Aux permissions and cross-server contribution/save behavior
+are defined in [the Aux security review](aux-security-review.md). Keep this
+separate device-enrollment/friends concept as a reference; do not infer that
+these routes or data tables already exist.
 
 ## Device Management
 

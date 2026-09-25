@@ -30,18 +30,29 @@ const (
 )
 
 type Server struct {
-	dataDir        string
-	db             *sql.DB
-	now            func() time.Time
-	playbackEvents *playbackEventHub
+	auxTransferHTTPClient *http.Client
+	auxTransferMu         sync.Mutex
+	auxMu                 sync.Mutex
+	auxV2Rates            map[string]auxV2Rate
+	auxV2MediaTokens      map[string]auxV2MediaCredential
+	auxV2Streams          map[string]int
+	dataDir               string
+	db                    *sql.DB
+	now                   func() time.Time
+	playbackEvents        *playbackEventHub
 	// Bumped on every library write; drives the library ETag so unchanged
 	// refreshes cost a 304 instead of the full payload.
-	libraryVersion   atomic.Int64
-	libraryEpoch     string
-	libraryResponses libraryResponseCache
-	importMu         sync.Mutex
-	bundleImportMu   sync.Mutex
-	importJobs       map[string]*ImportJob
+	libraryVersion    atomic.Int64
+	libraryEpoch      string
+	libraryResponses  libraryResponseCache
+	importMu          sync.Mutex
+	bundleImportMu    sync.Mutex
+	importJobs        map[string]*ImportJob
+	importUploadsMu   sync.Mutex
+	importUploads     map[string]*importUpload
+	importUploadStop  chan struct{}
+	importUploadDone  chan struct{}
+	importUploadClose sync.Once
 }
 
 type HandlerOptions struct {
@@ -83,10 +94,18 @@ func Open(dataDir string) (*Server, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := srv.initializeImportUploads(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return srv, nil
 }
 
 func (s *Server) Close() error {
+	if s.importUploadStop != nil {
+		s.importUploadClose.Do(func() { close(s.importUploadStop) })
+		<-s.importUploadDone
+	}
 	return s.db.Close()
 }
 
@@ -96,11 +115,18 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
 	mux := http.NewServeMux()
+	s.registerAuxTransferRoutes(mux)
+	s.registerAuxV2Routes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/library", s.handleLibrary)
 	mux.HandleFunc("GET /api/v1/sync/snapshot", s.handleSnapshot)
 	mux.HandleFunc("GET /api/v1/export", s.handleExportLibrary)
 	mux.HandleFunc("POST /api/v1/import/bundle", s.handleImportBundle)
+	mux.HandleFunc("POST /api/v1/import/uploads", s.handleCreateImportUpload)
+	mux.HandleFunc("GET /api/v1/import/uploads/{id}", s.handleGetImportUpload)
+	mux.HandleFunc("PUT /api/v1/import/uploads/{id}", s.handlePutImportUpload)
+	mux.HandleFunc("DELETE /api/v1/import/uploads/{id}", s.handleDeleteImportUpload)
+	mux.HandleFunc("POST /api/v1/import/uploads/{id}/complete", s.handleCompleteImportUpload)
 	mux.HandleFunc("GET /api/v1/import/jobs/{id}", s.handleImportJob)
 	mux.HandleFunc("POST /api/v1/sync/push", s.handlePush)
 	mux.HandleFunc("PUT /api/v1/tracks/{fingerprint}", s.handleTrackMetadata)
@@ -144,9 +170,7 @@ func (s *Server) HandlerWithOptions(options HandlerOptions) http.Handler {
 	if strings.TrimSpace(options.WebDir) != "" {
 		handler = serveWebApp(strings.TrimSpace(options.WebDir), handler)
 	}
-	if strings.TrimSpace(options.AuthToken) != "" {
-		handler = withAuth(handler, strings.TrimSpace(options.AuthToken), s)
-	}
+	handler = withAuth(handler, strings.TrimSpace(options.AuthToken), s)
 	return logRequests(withCORS(handler))
 }
 
@@ -258,6 +282,12 @@ func (s *Server) migrate(ctx context.Context) error {
 		return err
 	}
 
+	if err := s.migrateAuxV2(ctx); err != nil {
+		return err
+	}
+	if err := s.migrateAuxTransfer(ctx); err != nil {
+		return err
+	}
 	_, err := s.serverID(ctx)
 	return err
 }

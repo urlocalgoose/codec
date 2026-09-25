@@ -499,8 +499,16 @@ func TestPlaybackV2EmptyState(t *testing.T) {
 		t.Fatalf("playback v2 empty status = %s", res.Status)
 	}
 
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The shipped Swift client compares the exact sentinel before decoding.
+	if string(data) != "null" {
+		t.Fatalf("installed iOS client requires bare null, got %q", data)
+	}
 	var state *PlaybackStateV2
-	if err := json.NewDecoder(res.Body).Decode(&state); err != nil {
+	if err := json.Unmarshal(data, &state); err != nil {
 		t.Fatal(err)
 	}
 	if state != nil {
@@ -1021,84 +1029,30 @@ func TestReorderPlaylistTracks(t *testing.T) {
 	}
 }
 
-func TestAuxGuestScope(t *testing.T) {
+func TestLegacyAuxRequiresUpdate(t *testing.T) {
 	srv, _ := testServer(t)
-	handler := srv.HandlerWithOptions(HandlerOptions{AuthToken: "host-secret"})
-	httpServer := httptest.NewServer(handler)
-	t.Cleanup(httpServer.Close)
-	ctx := context.Background()
-	if err := srv.upsertTrack(ctx, Track{Fingerprint: "auxfp", Title: "Aux Track"}); err != nil {
+	legacy, err := srv.createAuxSession(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	do := func(method, path, token, body string) *http.Response {
-		t.Helper()
-		var reader io.Reader
-		if body != "" {
-			reader = strings.NewReader(body)
+	h := srv.HandlerWithOptions(HandlerOptions{AuthToken: "host-secret"})
+	for _, tc := range []struct {
+		method, path, token string
+		want                int
+	}{
+		{"POST", "/api/v1/aux", "host-secret", 410},
+		{"POST", "/api/v1/aux/join", "", 410},
+		{"GET", "/api/v1/library", legacy.GuestToken, 403},
+		{"GET", "/api/v2/playback/events", legacy.GuestToken, 403},
+		{"PUT", "/api/v1/playback/devices/host", legacy.GuestToken, 403},
+	} {
+		r := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`))
+		r.Header.Set("Authorization", "Bearer "+tc.token)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != tc.want {
+			t.Fatalf("%s: %d %s", tc.path, w.Code, w.Body.String())
 		}
-		req, err := http.NewRequest(method, httpServer.URL+path, reader)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
-		res, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { res.Body.Close() })
-		return res
-	}
-
-	// Hosts create sessions; strangers cannot.
-	if res := do(http.MethodPost, "/api/v1/aux", "", `{}`); res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401 creating aux without auth, got %d", res.StatusCode)
-	}
-	res := do(http.MethodPost, "/api/v1/aux", "host-secret", `{}`)
-	if res.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201 creating aux, got %d", res.StatusCode)
-	}
-	var created struct {
-		Code       string `json:"code"`
-		GuestToken string `json:"guest_token"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
-		t.Fatal(err)
-	}
-
-	// Join is public and hands back the guest token.
-	res = do(http.MethodPost, "/api/v1/aux/join", "", `{"code":"`+created.Code+`"}`)
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 joining, got %d", res.StatusCode)
-	}
-
-	// Guests can browse and drive shared playback...
-	if res := do(http.MethodGet, "/api/v1/library", created.GuestToken, ""); res.StatusCode != http.StatusOK {
-		t.Fatalf("guest library read: expected 200, got %d", res.StatusCode)
-	}
-	if res := do(http.MethodGet, "/api/v2/playback", created.GuestToken, ""); res.StatusCode != http.StatusOK {
-		t.Fatalf("guest playback read: expected 200, got %d", res.StatusCode)
-	}
-
-	// ...but nothing that mutates the library or the session.
-	if res := do(http.MethodPut, "/api/v1/tracks/auxfp/liked", created.GuestToken, `{"liked":true}`); res.StatusCode != http.StatusForbidden {
-		t.Fatalf("guest like: expected 403, got %d", res.StatusCode)
-	}
-	if res := do(http.MethodPost, "/api/v1/playlists", created.GuestToken, `{"name":"nope"}`); res.StatusCode != http.StatusForbidden {
-		t.Fatalf("guest playlist create: expected 403, got %d", res.StatusCode)
-	}
-	if res := do(http.MethodPost, "/api/v1/aux", created.GuestToken, `{}`); res.StatusCode != http.StatusForbidden {
-		t.Fatalf("guest aux create: expected 403, got %d", res.StatusCode)
-	}
-
-	// Ending the session kills the guest token immediately.
-	if res := do(http.MethodDelete, "/api/v1/aux/"+created.Code, "host-secret", ""); res.StatusCode != http.StatusNoContent {
-		t.Fatalf("end aux: expected 204, got %d", res.StatusCode)
-	}
-	if res := do(http.MethodGet, "/api/v1/library", created.GuestToken, ""); res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("dead guest token: expected 401, got %d", res.StatusCode)
 	}
 }
 

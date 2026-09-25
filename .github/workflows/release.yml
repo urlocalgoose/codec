@@ -1,4 +1,9 @@
-name: Release server and web
+name: Prepare draft server and web release
+
+# A tag must only be pushed after local candidate gates and release approval.
+# CI prepares a draft; publishing that draft is a separate manual step in the
+# coordinated release window. See docs/release-checklist.md. This workflow has
+# no deployment credentials and does not activate servers or the project site.
 
 on:
   push:
@@ -17,7 +22,7 @@ jobs:
   # Desktop GUI distribution is paused. Reuse the checked Linux server + web
   # packages from CI; do not rebuild web assets or publish desktop installers.
   release:
-    name: Publish server and web archives
+    name: Prepare draft with checked server and web archives
     needs: checks
     runs-on: ubuntu-24.04
     permissions:
@@ -35,16 +40,15 @@ jobs:
           cat > release-notes.md <<'NOTES'
           This release contains the Codec server and its web interface for Linux amd64 and arm64.
 
-          - Additive Loud/S2Y imports preserve existing music and restore supplied track and playlist artwork.
-          - Mobile web improvements cover navigation, offline downloads, artwork caching, playback controls, and sync recovery.
-          - The visualizer uses artwork colors and retains each song's colors in its scrolling history.
-          - Ubuntu install/update tools verify package contents, retain library data, and provide a private auth-token retrieval command.
+          Changes: replace this line with the reviewed changes for this release before publishing.
 
-          Download the archive matching your host and its adjacent `.sha256` file. The archive includes the server, built web app, Ubuntu install/update tools, and `docs/server-release.md` with setup and verification instructions. No music library or credentials are bundled.
+          Download the archive matching your host and its adjacent `.sha256` file. The archive includes the Linux server, built web app, systemd install/update tools, and `docs/server-release.md` with guided and direct setup instructions. No music library or credentials are bundled.
 
           These downloadable packages do not update a running server or install the native iPhone/iPad app automatically.
+
+          Maintainer release gate: this draft is not a production release. Before publishing, complete docs/release-checklist.md, replace these notes with the actual changes, and verify that uploaded archive hashes match the candidate tested locally and deployed in the release window. A CI rebuild with different bytes must not silently replace that verified candidate.
           NOTES
-      - name: Create GitHub release
+      - name: Create unpublished GitHub draft
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -55,6 +59,7 @@ jobs:
             "artifacts/codec-server-${GITHUB_REF_NAME}-linux-arm64.tar.gz.sha256" \
             artifacts/SHA256SUMS \
             --repo "${GITHUB_REPOSITORY}" \
+            --draft \
             --verify-tag \
             --title "Codec ${GITHUB_REF_NAME} — server + web" \
             --notes-file release-notes.md

@@ -23,6 +23,7 @@ let syncStreamTokenExpiresAtMs = 0;
 let streamTokenServer = "";
 let streamTokenRetryAtMs = 0;
 let authGeneration = 0;
+const importRequests = new Set<AbortController>();
 let streamTokenRequest: Promise<void> | null = null;
 interface PlaybackCommandQueue {
   server: string;
@@ -46,6 +47,7 @@ export function setSyncAuthToken(token: string): void {
   syncAuthToken = nextToken;
   artworkCache.clear();
   authGeneration++;
+  for (const controller of importRequests) controller.abort();
   resetPlaybackCommandQueue();
   syncStreamToken = "";
   syncStreamTokenExpiresAtMs = 0;
@@ -736,54 +738,6 @@ export async function setTrackLiked(
   }
 }
 
-export interface AuxSession {
-  code: string;
-  guest_token?: string;
-}
-
-export async function createAuxSession(serverUrl: string, fetcher: typeof fetch = fetch): Promise<AuxSession> {
-  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/aux`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}"
-  });
-  if (!response.ok) {
-    throw syncApiError("Could not start the aux", serverUrl, response);
-  }
-  return (await response.json()) as AuxSession;
-}
-
-export async function listAuxSessions(serverUrl: string, fetcher: typeof fetch = fetch): Promise<AuxSession[]> {
-  const response = await authorizedFetch(fetcher, `${normalizeServerUrl(serverUrl)}/api/v1/aux`, {});
-  if (!response.ok) {
-    throw syncApiError("Could not list aux sessions", serverUrl, response);
-  }
-  return (await response.json()) as AuxSession[];
-}
-
-export async function endAuxSession(serverUrl: string, code: string, fetcher: typeof fetch = fetch): Promise<void> {
-  const response = await authorizedFetch(fetcher, 
-    `${normalizeServerUrl(serverUrl)}/api/v1/aux/${encodeURIComponent(code)}`,
-    { method: "DELETE" }
-  );
-  if (!response.ok) {
-    throw syncApiError("Could not end the aux", serverUrl, response);
-  }
-}
-
-/** Trades a short aux code for a scoped guest token. Public - no auth. */
-export async function joinAuxSession(serverUrl: string, code: string, fetcher: typeof fetch = fetch): Promise<AuxSession> {
-  const response = await fetcher(`${normalizeServerUrl(serverUrl)}/api/v1/aux/join`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code })
-  });
-  if (!response.ok) {
-    throw syncApiError("That aux code is not live", serverUrl, response);
-  }
-  return (await response.json()) as AuxSession;
-}
-
 export async function fetchPlaybackDevices(
   serverUrl: string,
   fetcher: typeof fetch = fetch
@@ -1020,60 +974,298 @@ export interface ImportJobStatus {
   artwork_warnings?: string[];
 }
 
-/** Uploads a bundle with real upload progress (XHR — fetch can't report it)
- * and returns the server-side job id. */
-export function uploadBundle(
-  serverUrl: string,
-  bundle: Blob,
-  onProgress: (fraction: number) => void
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open("POST", `${normalizeServerUrl(serverUrl)}/api/v1/import/bundle`);
-    if (syncAuthToken) {
-      request.setRequestHeader("Authorization", `Bearer ${syncAuthToken}`);
+const IMPORT_CHUNK_BYTES = 8 * 1024 * 1024;
+const LEGACY_IMPORT_MAX_BYTES = 64 * 1024 * 1024;
+const IMPORT_UPLOAD_IDLE_MS = 30_000;
+const IMPORT_READ_TIMEOUT_MS = 15_000;
+
+class ImportUploadError extends Error {
+  constructor(message: string, readonly status = 0, readonly retryable = false) {
+    super(message);
+  }
+}
+
+function importCancelled(): DOMException {
+  return new DOMException("Bundle import cancelled", "AbortError");
+}
+
+function importHTTPError(status: number): ImportUploadError {
+  return new ImportUploadError(status === 413
+    ? "This bundle exceeds the server or proxy upload limit. Use a smaller bundle or the server import command."
+    : status === 401 || status === 403
+      ? "Your server did not authorize this import. Check your connection and auth token."
+      : `Could not upload bundle (${status})`, status,
+  status === 408 || status === 409 || status === 429 || status >= 500);
+}
+
+/** Every request uses the connection that started the import. Changing accounts
+ * aborts outstanding work instead of sending the new account's token to it. */
+function importConnection(signal?: AbortSignal) {
+  const controller = new AbortController();
+  const generation = authGeneration;
+  const token = syncAuthToken;
+  const cancel = () => controller.abort(importCancelled());
+  if (signal?.aborted) cancel();
+  else signal?.addEventListener("abort", cancel, { once: true });
+  importRequests.add(controller);
+  return {
+    controller,
+    token,
+    current: () => generation === authGeneration,
+    check() {
+      if (controller.signal.aborted || generation !== authGeneration) throw importCancelled();
+    },
+    dispose() {
+      importRequests.delete(controller);
+      signal?.removeEventListener("abort", cancel);
     }
-    request.setRequestHeader("Content-Type", "application/zip");
+  };
+}
+
+type ImportConnection = ReturnType<typeof importConnection>;
+
+/** XHR can stream Blob slices without buffering the archive in JavaScript.
+ * The inactivity clock resets only when bytes move, not on repeated events. */
+function importXHR(
+  connection: ImportConnection,
+  method: string,
+  url: string,
+  body: Blob | string | null = null,
+  contentType = "application/json",
+  onProgress?: (loaded: number) => void,
+  idleMs = IMPORT_UPLOAD_IDLE_MS
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    connection.check();
+    const request = new XMLHttpRequest();
+    let settled = false;
+    let uploaded = 0;
+    let received = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = (error?: Error, value?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      connection.controller.signal.removeEventListener("abort", cancel);
+      request.onload = request.onerror = request.onabort = request.ontimeout = request.onprogress = null;
+      request.upload.onprogress = null;
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const fail = (error: Error) => {
+      finish(error);
+      request.abort();
+    };
+    const cancel = () => fail(importCancelled());
+    const armTimeout = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fail(new ImportUploadError(
+        "The bundle upload stopped responding. Check your connection and try again.", 0, true
+      )), idleMs);
+    };
+    request.open(method, url);
+    if (connection.token) request.setRequestHeader("Authorization", `Bearer ${connection.token}`);
+    if (body !== null) request.setRequestHeader("Content-Type", contentType);
     request.upload.onprogress = (event) => {
-      if (event.lengthComputable && event.total > 0) {
-        onProgress(event.loaded / event.total);
+      if (event.loaded > uploaded) {
+        uploaded = event.loaded;
+        armTimeout();
+        onProgress?.(uploaded);
+      }
+    };
+    request.onprogress = (event) => {
+      if (event.loaded > received) {
+        received = event.loaded;
+        armTimeout();
       }
     };
     request.onload = () => {
+      if (!connection.current() || connection.controller.signal.aborted) {
+        finish(importCancelled());
+        return;
+      }
       if (request.status < 200 || request.status >= 300) {
-        reject(new Error(request.status === 413
-          ? "This bundle exceeds the server or proxy upload limit. Use a smaller bundle, or import through the desktop app or codec_import CLI."
-          : `Could not upload bundle (${request.status})`));
+        finish(importHTTPError(request.status));
         return;
       }
       try {
-        const result = JSON.parse(request.responseText) as { id?: unknown };
-        if (typeof result.id !== "string" || !result.id) throw new Error("Missing import job ID");
-        resolve(result.id);
+        finish(undefined, request.status === 204 ? null : JSON.parse(request.responseText));
       } catch {
-        reject(new Error("Could not upload bundle (bad response)"));
+        finish(new ImportUploadError("Could not upload bundle (bad response)"));
       }
     };
-    request.onerror = () => reject(new Error("Could not upload bundle (network)"));
-    request.onabort = () => reject(new Error("Bundle upload cancelled"));
-    request.send(bundle);
+    request.onerror = () => finish(new ImportUploadError("The bundle upload connection was interrupted. Try again.", 0, true));
+    request.onabort = () => finish(importCancelled());
+    request.ontimeout = () => finish(new ImportUploadError("The bundle upload stopped responding. Try again.", 0, true));
+    connection.controller.signal.addEventListener("abort", cancel, { once: true });
+    armTimeout();
+    try {
+      connection.check();
+      request.send(body);
+    } catch (error) {
+      finish(error instanceof Error ? error : new ImportUploadError("Could not upload bundle"));
+    }
   });
+}
+
+interface ImportUploadStatus {
+  id: string;
+  offset: number;
+  size: number;
+  chunk_size: number;
+}
+
+function importJobID(value: unknown): string {
+  const id = value && typeof value === "object" ? (value as { id?: unknown }).id : undefined;
+  if (typeof id !== "string" || !id.trim()) throw new ImportUploadError("Could not upload bundle (bad response)");
+  return id;
+}
+
+function importUploadStatus(value: unknown, size: number, id?: string): ImportUploadStatus {
+  const status = value as ImportUploadStatus | null;
+  if (!status || typeof status.id !== "string" || !status.id.trim() || (id && status.id !== id)
+    || status.size !== size || !Number.isSafeInteger(status.offset) || status.offset < 0 || status.offset > size
+    || !Number.isSafeInteger(status.chunk_size) || status.chunk_size <= 0) {
+    throw new ImportUploadError("Could not upload bundle (bad response)");
+  }
+  return status;
+}
+
+/** Upload archives in bounded requests so an ordinary proxy size limit does not
+ * reject a multi-gigabyte library. Older servers retain the small-bundle path. */
+export async function uploadBundle(
+  serverUrl: string,
+  bundle: Blob,
+  onProgress: (fraction: number) => void,
+  options: { signal?: AbortSignal } = {}
+): Promise<string> {
+  const connection = importConnection(options.signal);
+  const base = `${normalizeServerUrl(serverUrl)}/api/v1/import`;
+  let uploadId: string | undefined;
+  let completed = false;
+  let progress = 0;
+  const report = (loaded: number) => {
+    connection.check();
+    const fraction = bundle.size ? Math.min(1, loaded / bundle.size) : 1;
+    if (fraction > progress) { progress = fraction; onProgress(fraction); }
+  };
+  const legacy = async () => {
+    const result = await importXHR(connection, "POST", `${base}/bundle`, bundle, "application/zip", report);
+    report(bundle.size);
+    return importJobID(result);
+  };
+  try {
+    connection.check();
+    if (bundle.size <= IMPORT_CHUNK_BYTES) return await legacy();
+    let status: ImportUploadStatus;
+    try {
+      status = importUploadStatus(await importXHR(connection, "POST", `${base}/uploads`,
+        JSON.stringify({ size: bundle.size })), bundle.size);
+    } catch (error) {
+      if (!(error instanceof ImportUploadError) || (error.status !== 404 && error.status !== 405)) throw error;
+      if (bundle.size > LEGACY_IMPORT_MAX_BYTES) {
+        throw new Error("Update your Codec server to import large bundles from the browser, or use the server import command.");
+      }
+      return await legacy();
+    }
+    uploadId = status.id;
+    if (status.offset !== 0) throw new ImportUploadError("Could not start the bundle upload. Try again.");
+    const uploadURL = `${base}/uploads/${encodeURIComponent(uploadId)}`;
+    const confirmedStatus = async () => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return importUploadStatus(await importXHR(connection, "GET", uploadURL), bundle.size, uploadId);
+        } catch (error) {
+          if (!(error instanceof ImportUploadError) || !error.retryable || attempt >= 2) throw error;
+        }
+      }
+    };
+    while (status.offset < bundle.size) {
+      const start = status.offset;
+      const end = Math.min(bundle.size, start + Math.min(status.chunk_size, IMPORT_CHUNK_BYTES));
+      for (let attempt = 0; ; attempt++) {
+        try {
+          status = importUploadStatus(await importXHR(connection, "PUT", `${uploadURL}?offset=${start}`,
+            bundle.slice(start, end), "application/octet-stream", loaded => report(start + Math.min(loaded, end - start))),
+          bundle.size, uploadId);
+          if (status.offset !== end) throw new ImportUploadError("Could not confirm the uploaded bundle. Try again.");
+          break;
+        } catch (error) {
+          if (!(error instanceof ImportUploadError) || !error.retryable || attempt >= 2) throw error;
+          status = await confirmedStatus();
+          if (status.offset === end) break; // Server saved the chunk; its reply was lost.
+          if (status.offset !== start) throw new ImportUploadError("The bundle upload changed unexpectedly. Try again.");
+        }
+      }
+      report(status.offset);
+    }
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const id = importJobID(await importXHR(connection, "POST", `${uploadURL}/complete`));
+        completed = true;
+        return id;
+      } catch (error) {
+        if (!(error instanceof ImportUploadError) || !error.retryable || attempt >= 2) throw error;
+        status = await confirmedStatus();
+        if (status.offset !== bundle.size) throw new ImportUploadError("Could not confirm the uploaded bundle. Try again.");
+        // Completion is idempotent: retrying returns the same job, never a second import.
+      }
+    }
+  } finally {
+    connection.dispose();
+    if (uploadId && !completed && connection.current()) {
+      // Best effort cleanup must not delay cancellation or reuse a changed login.
+      const cleanup = importConnection();
+      void importXHR(cleanup, "DELETE", `${base}/uploads/${encodeURIComponent(uploadId)}`,
+        null, "application/json", undefined, 5_000).catch(() => {}).finally(() => cleanup.dispose());
+    }
+  }
 }
 
 export async function fetchImportJob(
   serverUrl: string,
   jobId: string,
-  fetcher: typeof fetch = fetch
+  fetcher: typeof fetch = fetch,
+  signal?: AbortSignal
 ): Promise<ImportJobStatus | null> {
-  const response = await authorizedFetch(
-    fetcher,
-    `${normalizeServerUrl(serverUrl)}/api/v1/import/jobs/${encodeURIComponent(jobId)}`
-  );
-  if (response.status === 404) {
-    return null;
+  const connection = importConnection(signal);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    connection.controller.abort();
+  }, IMPORT_READ_TIMEOUT_MS);
+  let cancelRead: () => void = () => {};
+  const cancelled = new Promise<never>((_, reject) => {
+    cancelRead = () => reject(timedOut
+      ? new Error("Your server is taking too long to send import progress. Retrying…")
+      : importCancelled());
+    connection.controller.signal.addEventListener("abort", cancelRead, { once: true });
+    if (connection.controller.signal.aborted) cancelRead();
+  });
+  try {
+    return await Promise.race([cancelled, (async () => {
+      connection.check();
+      const headers = new Headers();
+      if (connection.token) headers.set("Authorization", `Bearer ${connection.token}`);
+      const response = await fetcher(
+        `${normalizeServerUrl(serverUrl)}/api/v1/import/jobs/${encodeURIComponent(jobId)}`,
+        { headers, signal: connection.controller.signal }
+      );
+      connection.check();
+      if (response.status === 404) return null;
+      if (!response.ok) throw syncApiError("Could not read import progress", serverUrl, response);
+      const result = await response.json() as ImportJobStatus;
+      connection.check();
+      if (!result || result.id !== jobId || !["running", "done", "failed"].includes(result.state)
+        || ![result.total, result.done, result.added, result.existing, result.skipped, result.playlist_adds, result.liked]
+          .every(value => Number.isSafeInteger(value) && value >= 0)) {
+        throw new Error("Could not read import progress (bad response)");
+      }
+      return result;
+    })()]);
+  } finally {
+    clearTimeout(timer);
+    connection.controller.signal.removeEventListener("abort", cancelRead);
+    connection.dispose();
   }
-  if (!response.ok) {
-    throw syncApiError("Could not read import progress", serverUrl, response);
-  }
-  return (await response.json()) as ImportJobStatus;
 }

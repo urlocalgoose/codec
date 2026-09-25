@@ -1,3 +1,4 @@
+import { abortable } from "./abortable";
 import { baseName, identityForImportTrack, IMPORT_SCHEMA, type ImportManifest, type ImportManifestTrack } from "./import";
 
 export interface BundleEntry { path: string; file: File }
@@ -155,8 +156,11 @@ export function zip64EntryHeaders(path: string, size: number, crc: number, offse
   return { local, central };
 }
 
-export async function buildImportBundle(files: File[], onProgress: (fraction: number) => void = () => {}): Promise<Blob> {
-  const entries = await prepareImportBundle(files);
+export async function buildImportBundle(files: File[], onProgress: (fraction: number) => void = () => {}, signal?: AbortSignal): Promise<Blob> {
+  signal?.throwIfAborted();
+  const preparation = prepareImportBundle(files);
+  const entries = await (signal ? abortable(preparation, signal) : preparation);
+  signal?.throwIfAborted();
   const total = entries.reduce((sum, entry) => sum + entry.file.size, 0);
   const parts: BlobPart[] = [];
   const directory: BlobPart[] = [];
@@ -167,7 +171,9 @@ export async function buildImportBundle(files: File[], onProgress: (fraction: nu
     // Limit live working memory even for multi-gigabyte files. Blob/File parts
     // are retained as originals; no audio is recompressed or reserialized.
     for (let start = 0; start < entry.file.size; start += 256 * 1024) {
-      const bytes = new Uint8Array(await entry.file.slice(start, start + 256 * 1024).arrayBuffer());
+      signal?.throwIfAborted();
+      const reading = entry.file.slice(start, start + 256 * 1024).arrayBuffer();
+      const bytes = new Uint8Array(await (signal ? abortable(reading, signal) : reading));
       for (const byte of bytes) crc = crcTable[(crc ^ byte) & 255] ^ (crc >>> 8);
       processed += bytes.length; sinceYield += bytes.length;
       if (Date.now() - lastProgress >= 100) { onProgress(total ? processed / total : 1); lastProgress = Date.now(); }
@@ -187,6 +193,7 @@ export async function buildImportBundle(files: File[], onProgress: (fraction: nu
   e.setUint32(56, 0x07064b50, true); e.setBigUint64(64, BigInt(offset + directorySize), true); e.setUint32(72, 1, true);
   e.setUint32(76, 0x06054b50, true); e.setUint16(84, 0xffff, true); e.setUint16(86, 0xffff, true);
   e.setUint32(88, 0xffffffff, true); e.setUint32(92, 0xffffffff, true);
+  signal?.throwIfAborted();
   onProgress(1);
   return new Blob([...parts, ...directory, end], { type: "application/zip" });
 }

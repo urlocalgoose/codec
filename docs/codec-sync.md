@@ -14,20 +14,17 @@ of this Go server for DNS, HTTPS, tunnel, and optional access control.
 
 ## Run The Server
 
+For development, use the isolated demo servers:
+
 ```bash
-bun run server:dev
+bun run local:up
 ```
 
-That builds the Svelte app and starts the Go server at `:8787`.
-
-On another device, open the URL printed by the server:
-
-```text
-http://YOUR-MAC-IP:8787
-```
-
-That is both the app and the sync API. Do not open a separate Vite mobile app
-unless you are only debugging UI.
+This builds the web player and starts two persistent local servers on ports
+8791 and 8792. Each address serves both the player and API. See
+[local development](local-development.md) for credentials and private phone
+access; `server:dev` is an alias for the same lab. Vite is only needed when
+working directly on the frontend.
 
 For a public server, put it behind HTTPS and start it with a token:
 
@@ -132,6 +129,11 @@ GET  /api/v1/playlists/{id}/artwork
 DELETE /api/v1/playlists/{id}/artwork
 GET  /api/v1/export
 POST /api/v1/import/bundle
+POST /api/v1/import/uploads
+GET  /api/v1/import/uploads/{id}
+PUT  /api/v1/import/uploads/{id}?offset={bytes}
+POST /api/v1/import/uploads/{id}/complete
+DELETE /api/v1/import/uploads/{id}
 GET  /api/v1/import/jobs/{id}
 PUT  /api/v1/playlists/{id}
 POST /api/v1/playlists
@@ -173,6 +175,35 @@ on any other Codec — identity matching skips songs the receiver already has.
 existing, skipped, playlist_adds, liked}` — progress lives server-side, so a
 client can refresh and resume watching by id.
 
+In the web app, open **Settings → Import music** and select a bundle ZIP.
+Desktop browsers can also select **Import bundle folder** to package a manifest
+with its audio, playlists, and artwork. Upload percentage, server processing
+progress, and errors appear inside Settings; closing Settings leaves the same
+progress available in the library. A completed upload becomes a server job, so
+refreshing the page resumes checking that job rather than uploading it again.
+
+ZIPs larger than 8 MiB use authenticated upload sessions. The browser creates a
+session with `POST /api/v1/import/uploads` and `{"size": <total bytes>}`, sends
+sequential pieces of at most 8 MiB with `PUT .../{id}?offset=<confirmed bytes>`,
+then calls `POST .../{id}/complete` to start the import job. `GET .../{id}` returns
+`{id, size, offset, chunk_size}` so a lost response can be reconciled before a
+piece is retried. Completion is idempotent and returns the same job ID if its
+response is retried. This keeps individual requests small enough for ordinary
+proxy upload limits; server storage and the total bundle limit still apply.
+
+If an older server returns 404 or 405 for upload sessions, bundles up to 64 MiB
+fall back to the original single-request endpoint. Larger bundles ask for a
+server update or the server import command. Existing clients can continue using
+`POST /api/v1/import/bundle`; the new endpoints do not change their API.
+
+An upload with no progress for 30 seconds reports the connection problem. You
+can cancel an upload in Settings and choose the ZIP again. Cancellation stops
+the upload; it does not undo an import job that the server has already started.
+During server processing, temporary status failures show **Checking connection…**
+with **Check again**. Status reads are sequential and time out after 15 seconds,
+so a slow connection does not accumulate overlapping requests. Page-refresh
+recovery applies to an acknowledged import job, not an unfinished upload.
+
 Playlist edits are partial updates: `POST /api/v1/playlists` creates a playlist
 from `{"name": "..."}`, and the `/tracks` endpoints add or remove one track by
 fingerprint without replaying the whole playlist row. Reordering is different:
@@ -183,6 +214,15 @@ Audio uploads remember their `Content-Type` (`audio/mpeg`, `audio/mp4`,
 `audio/flac`, `audio/wav`) and serve it back on download; anything
 unrecognized is stored as MP3, the historical default.
 
+
+## Playback revisions
+
+Playback commands may send an `If-Match` header containing the known revision.
+A stale whole-queue replacement receives HTTP 409 rather than replacing a newer
+queue. Clients refresh and ask for a retry; concurrent queue edits are not
+silently merged. The optional revision is a header, not a new wire-schema field.
+Older clients omitting it retain their existing behavior. Exercise delayed
+commands, reconnects and concurrent edits against the isolated two-server lab.
 
 ## Playback playlist origin
 
@@ -220,21 +260,16 @@ state. Existing phone versions remain compatible with the optional field.
 The `loud.playback.v1` saved-session payload can also include `playlist_id`;
 the server preserves that JSON extension without changing the schema version.
 
-## Aux (`loud.aux.v1`) — shared listening
+## Aux v2 — scoped shared listening
 
-The host mints a 4-character code (`POST /api/v1/aux`); guests trade it for
-a scoped token at the public `POST /api/v1/aux/join` (the web app does this
-automatically for `/?aux=CODE` links and the QR the host shows). Guest
-tokens can browse, stream, register as playback devices, and drive the
-shared `loud.playback.v2` queue — nothing else. Ending the session kills
-its guest tokens instantly.
+See [the complete Aux v2 contract](aux-v2-protocol.md) for session creation,
+invitations, participant credentials, listening modes, queue commands, scoped
+media and event streams. See [selected-track sharing and durable saves](aux-transfer-protocol.md)
+for personal-server grants, membership, copy permissions, playlist saves and
+network limits. These APIs are separate from normal owner playback.
 
-### Cross-server aux (media grants)
-
-Two Codec servers jam without ever dialing each other. A queued track from
-another server rides in the `loud.playback.v2` track reference with
-optional `title`, `artist`, `media_url`, and `artwork_url` fields; clients
-that cannot resolve the fingerprint locally play the granted URL directly.
-The guest's own server mints those URLs via `POST /api/v1/media-grants`
-`{"fingerprints": [...]}` → a `grant_…` token valid 24h for GET
-audio/artwork on exactly those tracks.
+The legacy `/api/v1/aux` routes are intentionally retired with `410` and
+`aux_update_required`. Old clients retain ordinary library/playback/download
+support but need the new app for Aux. Old global `/api/v1/media-grants` and
+foreign-track fields remain owner-authorized compatibility building blocks;
+they do not authorize participation in an Aux v2 session.

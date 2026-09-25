@@ -7,8 +7,8 @@
 #
 #   python3 codec-sand.py           (needs numpy + Pillow, ~10s per layer)
 #
-# Then open codec-logo.html / codec-logo-cropped.html (or screenshot them
-# headless) to composite the sand over the pool gradient.
+# Then open codec-logo.html (or screenshot it headless) to composite the
+# sand over the pool gradient.
 import numpy as np
 from PIL import Image, ImageFilter
 
@@ -67,4 +67,3 @@ def simulate(cx, cy, out, wavelength=300.0, damp=360.0, calm_radius=130,
     Image.fromarray((img * 255).astype(np.uint8), "RGBA").save(out)
 
 simulate(512, 512, "codec-sand.png")
-simulate(340, 512, "codec-sand-cropped.png", wavelength=330.0, damp=420.0, calm_radius=180, seed=51)

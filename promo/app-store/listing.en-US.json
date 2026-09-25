@@ -1,0 +1,108 @@
+{
+  "status": "draft_for_user_editing_not_approved",
+  "preparedOn": "2026-09-22",
+  "locale": "en-US",
+  "subtitle": "Self-hosted music player",
+  "promotionalText": "Stream music from your own Codec server, download songs for offline listening, and organize playlists with custom artwork.",
+  "description": "Codec is a music player for iPhone and iPad that connects to a Codec server you host.\n\nStream your music collection or download songs to listen offline. Browse playlists, search your library, and manage what plays next.\n\nFeatures\n• Playlists with custom cover images\n• Library search and liked songs\n• Queue controls, shuffle, and repeat\n• Offline playback of downloaded songs\n• Background playback and Lock Screen controls\n• Now Playing backgrounds that use album artwork\n• A live visualizer with colors from the playing song’s artwork\n• 33 light and dark color palettes\n• Playback transfer between connected devices\n• Pass the Aux sessions, so friends can browse and add songs to the queue\n\nYour Codec server also includes a web player for accessing the same library in a browser.\n\nSetup\nCodec requires a Codec server and your own music files. Host the server on a computer or cloud server, add your music through its web interface, then connect the app with your server address and auth token. Music and a hosted catalog are not included.\n\nSetup guide: https://codec.codie.sh/docs/hosting.html\nSupport: https://codec.codie.sh/support.html",
+  "keywords": "offline,library,playlists,visualizer,collection,audio,queue,artwork,streaming",
+  "suggestedPrimaryCategory": "Music",
+  "supportURL": "https://codec.codie.sh/support.html",
+  "privacyPolicyURL": "https://codec.codie.sh/privacy.html",
+  "screenshots": [
+    {
+      "order": 1,
+      "id": "01-your-music",
+      "source": "01-home.png",
+      "headline": "Self hosted",
+      "headlineLines": [
+        "Self hosted"
+      ],
+      "caption": "Connect to your own Codec server.",
+      "screen": "Home",
+      "palette": "Graphite"
+    },
+    {
+      "order": 2,
+      "id": "02-now-playing",
+      "source": "04-now-playing.png",
+      "headline": "Now playing",
+      "headlineLines": [
+        "Now playing"
+      ],
+      "caption": "Playback controls and album artwork.",
+      "screen": "Now Playing",
+      "palette": "Graphite"
+    },
+    {
+      "order": 3,
+      "id": "03-playlists",
+      "source": "02-library.png",
+      "headline": "Playlists",
+      "headlineLines": [
+        "Playlists"
+      ],
+      "caption": "Browse playlists with custom covers.",
+      "screen": "Library",
+      "palette": "Graphite"
+    },
+    {
+      "order": 4,
+      "id": "04-offline",
+      "source": "03-downloaded.png",
+      "headline": "Offline listening",
+      "headlineLines": [
+        "Offline listening"
+      ],
+      "caption": "Download songs to listen offline.",
+      "screen": "Downloaded",
+      "palette": "Graphite"
+    },
+    {
+      "order": 5,
+      "id": "05-visualizer",
+      "source": "05-visualizer.png",
+      "headline": "Visualizer",
+      "headlineLines": [
+        "Visualizer"
+      ],
+      "caption": "Live audio visualization with artwork colors.",
+      "screen": "Visualizer",
+      "palette": "Graphite"
+    },
+    {
+      "order": 6,
+      "id": "06-palettes",
+      "source": "06-palettes.png",
+      "headline": "Color palettes",
+      "headlineLines": [
+        "Color palettes"
+      ],
+      "caption": "Choose a light or dark palette.",
+      "screen": "Palette picker",
+      "palette": "Graphite with actual palette previews"
+    }
+  ],
+  "notes": [
+    "Prepared local copy, not an App Store Connect API request. No upload or submission performed.",
+    "Preserve the existing App Store Connect app name and SKU; the reserved name has not yet been confirmed.",
+    "No pricing, availability date, age rating, copyright owner, or review contact has been invented.",
+    "The initial App Store release has no What’s New field.",
+    "Public support and private requests use codie@codie.sh. Verify the updated support and privacy pages after deployment; App Review's private contact name and phone remain separate account fields.",
+    "The owner confirmed production is self-host-only and the developer collects no production user data. Data Not Collected is the supported App Store privacy answer; build 7 removes collected-data entries while retaining required-reason API and no-tracking declarations.",
+    "The isolated Apple review fixture is not a built-in/default service or a public managed-hosting offering. Its operator can access and retain review device state, playback requests, content and logs. Review-server credentials are excluded; fill the review-only token into the private App Review fields before submission.",
+    "Managed hosting is future-only and requires reassessing the privacy policy, App Store answers, logging/retention and bundled manifest before it is offered to users.",
+    "Build 1.4 (6) is Validated and selected. Build 1.4 (7) has passed archive/export checks and was uploaded successfully; Apple processing is pending. The user retains build selection and submission; these notes do not change listing fields, upload screenshots, submit for review, release the app or modify the delivered Desktop kit."
+  ],
+  "actionsPerformedForThisDraft": {
+    "uploaded": false,
+    "submittedForReview": false,
+    "released": false
+  },
+  "brandName": "Codec",
+  "existingListingName": null,
+  "listingNameHandling": "Preserve the existing App Store Connect app name. Codec is the brand, not a proposed rename; the reserved listing name has not been verified in this draft.",
+  "screenshotCopySource": "screenshots.json",
+  "marketingURL": "https://codec.codie.sh/",
+  "whatsNew": null
+}

@@ -4,14 +4,16 @@ Codec deploys as one Go sync server plus the built Svelte app. Cloudflare can
 sit in front for DNS, HTTPS, and tunneling, but the app server is still the Go
 binary.
 
-For Ubuntu and Lightsail, follow the [server release and installation
+For Linux, at home or on a cloud host such as Lightsail, follow the [server release and installation
 guide](docs/server-release.md). It packages the server and website together,
 keeps the library outside releases, and provides checksum validation and health
-checks with application rollback. Building artifacts does not deploy to AWS.
+checks with application rollback for systemd installations. Other Linux setups
+can run the same binary with their own service manager. Building artifacts does
+not deploy to AWS.
 
 After deployment, retrieve the existing login token over SSH with
 `sudo /opt/codec/current/scripts/ubuntu-auth.sh`. The
-[Ubuntu installation guide](docs/server-release.md#install-on-ubuntu)
+[Linux installation guide](docs/server-release.md#install-on-linux-with-systemd)
 explains token setup and retrieval. Install/update logs keep the token hidden.
 
 The documentation index is [here](docs/README.md). Historical hosting prices and

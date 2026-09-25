@@ -547,7 +547,10 @@ func (s *Server) handlePlaybackStateV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if state == nil {
-		writeJSON(w, http.StatusOK, nil)
+		// iOS 1.4 (7) recognizes the exact null sentinel before decoding a
+		// nonoptional PlaybackState. Keep that installed client compatible.
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = io.WriteString(w, "null")
 		return
 	}
 	nowMS := s.now().UnixMilli()
@@ -630,7 +633,7 @@ func (s *Server) handlePlaybackEventsV2(w http.ResponseWriter, r *http.Request) 
 			if event.Type == "authorization_changed" {
 				continue
 			}
-			if event.Type != "devices" && event.Type != "device" && event.Type != "playback_state" && event.Type != "library" {
+			if event.Type != "devices" && event.Type != "device" && event.Type != "playback_state" && event.Type != "library" && event.Type != "aux_changed" {
 				continue
 			}
 			writeSSE(w, event.Type, event)

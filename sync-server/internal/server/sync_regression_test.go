@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"io"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -153,33 +151,27 @@ func TestSyncOverflowDisconnectsSubscriber(t *testing.T) {
 	}
 }
 
-func TestSyncRevocationClosesGuestStream(t *testing.T) {
+func TestLegacyAuxCannotOpenGlobalStream(t *testing.T) {
 	s, _ := testServer(t)
 	session, err := s.createAuxSession(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := httptest.NewServer(s.HandlerWithOptions(HandlerOptions{AuthToken: "test-secret"}))
-	defer h.Close()
-	r, _ := http.NewRequest("GET", h.URL+"/api/v2/playback/events", nil)
+	h := s.HandlerWithOptions(HandlerOptions{AuthToken: "test-secret"})
+	r := httptest.NewRequest("GET", "/api/v2/playback/events", nil)
 	r.Header.Set("Authorization", "Bearer "+session.GuestToken)
-	response, err := http.DefaultClient.Do(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != 200 {
-		t.Fatalf("stream status=%d", response.StatusCode)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 403 {
+		t.Fatalf("legacy guest stream status=%d", w.Code)
 	}
 	if err := s.endAuxSession(context.Background(), session.Code); err != nil {
 		t.Fatal(err)
 	}
-	closed := make(chan struct{})
-	go func() { _, _ = io.Copy(io.Discard, response.Body); close(closed) }()
-	select {
-	case <-closed:
-	case <-time.After(time.Second):
-		t.Fatal("revoked stream remained open")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 401 {
+		t.Fatalf("revoked legacy guest status=%d", w.Code)
 	}
 }
 

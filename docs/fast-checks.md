@@ -84,36 +84,10 @@ CI caches Bun's package downloads, alongside the existing Go/Rust caches.
 Newer runs cancel superseded branch/PR checks; tag release checks are not
 cancelled this way. All release checks stay enabled.
 
-## Local timing evidence
+## Measuring feedback time
 
-On September 21, 2026, with dependencies and compiler caches already warm:
-
-| Local command | Wall time |
-| --- | ---: |
-| All quick scopes in parallel | 5.04 s |
-| Web check + 206 tests, within that run | 5.04 s |
-| Server vet + cached tests, within that run | 0.49 s |
-| Schemas + package + deployment tests, within that run | 0.82 s |
-| Fresh web export | 7.95 s |
-| Both Linux packages using the verified web export | 2.83 s |
-| Both Linux packages building web again | 10.81 s |
-
-Verified reuse avoided 7.98 seconds of duplicate work in the local packaging
-step. Artifact upload/download overhead on GitHub is not included; these are
-local observations, not hosted CI or production latency claims. The exported
-web and the subsequent fresh build had identical bytes for all 21 web files
-in both architectures' packages.
-
-The full validation also passed locked Rust tests (112), Go module verification,
-vet and race tests, schema tests (6), release integrity tests (6), Ubuntu
-deployment unit tests (24), and workflow lint. An actual arm64 Ubuntu container
-ran the packaged server and Caddy against synthetic data with external
-networking disabled: authentication, SQLite, the web shell, service worker,
-HTML/JavaScript/JSON compression, uncompressed audio Range responses and
-immediate SSE all passed. Both Linux archives passed installer verification;
-this local process smoke used arm64, while CI runs its configured amd64 check.
-
-Detailed logs, artifact comparisons and timings are saved locally under
-`/tmp/codec-fast-pipeline-20260921/`. A deliberately failing quick-check run
-returned failure and stopped its affected scope, verifying that parallel
-execution does not hide failing checks.
+The quick runner writes per-scope durations and logs. Compare the same source,
+toolchains and warm/cold caches when measuring a change. Verified web reuse
+avoids a duplicate frontend build; it does not skip integrity validation.
+Store candidate-specific timings with the private release readiness record
+rather than copying old test counts into the current instructions.

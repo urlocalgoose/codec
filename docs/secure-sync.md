@@ -65,15 +65,30 @@ The web interface, mobile PWA, and native iPhone/iPad app use the same server
 contract.
 
 
-## Aux guests (`loud.aux.v1`)
+## Aux guests (`codec.aux.v2`)
 
-Aux sessions are shared listening: the host mints a short code
-(`POST /api/v1/aux`, host token required), and guests trade the code for a
-scoped guest token at the public `POST /api/v1/aux/join`. Guest tokens can
-read the library, stream media, and use the shared `loud.playback.v2`
-queue/commands - nothing else (no sync, uploads, likes, playlist edits, or
-aux management; those return 403). Ending the session
-(`DELETE /api/v1/aux/{code}`) invalidates its guest token immediately.
+Aux is a separate authorization and playback domain. A host explicitly selects
+shared songs and a listening mode. Each join exchanges a strong, 15-minute invite
+for a distinct participant credential; sessions end after 24 hours. Guests can
+pause/resume/skip, append selected music, remove their own pending requests and
+reorder the entire upcoming queue. They cannot transfer output, set host volume,
+replace personal queues or read/mutate personal library data.
 
-To make join links work, the static web app shell is served without auth;
-every `/api` route (including all media) remains token-protected.
+The server checks scope on every command and media request. Host media uses a
+separate scoped token, never the owner credential in a URL. Session event streams
+contain only revision invalidations and end notifications. End/removal revokes
+future requests and live session streams; already delivered audio cannot be
+recalled. Cross-server tracks stream through the host with the same participant
+checks. Saving requires separate source permission and destination-owner access.
+
+Web guest storage is separate from the saved owner login. Personal-library
+selection opens on the personal server's own origin; checked `postMessage`
+responses return only the selected song capability or minimal operation result.
+Native owner and participant secrets use separate bundle-scoped Keychain entries;
+library caches are scoped by server and principal.
+
+The old `/api/v1/aux` creation/join routes now return `410 aux_update_required`;
+old guest credentials are revoked during upgrade. Owner APIs remain unchanged.
+The public static shell and invitation preview do not authenticate a browser.
+See the [wire contract](aux-v2-protocol.md), [transfer security and limits](aux-transfer-protocol.md),
+and [historical security findings](aux-security-review.md).

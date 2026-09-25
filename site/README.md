@@ -1,15 +1,19 @@
 # Codec static site
 
 The project site is published at [codec.codie.sh](https://codec.codie.sh).
-This folder contains its source and build tools. Publishing the website is
-separate from App Review submission and public app release, which remain on hold.
+This folder contains its source and build tools. Preview changes locally first;
+publishing the website requires the coordinated [release checklist](../docs/release-checklist.md).
+Native App Store distribution remains separate from website publication.
 
 The site is plain HTML and CSS with a small local script for copying code
 examples. It has no framework, remote fonts, analytics, or music-server
 connection. Edit landing-page copy in `index.html`.
 The exact Graphite app colors are declared at the top of `style.css`.
 
-Preview from the repository root:
+The persistent development lab includes a site preview at
+`http://127.0.0.1:9092`; run `bun run local:up` as described in the
+[local development guide](../docs/local-development.md). For a separate manual
+preview:
 
 ```sh
 python3 site/build.py
@@ -18,7 +22,9 @@ python3 -m http.server 9086 --bind 127.0.0.1 --directory site/dist
 
 `build.py` copies an explicit allowlist into `site/dist`. Python build tools, this README,
 the provenance ledger and raw captures are excluded. Publish only `site/dist`
-when deployment is explicitly authorized. GitHub links point to the project’s
+when release is explicitly authorized and the local gates pass. Publish the
+matching source changes and site build in the same release window. GitHub links
+point to the project’s
 source and versioned Linux server releases. Listening clients shown here are
 the iPhone/iPad app and web player.
 
@@ -90,6 +96,11 @@ with the exact custom domain `codec.codie.sh`. It has no Worker script,
 database, secret, API or music-server dependency. The `workers.dev` address
 and deployment-preview URLs are disabled. Deployments are manual.
 
+Do not run the publishing command merely to preview a change. Complete the
+[release checklist](../docs/release-checklist.md), verify the local build, and
+obtain release authorization first. This task does not authorize an App Store
+upload or changes to listening libraries.
+
 Use an authorized Cloudflare login and select the account that owns the domain.
 An account ID can be supplied through `CLOUDFLARE_ACCOUNT_ID`; credentials do
 not belong in this repository. From the repository root:
@@ -155,7 +166,8 @@ fail the build before replacing the working preview.
 not increase with ordinary releases; change it only if that requirement changes.
 Use `{{ artwork_import_min_version }}` for that minimum. CI runs
 `python3 site/test_release_config.py` and builds the site to catch stale literals
-or broken substitutions. Site publication stays separate from packaging a release.
+or broken substitutions. Site publication is a separate operation within the
+coordinated release window, after referenced release downloads are available.
 
 Keep host-specific operations, tokens, private source paths and dated deployment
 receipts out of the public guides. Check release availability before claiming a

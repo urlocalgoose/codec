@@ -1,0 +1,35 @@
+APP REVIEW NOTES — PRIVATE FIELD TEMPLATE
+
+Replace [REVIEW-ONLY TOKEN] before pasting the notes below into App Store Connect.
+Keep credentials out of the public listing and screenshots. This file intentionally
+contains no credentials. Use the dedicated review token, not a personal-library token.
+
+--- PASTE INTO APP REVIEW NOTES AFTER FILLING IN THE TOKEN ---
+
+Codec is a music player that connects to a user-selected Codec server. It supports streaming, offline downloads, playlists, artwork, a live visualizer, playback transfer, and shared queue sessions. Music and hosted accounts are not sold in the app.
+
+A review server is provided so you do not need to install a server or another app:
+Server URL: https://codec-review.codie.sh
+Auth token: [REVIEW-ONLY TOKEN]
+
+The connection screen uses a server URL and an auth token; there is no username. No account registration, purchase, or two-factor code is needed to access this review server. The server contains 100 licensed demonstration tracks. This demonstration collection is not included with a normal app download.
+
+To test:
+1. Enter the server URL and auth token on the connection screen and tap Connect.
+2. Open Library, choose a playlist, and play a song. Tap the mini player to open Now Playing, playback controls, and the queue.
+3. Open Visualizer while music is playing on this device. Use its expand control to open it full screen.
+4. Download a song and wait for it to finish. Open Library > Downloaded. Disconnect Wi-Fi and cellular data, then play a downloaded song to test offline playback. Reconnect afterwards.
+5. Open the palette picker from Home to change the interface colors.
+6. Optional: open the same server URL in a browser and connect with the same token. Use the playback-device controls to transfer playback between the app and web player. Pass the Aux lets invited guests add songs to a shared queue.
+
+Only user-provided music is available outside the review server. The app does not provide a commercial streaming catalog.
+
+--- END OF NOTES ---
+
+BEFORE SUBMISSION (not part of the public listing)
+• Add the real review contact name, email, and phone number in the separate contact fields.
+• Fill the private sign-in fields with the review access details and explain the URL/token connection in Notes. Do not invent a username.
+• Verify authenticated playback and artwork on the review server again and keep it online throughout review.
+• Keep the current App Store Connect name and SKU. Select the intended processed build.
+• Confirm privacy answers, age rating, content rights, export compliance, price, territories, and release settings for the actual app.
+• This package does not upload assets or submit the app. The existing review/release hold remains in effect.

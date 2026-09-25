@@ -33,7 +33,7 @@ final class AppModel {
         didSet { UserDefaults.standard.set(serverURLString, forKey: StorageKey.serverURL) }
     }
     var token: String {
-        didSet { UserDefaults.standard.set(token, forKey: StorageKey.token) }
+        didSet { CredentialStore.write(token, account: "personal"); UserDefaults.standard.removeObject(forKey: StorageKey.token) }
     }
 
     var connection: Connection = .disconnected
@@ -44,6 +44,7 @@ final class AppModel {
         didSet { updateLibraryCollections(previous: oldValue) }
     }
     var errorMessage = ""
+    let aux = AuxController()
     var auxBusy = false
     var activeAuxCode: String {
         didSet { UserDefaults.standard.set(activeAuxCode, forKey: StorageKey.auxCode) }
@@ -52,7 +53,7 @@ final class AppModel {
         didSet { UserDefaults.standard.set(activeAuxIsGuest, forKey: StorageKey.auxIsGuest) }
     }
     private var tokenBeforeAuxJoin: String {
-        didSet { UserDefaults.standard.set(tokenBeforeAuxJoin, forKey: StorageKey.tokenBeforeAuxJoin) }
+        didSet { CredentialStore.write(tokenBeforeAuxJoin, account: "legacy-personal"); UserDefaults.standard.removeObject(forKey: StorageKey.tokenBeforeAuxJoin) }
     }
     private var serverBeforeAuxJoin: String {
         didSet { UserDefaults.standard.set(serverBeforeAuxJoin, forKey: StorageKey.serverBeforeAuxJoin) }
@@ -161,18 +162,32 @@ final class AppModel {
         self.playlistHistoryDefaults = playlistHistoryDefaults
         playlistPlaybackOrder = playlistHistoryDefaults.dictionary(forKey: StorageKey.playlistPlaybackOrder) as? [String: [String]] ?? [:]
         serverURLString = Self.storedString(StorageKey.serverURL, legacy: StorageKey.legacyServerURL)
-        token = Self.storedString(StorageKey.token, legacy: StorageKey.legacyToken)
+        token = CredentialStore.migrate(account: "personal", legacyKeys: [StorageKey.token, StorageKey.legacyToken])
         activeAuxCode = Self.storedString(StorageKey.auxCode, legacy: StorageKey.legacyAuxCode)
         activeAuxIsGuest = Self.storedBool(StorageKey.auxIsGuest, legacy: StorageKey.legacyAuxIsGuest)
-        tokenBeforeAuxJoin = Self.storedString(
-            StorageKey.tokenBeforeAuxJoin,
-            legacy: StorageKey.legacyTokenBeforeAuxJoin
-        )
+        tokenBeforeAuxJoin = CredentialStore.migrate(account: "legacy-personal", legacyKeys: [StorageKey.tokenBeforeAuxJoin, StorageKey.legacyTokenBeforeAuxJoin])
         serverBeforeAuxJoin = Self.storedString(
             StorageKey.serverBeforeAuxJoin,
             legacy: StorageKey.legacyServerBeforeAuxJoin
         )
-        if client == nil, let cached = Self.readCachedLibrary() {
+        // V1 guest authorization is retired. Restore the saved personal identity;
+        // never reinterpret a persisted guest credential as an owner login.
+        if activeAuxIsGuest {
+            token = tokenBeforeAuxJoin
+            serverURLString = serverBeforeAuxJoin
+            CredentialStore.write(token, account: "personal")
+            UserDefaults.standard.set(serverURLString, forKey: StorageKey.serverURL)
+        }
+        activeAuxCode = ""
+        activeAuxIsGuest = false
+        UserDefaults.standard.set(false, forKey: StorageKey.auxIsGuest)
+        [StorageKey.auxCode, StorageKey.legacyAuxCode, StorageKey.legacyAuxIsGuest,
+         StorageKey.serverBeforeAuxJoin, StorageKey.legacyServerBeforeAuxJoin].forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        CredentialStore.write("", account: "legacy-personal")
+        tokenBeforeAuxJoin = ""
+        serverBeforeAuxJoin = ""
+        Self.deleteLegacyCache()
+        if client == nil, let cached = Self.readCachedLibrary(server: serverURLString, principal: token) {
             library = cached
             connection = .offline
         }
@@ -298,7 +313,7 @@ final class AppModel {
             connectionIssue = nil
             reconnectClient = nil
             lastLibraryRefresh = .now
-            Self.writeCachedLibrary(nextLibrary)
+            writeCachedLibrary(nextLibrary)
             await refreshAuxState()
         } catch {
             guard generation == connectionGeneration, !Task.isCancelled else { return }
@@ -360,7 +375,7 @@ final class AppModel {
                     }
                     if nextLibrary != library {
                         library = nextLibrary
-                        Self.writeCachedLibrary(nextLibrary)
+                        writeCachedLibrary(nextLibrary)
                     }
                     connection = .connected
                     connectionIssue = nil
@@ -436,7 +451,7 @@ final class AppModel {
                     client = target
                     if nextLibrary != library {
                         library = nextLibrary
-                        Self.writeCachedLibrary(nextLibrary)
+                        writeCachedLibrary(nextLibrary)
                     }
                     connection = .connected
                     connectionIssue = nil
@@ -484,6 +499,7 @@ final class AppModel {
     }
 
     func disconnect() {
+        deleteCachedLibrary()
         cancelPlaylistEdits()
         cancelReconnect()
         connectionGeneration += 1
@@ -502,7 +518,6 @@ final class AppModel {
         activeAuxIsGuest = false
         tokenBeforeAuxJoin = ""
         serverBeforeAuxJoin = ""
-        Self.deleteCachedLibrary()
     }
 
     private func makeClient() -> CodecClient? {
@@ -531,147 +546,24 @@ final class AppModel {
 
     // MARK: - Aux
 
-    var auxLink: URL? {
-        guard !activeAuxCode.isEmpty,
-              let url = URL(string: normalizeServerURLString(serverURLString)),
-              var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        else {
-            return nil
-        }
-        components.queryItems = [URLQueryItem(name: "aux", value: activeAuxCode)]
-        return components.url
+    var auxLink: URL? { aux.link }
+
+    func refreshAuxState() async { }
+    func startAux() async { aux.showCreate = true }
+    func endAux() async { await aux.leaveOrEnd() }
+    func joinAux(code: String, server: String? = nil) async {
+        errorMessage = "Open a new Aux invitation from your host. Legacy codes are no longer supported."
     }
+    func leaveAux() async { await aux.leaveOrEnd() }
 
-    func refreshAuxState() async {
-        guard let client, !activeAuxIsGuest else {
-            return
+    /// Global events belong only to the saved personal owner connection. A
+    /// guest session is never discovered or refreshed through that authority.
+    func refreshAuthorizedHostSession(player: PlayerController, from source: CodecClient? = nil) async {
+        guard let client, isConnected, !aux.isActive, !aux.hasSavedSession else { return }
+        if let source, source.baseURL != client.baseURL || source.token != client.token { return }
+        await aux.discover(personal: client, player: player) { [weak self] in
+            self?.isConnected == true && self?.client?.baseURL == client.baseURL && self?.client?.token == client.token
         }
-        do {
-            let sessions = try await client.listAuxSessions()
-            activeAuxCode = sessions.first?.code ?? ""
-            activeAuxIsGuest = false
-        } catch {
-            activeAuxCode = ""
-        }
-    }
-
-    func startAux() async {
-        guard let client else {
-            errorMessage = "Connect to the server before starting an aux."
-            return
-        }
-        auxBusy = true
-        defer { auxBusy = false }
-
-        do {
-            let session = try await client.createAuxSession()
-            activeAuxCode = session.code
-            activeAuxIsGuest = false
-            tokenBeforeAuxJoin = ""
-        } catch {
-            errorMessage = friendlyMessage(for: error)
-        }
-    }
-
-    func endAux() async {
-        if activeAuxIsGuest {
-            await leaveAux()
-            return
-        }
-        guard let client, !activeAuxCode.isEmpty else {
-            return
-        }
-        auxBusy = true
-        defer { auxBusy = false }
-
-        do {
-            try await client.endAuxSession(code: activeAuxCode)
-            activeAuxCode = ""
-        } catch {
-            errorMessage = friendlyMessage(for: error)
-        }
-    }
-
-    func joinAux(code rawCode: String, server rawServer: String? = nil) async {
-        let code = rawCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        guard !code.isEmpty else {
-            return
-        }
-        // A scanned link can point at a friend's server; remember home so
-        // leaving the aux goes back there.
-        let previousServer = serverURLString
-        if let rawServer, !rawServer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            serverURLString = rawServer
-        }
-        serverURLString = normalizeServerURLString(serverURLString)
-        guard let joiningClient = makeClient() else {
-            errorMessage = "Enter the server URL before joining an aux."
-            serverURLString = previousServer
-            return
-        }
-
-        let previousConnection = connection
-        let previousIssue = connectionIssue
-        cancelPlaylistEdits()
-        cancelReconnect()
-        connectionGeneration += 1
-        let generation = connectionGeneration
-        refreshTask?.cancel()
-        refreshTask = nil
-        refreshAgain = false
-        reconnectClient = nil
-        connection = .connecting
-        auxBusy = true
-        defer { auxBusy = false }
-
-        do {
-            let session = try await joiningClient.joinAuxSession(code: code)
-            guard generation == connectionGeneration, !Task.isCancelled else { return }
-            guard let guestToken = session.guestToken, !guestToken.isEmpty else {
-                throw CodecClientError.invalidResponse
-            }
-            let guestClient = clientFactory(joiningClient.baseURL, guestToken)
-            let nextLibrary = try await guestClient.library()
-            guard generation == connectionGeneration, !Task.isCancelled else { return }
-            if !activeAuxIsGuest {
-                tokenBeforeAuxJoin = token
-                serverBeforeAuxJoin = previousServer
-            }
-            token = guestToken
-            client = guestClient
-            library = nextLibrary
-            connection = .connected
-            connectionIssue = nil
-            lastLibraryRefresh = .now
-            activeAuxCode = session.code
-            activeAuxIsGuest = true
-            Self.writeCachedLibrary(nextLibrary)
-        } catch {
-            guard generation == connectionGeneration, !Task.isCancelled else { return }
-            errorMessage = friendlyMessage(for: error)
-            serverURLString = previousServer
-            connection = previousConnection
-            connectionIssue = previousIssue
-            if connection != .connected { scheduleReconnect() }
-        }
-    }
-
-    func leaveAux() async {
-        guard activeAuxIsGuest else {
-            return
-        }
-        cancelPlaylistEdits()
-        auxBusy = true
-        defer { auxBusy = false }
-
-        activeAuxCode = ""
-        activeAuxIsGuest = false
-        token = tokenBeforeAuxJoin
-        tokenBeforeAuxJoin = ""
-        serverURLString = serverBeforeAuxJoin
-        serverBeforeAuxJoin = ""
-        client = makeClient()
-        await connect()
     }
 
     /// Transient offline state must retain the reconnect and reconciliation
@@ -679,6 +571,11 @@ final class AppModel {
     /// recovers; only an explicit disconnect stops synchronization.
     func syncPlayer(_ player: PlayerController) {
         configurePlaylistPlaybackTracking(player)
+        player.refreshAuxSession = { [weak self, weak player] source in
+            guard let self, let player else { return }
+            await self.refreshAuthorizedHostSession(player: player, from: source)
+        }
+        guard !aux.isActive, !aux.requiresRestore else { return }
         // A server connection being validated must not tear down an existing
         // playback session. Switch clients only once the replacement is ready.
         guard connection != .connecting else { return }
@@ -726,7 +623,7 @@ final class AppModel {
             do {
                 try await client.setLiked(fingerprint: track.fingerprint, liked: nextLiked)
                 if let library {
-                    Self.writeCachedLibrary(library)
+                    writeCachedLibrary(library)
                 }
             } catch {
                 library = current
@@ -886,7 +783,7 @@ final class AppModel {
             confirmedPlaylists.removeAll()
             playlistEditOrder.removeAll()
             playlistEditTask = nil
-            if let library { Self.writeCachedLibrary(library) }
+            if let library { writeCachedLibrary(library) }
             // One conditional refresh for the whole burst, also reconciling
             // uncertain network failures and changes made on another device.
             await refresh()
@@ -1106,30 +1003,35 @@ final class AppModel {
 
     // MARK: - Offline library cache
 
-    private static var cacheURL: URL {
+    private static func cacheURL(server: String, principal: String) -> URL {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "Codec", directoryHint: .isDirectory)
+            .appending(path: "Codec/libraries", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appending(path: "library.json")
+        return directory.appending(path: CredentialStore.cacheScope(server: server, principal: principal) + ".json")
     }
 
-    private static func readCachedLibrary() -> CodecLibrary? {
-        guard let data = try? Data(contentsOf: cacheURL) else {
-            return nil
-        }
+    private static func deleteLegacyCache() {
+        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "Codec/library.json")
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    private static func readCachedLibrary(server: String, principal: String) -> CodecLibrary? {
+        guard !server.isEmpty, let data = try? Data(contentsOf: cacheURL(server: server, principal: principal)) else { return nil }
         return try? JSONDecoder().decode(CodecLibrary.self, from: data)
     }
 
-    private static func writeCachedLibrary(_ library: CodecLibrary) {
-        let url = cacheURL
-        cacheQueue.async {
+    private func writeCachedLibrary(_ library: CodecLibrary) {
+        guard let client else { return }
+        let url = Self.cacheURL(server: client.baseURL.absoluteString, principal: client.token ?? "")
+        Self.cacheQueue.async {
             guard let data = try? JSONEncoder().encode(library) else { return }
-            try? data.write(to: url, options: .atomic)
+            try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }
     }
 
-    private static func deleteCachedLibrary() {
-        let url = cacheURL
-        cacheQueue.async { try? FileManager.default.removeItem(at: url) }
+    private func deleteCachedLibrary() {
+        let url = Self.cacheURL(server: serverURLString, principal: token)
+        Self.cacheQueue.async { try? FileManager.default.removeItem(at: url) }
     }
 }

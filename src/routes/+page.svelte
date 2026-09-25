@@ -13,10 +13,15 @@
   import MobileNewPlaylist from "$lib/components/MobileNewPlaylist.svelte";
   import MobileSettings from "$lib/components/MobileSettings.svelte";
   import MobilePalettes from "$lib/components/MobilePalettes.svelte";
-  import MobileAux from "$lib/components/MobileAux.svelte";
+  import AuxPersonal from "$lib/components/AuxPersonal.svelte";
+  import AuxLibraryBridge from "$lib/components/AuxLibraryBridge.svelte";
+  import AuxJoin from "$lib/components/AuxJoin.svelte";
+  import AuxCreate from "$lib/components/AuxCreate.svelte";
+  import AuxWorkspace from "$lib/components/AuxWorkspace.svelte";
+  import { auxInvitation as parseAuxInvitation, auxRequest, auxPath, saveAuxConnection, restoreAuxConnection, clearAuxConnection, type AuxConnection, type AuxState, type AuxInvitation, type AuxCreated, type AuxTrack } from "$lib/aux-v2";
+  import { readAuxLibraryBridgeRequest, type AuxBridgeEnvelope } from "$lib/aux-transfer";
   import MobilePlaylistMembership from "$lib/components/MobilePlaylistMembership.svelte";
   import { listDownloaded, downloadTrack as cacheDownload, downloadedTrackURL, removeDownload as deleteDownload } from "$lib/web-downloads";
-  import AuxModal from "$lib/components/AuxModal.svelte";
   import BrowseGrid from "$lib/components/BrowseGrid.svelte";
   import PlayerBar from "$lib/components/PlayerBar.svelte";
   import MobileLibrary from "$lib/components/MobileLibrary.svelte";
@@ -51,6 +56,8 @@
     type ImportManifestTrack
   } from "$lib/import";
   import { buildImportBundle } from "$lib/import-bundle";
+  import { importJobStorageKey, monitorImportJob } from "$lib/import-job";
+  import ImportProgress from "$lib/components/ImportProgress.svelte";
   import PlaylistGrid from "$lib/components/PlaylistGrid.svelte";
   import { mediaErrorMessage } from "$lib/audio-errors";
   import { createPlaybackAudioSession } from "$lib/audio-session";
@@ -86,10 +93,6 @@
     REMOTE_ROOT_PATH
   } from "$lib/platform";
   import {
-    listAuxSessions,
-    joinAuxSession,
-    endAuxSession,
-    createAuxSession,
     fetchLatestPlaybackSession,
     fetchPlaybackStateV2,
     fetchPlaybackDevices,
@@ -236,7 +239,16 @@
   let guestMode = false;
   let auxCode = "";
   let auxBusy = false;
-  let auxModalOpen = false;
+  let auxConnection: AuxConnection | null = null;
+  let auxState: AuxState | null = null;
+  let auxInvitation: AuxInvitation | null = null;
+  let auxInviteSecret = "";
+  let auxInheritedFingerprint = "";
+  let auxCreateOpen = false;
+  let auxBridge: AuxBridgeEnvelope | null = null;
+  let availableAux: AuxState | null = null;
+  let auxWorkspace: AuxWorkspace | undefined;
+  let auxPersonal: {kind:"contribute"|"save";track?:AuxTrack} | null = null;
   let settingsModalOpen = false;
   let searchQuery = "";
   let sortKey: SortKey = "default";
@@ -332,7 +344,6 @@
   let playbackSessionRestored = false;
   let lastSavedPlaybackSession = "";
   let lastPublishedPlaybackDevice = "";
-  let lastAppliedPlaybackRevision = 0;
   let pendingSeekTime: number | null = null;
   let applyingRemotePlayback = false;
   let playbackApplyGeneration = 0;
@@ -509,10 +520,15 @@
     }
 
     theme = parseTheme(readStoredValue(THEME_STORAGE_KEY));
-    const auxParam = new URLSearchParams(window.location.search).get("aux");
-    if (auxParam && !hasNativeBridge()) {
-      void joinAuxAsGuest(auxParam);
-      return;
+    auxBridge = readAuxLibraryBridgeRequest();
+    const invitationSecret = new URLSearchParams(window.location.hash.slice(1)).get("aux");
+    if (!auxBridge && invitationSecret) {
+      try { auxInvitation = parseAuxInvitation(invitationSecret, window.location.origin); }
+      catch (error) { errorMessage = String(error); }
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+    } else if (new URLSearchParams(window.location.search).has("aux")) {
+      errorMessage = "This Aux invitation uses an older version. Ask the host to create a new invitation.";
+      history.replaceState(null, "", window.location.pathname);
     }
 
     try { const saved = JSON.parse(localStorage.getItem("codec.playlistHistory") ?? "{}"); if (saved && typeof saved === "object" && !Array.isArray(saved)) playlistHistory = saved; } catch { /* Fresh recency state. */ }
@@ -546,13 +562,18 @@
     selectedPlaybackDeviceId = readStoredValue(SYNC_SELECTED_DEVICE_STORAGE_KEY) ?? "";
     writeStoredValue(SYNC_DEVICE_ID_STORAGE_KEY, deviceId);
     writeStoredValue(SYNC_DEVICE_NAME_STORAGE_KEY, deviceName);
-    // A first visit is a connect form, not a failed anonymous login. Saved
+    // A first visit opens onboarding without an anonymous login attempt. Saved
     // connections (including servers without auth) still reconnect at once.
     const hasSavedConnection = Boolean(readStoredValue(SYNC_SERVER_STORAGE_KEY) || syncTokenDraft || rootPath);
 
-    if (rootPath && hasNativeBridge() && !isRemoteRoot(rootPath)) {
+    if (!auxInvitation && !auxBridge) {
+      const savedAux = restoreAuxConnection(syncServerUrl, syncTokenDraft);
+      if (savedAux) attachAux(savedAux, null);
+    }
+
+    if (!auxBridge && rootPath && hasNativeBridge() && !isRemoteRoot(rootPath)) {
       void loadLibrary(rootPath, true);
-    } else if (hasSavedConnection && syncServerUrl && (!hasNativeBridge() || rootPath === REMOTE_ROOT_PATH)) {
+    } else if (!auxBridge && hasSavedConnection && syncServerUrl && (!hasNativeBridge() || rootPath === REMOTE_ROOT_PATH)) {
       // Hydrate from the local cache immediately while the network load
       // runs; whichever lands first paints, the network result wins.
       bootstrapping = true;
@@ -560,11 +581,11 @@
       void loadRemoteLibrary(true);
     }
 
-    if (hasSavedConnection && syncServerUrl && rootPath !== REMOTE_ROOT_PATH) {
+    if (!auxBridge && hasSavedConnection && syncServerUrl && rootPath !== REMOTE_ROOT_PATH) {
       void validatePlaybackSyncServer(true);
     }
 
-    if (hasSavedConnection && syncServerUrl) {
+    if (!auxBridge && hasSavedConnection && syncServerUrl) {
       void refreshAuxState();
     }
 
@@ -580,6 +601,7 @@
     }
 
     const keyHandler = (event: KeyboardEvent) => {
+      if (auxConnection || auxInvitation || auxBridge) return;
       const target = event.target as HTMLElement | null;
       const isTyping =
         target?.tagName === "INPUT" ||
@@ -658,6 +680,8 @@
     return () => {
       savePlaybackSessionNow();
       downloadRun?.controller.abort();
+      importRun?.controller.abort();
+      stopWatchingImportJob();
       downloadStatus.set(null);
       document.removeEventListener("keydown", keyHandler);
       window.removeEventListener("pagehide", persistPlayback);
@@ -984,6 +1008,7 @@
   // ---------------------------------------------------------------------------
 
   function restorePlaybackSession(activeLibrary: MusicLibrary): boolean {
+    if (auxConnection || auxBridge) return false;
     const session = parsePlaybackSession(
       readStoredValue(PLAYBACK_SESSION_STORAGE_KEY),
       activeLibrary.root_path
@@ -1032,6 +1057,7 @@
   }
 
   async function restoreRemotePlaybackSession(activeLibrary: MusicLibrary) {
+    if (auxConnection || auxBridge) return;
     if (!syncServerUrl || playbackStateV2) {
       return;
     }
@@ -1042,7 +1068,7 @@
       const remote = await fetchLatestPlaybackSession<PersistedPlaybackSession>(server);
       // This is a legacy fallback. Live state can arrive over SSE while the
       // saved session is loading; never replace that state with an old pause.
-      if (playbackStateV2 || generation !== syncReadGeneration || server !== syncServerUrl || !remote || !validPlaybackSession(remote.session)) {
+      if (auxConnection || auxBridge || playbackStateV2 || generation !== syncReadGeneration || server !== syncServerUrl || !remote || !validPlaybackSession(remote.session)) {
         return;
       }
 
@@ -1065,6 +1091,7 @@
   }
 
   function schedulePlaybackSessionSave() {
+    if (auxConnection || auxBridge) return;
     if (!playbackSessionRestored || !rootPath) {
       return;
     }
@@ -1080,6 +1107,7 @@
   }
 
   function savePlaybackSessionNow() {
+    if (auxConnection || auxBridge) return;
     if (playbackSaveTimer) {
       window.clearTimeout(playbackSaveTimer);
       playbackSaveTimer = null;
@@ -1335,6 +1363,7 @@
   // explicit play (a bare next/previous would advance the server's copy a
   // second time, since commands replace server context before applying).
   function notifyServerAfterLocalChange(beforeTrackId: string | null, fallbackKind: PlaybackCommandKindV2) {
+    if (auxConnection || auxBridge) return;
     if (!usePlaybackSync()) {
       return;
     }
@@ -1379,6 +1408,7 @@
   }
 
   function refreshPlaybackSyncOnForeground() {
+    if (auxConnection || auxBridge) { void refreshAuxState(); return; }
     if (!syncServerReady) {
       resumeLocalAudioGraphAfterForeground();
       // An offline launch never reaches the polling loop. Returning online
@@ -1471,9 +1501,11 @@
     source.addEventListener("device", handleCurrentEvent);
     source.addEventListener("playback_state", handleCurrentEvent);
     source.addEventListener("library", handleCurrentEvent);
+    source.addEventListener("aux_changed", () => { if (stillConnected()) void refreshAuxState(); });
     source.onopen = () => {
       if (!stillConnected()) return;
       playbackEventActivityAt = Date.now();
+      void refreshAuxState();
       // Reconcile missed changes on every reconnect, independent of cadence.
       void refreshPlaybackDevices();
       void refreshRemoteLibraryState();
@@ -1514,6 +1546,7 @@
   }
 
   function schedulePlaybackDeviceUpdate(force = false) {
+    if (auxConnection || auxBridge) return;
     if (!syncServerUrl || !syncServerReady || !deviceId) {
       return;
     }
@@ -1534,6 +1567,7 @@
   }
 
   async function publishPlaybackDeviceState(force = false) {
+    if (auxConnection || auxBridge) return;
     if (!syncServerUrl || !syncServerReady || !deviceId) {
       return;
     }
@@ -1712,6 +1746,7 @@
   }
 
   async function applyPlaybackStateV2(nextState: PlaybackStateV2, force = false) {
+    if (auxConnection || auxBridge) return;
     if (pendingPlaybackCommands > 0) {
       if (!deferredPlaybackState || nextState.revision > deferredPlaybackState.revision) deferredPlaybackState = nextState;
       return;
@@ -1730,7 +1765,6 @@
       playbackClockOffsetMs = playbackStateV2 ? Math.max(playbackClockOffsetMs, offsetSample) : offsetSample;
     }
     playbackStateV2 = nextState;
-    lastAppliedPlaybackRevision = nextState.revision;
 
     const targetTrack = library && nextState.track ? findTrackByReference(library, nextState.track) : null;
 
@@ -1807,6 +1841,7 @@
             // A quick transfer back may have started local audio while the
             // asynchronous suspension was finishing. Do not leave it silent.
             if (context !== audioGraphContext) return;
+            if (auxConnection) { if (audioEl && !audioEl.paused) prepareAuxAudio(); return; }
             if (canControlLocalMedia() && audioEl && !audioEl.paused) {
               if (!playbackAudioSession.isInterrupted()) {
                 playbackAudioSession.begin();
@@ -1814,7 +1849,7 @@
               }
               return;
             }
-            playbackAudioSession.release();
+            if (generation === playbackApplyGeneration) playbackAudioSession.release();
           }).catch(() => undefined);
         } else {
           playbackAudioSession.release();
@@ -1844,6 +1879,7 @@
     kind: PlaybackCommandKindV2,
     overrides: Partial<Parameters<typeof sendPlaybackCommandV2>[1]> = {}
   ): Promise<PlaybackStateV2> {
+    if (auxConnection || auxBridge) throw new Error("Use the Aux controls while joined to a session.");
     if (!syncServerUrl || !deviceId) {
       throw new Error("Playback sync is not connected.");
     }
@@ -2385,6 +2421,7 @@
   }
 
   function loadAudioSource(source: string, seekTime = 0, trackId = "") {
+    if (auxConnection || auxBridge) return;
     audioEl.src = source;
     pendingSeekTime = seekTime > 0 ? seekTime : null;
     audioEl.load();
@@ -2611,6 +2648,7 @@
   }
 
   async function handleEnded() {
+    if (auxConnection || auxBridge) return;
     if (usePlaybackSync()) {
       if (playbackStateV2?.active_device_id !== deviceId) {
         return;
@@ -2742,6 +2780,7 @@
   }
 
   function syncMediaVolume() {
+    if (auxConnection || auxBridge) return;
     if (!audioEl || !hasNativeBridge() || !isActiveSyncDevice()) return;
     volume = boundedVolume(audioEl.volume);
     writeStoredValue(VOLUME_STORAGE_KEY, String(volume));
@@ -2802,6 +2841,7 @@
   // ---------------------------------------------------------------------------
 
   function syncTime() {
+    if (auxConnection || auxBridge) return;
     if (usePlaybackSync()) {
       if (isActiveSyncDevice() && loadedSource) {
         currentTime = audioEl?.currentTime ?? 0;
@@ -2813,12 +2853,14 @@
   }
 
   function syncDuration() {
+    if (auxConnection || auxBridge) return;
     if (usePlaybackSync() && !isActiveSyncDevice()) return;
     audioDuration = audioEl?.duration || currentTrack?.duration_seconds || 0;
     applyPendingSeek();
   }
 
   function handleAudioError() {
+    if (auxConnection || auxBridge) return;
     if (usePlaybackSync() && !isActiveSyncDevice()) return;
     if (!currentTrack) {
       return;
@@ -2832,6 +2874,7 @@
   }
 
   function playLocalAudio(): Promise<void> {
+    if (auxConnection || auxBridge) return Promise.resolve();
     if (!audioEl) return Promise.resolve();
     playbackAudioSession.begin();
     // A lock-screen play gesture must wake both the element and the existing
@@ -2853,6 +2896,7 @@
   }
 
   function updateSystemMediaSession(track: Track | null, playing: boolean, local: boolean) {
+    if (auxConnection || auxBridge) return;
     if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
     navigator.mediaSession.playbackState = track && local ? (playing ? "playing" : "paused") : "none";
     const trackId = local ? track?.id ?? "" : "";
@@ -2864,6 +2908,7 @@
   }
 
   function canControlLocalMedia(): boolean {
+    if (auxConnection || auxBridge) return false;
     // Selection changes before a transfer is acknowledged. Our own queued
     // commands can advance revision guards, so also honor that pending target.
     return !usePlaybackSync() || (isActiveSyncDevice() &&
@@ -2891,6 +2936,7 @@
   }
 
   function handleSystemPlayback(playing: boolean) {
+    if (auxConnection || auxBridge) return;
     if (!audioEl || !currentTrack || loadedTrackId !== currentTrack.id || !canControlLocalMedia()) return;
     // Explicit desired state makes repeated hardware pause/play idempotent.
     // Perform the local operation in the user gesture before any network await.
@@ -2905,6 +2951,7 @@
   }
 
   function handleAudioPause() {
+    if (auxConnection || auxBridge) return;
     if (expectedAudioPauseEvents > 0) {
       expectedAudioPauseEvents--;
       return;
@@ -2917,6 +2964,7 @@
   }
 
   function handleAudioPlay() {
+    if (auxConnection || auxBridge) return;
     const expected = expectedAudioPlayEvents > 0;
     if (expected) expectedAudioPlayEvents--;
     // A play promise can settle after ownership moved to native. Stop only
@@ -2950,89 +2998,89 @@
   // Views, themes, and playlist editing
   // ---------------------------------------------------------------------------
 
-  async function joinAuxAsGuest(code: string, handoff = true) {
-    const origin = handoff ? window.location.origin : (syncServerUrl || window.location.origin);
-    // Hand off to the native app when it's installed; iOS switches apps and
-    // hides this tab, otherwise the browser join below is the fallback.
-    if (handoff && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
-      window.location.href = `codec://aux?server=${encodeURIComponent(origin)}&code=${encodeURIComponent(code)}`;
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      if (document.hidden) {
-        return;
+  function attachAux(connection: AuxConnection, state: AuxState | null, secret = "") {
+    savePlaybackSessionNow();
+    auxInheritedFingerprint = currentTrack?.fingerprint ?? "";
+    syncReadGeneration++;
+    playbackConnectionGeneration++;
+    resetPlaybackCommandQueue();
+    pendingPlaybackCommands = 0;
+    deferredPlaybackState = null;
+    auxConnection = connection;
+    auxState = state;
+    auxInviteSecret = secret;
+    auxCode = "Aux";
+    guestMode = connection.role === "guest";
+    auxInvitation = null;
+    auxCreateOpen = false;
+    settingsModalOpen = false;
+    playbackApplyGeneration++;
+    localPlaybackGeneration++;
+    stopPlaybackClock();
+    visualizerSampler?.stop();
+    saveAuxConnection(connection);
+  }
+
+  function prepareAuxAudio() {
+    playbackAudioSession.begin();
+    if (audioGraphContext && audioGraphContext.state !== "running" && audioGraphContext.state !== "closed") {
+      void audioGraphContext.resume().catch(() => undefined);
+    }
+  }
+
+  async function leaveAux() {
+    pauseLocalAudio();
+    clearAuxConnection();
+    auxConnection = null; auxState = null; auxInviteSecret = "";
+    auxCode = ""; guestMode = false; availableAux = null;
+    loadedSource = ""; loadedTrackId = "";
+    expectedAudioPauseEvents = 0; expectedAudioPlayEvents = 0;
+    await tick();
+    if ("mediaSession" in navigator) {
+      for (const action of ["play", "pause"] as const) {
+        try { navigator.mediaSession.setActionHandler(action, () => handleSystemPlayback(action === "play")); } catch {}
       }
     }
-    try {
-      const session = await joinAuxSession(origin, code);
-      guestMode = true;
-      auxCode = session.code;
-      syncServerUrl = normalizeServerUrl(origin);
-      syncServerDraft = syncServerUrl;
-      syncTokenDraft = session.guest_token ?? "";
-      setSyncAuthToken(session.guest_token ?? "");
-      deviceId = createDeviceId();
-      deviceName = "Aux guest";
-      rootPath = REMOTE_ROOT_PATH;
-      await loadRemoteLibrary(false);
-      void validatePlaybackSyncServer(true);
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error);
-    }
+    if (syncServerReady) void refreshPlaybackDevices(true);
+  }
+
+  function joinAuxAsGuest(value: string, _handoff = false) {
+    try { auxInvitation = parseAuxInvitation(value, syncServerUrl || window.location.origin); settingsModalOpen = false; }
+    catch (error) { errorMessage = error instanceof Error ? error.message : String(error); }
   }
 
   async function startAux() {
-    if (auxBusy || !syncServerUrl) {
-      return;
-    }
-    auxBusy = true;
-    errorMessage = "";
-    try {
-      const session = await createAuxSession(syncServerUrl);
-      auxCode = session.code;
-      auxModalOpen = true;
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error);
-    } finally {
-      auxBusy = false;
-    }
+    if (availableAux) {
+      attachAux({server:syncServerUrl,session_id:availableAux.session_id,participant_id:"host",token:syncTokenDraft,role:"host",expires_at:availableAux.expires_at},availableAux);
+    } else if (library && syncServerReady) { settingsModalOpen = false; auxCreateOpen = true; }
+  }
+
+  function createdAux(result: AuxCreated) {
+    attachAux({server:syncServerUrl,session_id:result.session_id,participant_id:"host",token:syncTokenDraft,role:"host",expires_at:result.state.expires_at},result.state,result.invite_secret);
   }
 
   async function endAux() {
-    if (guestMode) { auxCode = ""; auxModalOpen = false; guestMode = false; disconnectSyncServer(); return; }
-    if (auxBusy || !auxCode) {
-      return;
-    }
+    if (!availableAux || auxBusy) return;
     auxBusy = true;
     try {
-      await endAuxSession(syncServerUrl, auxCode);
-      auxCode = "";
-      auxModalOpen = false;
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error);
-    } finally {
-      auxBusy = false;
-    }
-  }
-
-  function auxLink(): string {
-    return `${normalizeServerUrl(syncServerUrl)}/?aux=${auxCode}`;
-  }
-
-  async function copyAuxLink() {
-    try {
-      await navigator.clipboard.writeText(auxLink());
-      syncMessage = "Aux link copied";
-    } catch {
-      syncMessage = auxLink();
-    }
+      await auxRequest<void>(syncServerUrl, `/api/v2/aux/sessions/${encodeURIComponent(availableAux.session_id)}`, syncTokenDraft, undefined, "DELETE");
+      await leaveAux();
+    } catch (error) { errorMessage = error instanceof Error ? error.message : String(error); }
+    finally { auxBusy = false; }
   }
 
   async function refreshAuxState() {
+    if (auxInvitation || auxBridge || auxConnection?.role === "guest" || !syncServerUrl) return;
+    const server = syncServerUrl, token = syncTokenDraft;
     try {
-      const sessions = await listAuxSessions(syncServerUrl);
-      auxCode = sessions[0]?.code ?? "";
-    } catch {
-      // not connected or not the host - fine
-    }
+      const result = await auxRequest<{sessions:AuxState[]}>(server,"/api/v2/aux/sessions",token);
+      if (server !== syncServerUrl || token !== syncTokenDraft || auxInvitation || auxBridge) return;
+      availableAux = result.sessions[0] ?? null;
+      auxCode = availableAux ? "Aux" : "";
+      if (!auxConnection && availableAux?.host_device_id === deviceId) {
+        attachAux({server,session_id:availableAux.session_id,participant_id:"host",token,role:"host",expires_at:availableAux.expires_at},availableAux);
+      }
+    } catch { /* Old servers still support personal playback; Aux needs v2. */ }
   }
 
   function selectView(view: string) {
@@ -3060,16 +3108,6 @@
       mobileCollection = saved.collection;
       void tick().then(() => contentEl?.scrollTo({ top: saved.scroll }));
     } else selectView(view);
-  }
-
-  function openMobileAlbum(album: AlbumSummary) {
-    selectView("all");
-    mobileCollection = { title: album.name, artist: album.artist, kind: "album" };
-  }
-
-  function openMobileArtist(artist: ArtistSummary) {
-    selectView("all");
-    mobileCollection = { title: artist.name, kind: "artist" };
   }
 
   async function createPlaylistFromLibrary() {
@@ -3192,135 +3230,158 @@
   // like the desktop, then metadata + audio + artwork go straight to the
   // sync server through the existing upsert endpoints.
   async function importAudioFiles(files: File[]) {
-    if (!syncServerUrl || files.length === 0 || importBusy) {
-      return;
-    }
-
-    const importServer = syncServerUrl;
-    const importToken = syncTokenDraft;
+    if (!syncServerUrl || files.length === 0 || importBusy || guestMode) return;
+    const run = createImportRun();
+    importRun = run;
     const zipFiles = files.filter((file) => file.name.toLowerCase().endsWith(".zip"));
     const hasManifest = files.some((file) => file.name.toLowerCase().endsWith(".json"));
     importing = true;
     errorMessage = "";
+    importMessage = "";
+    importConnectionError = "";
+    importJob = null;
+    importUploadFraction = 0;
     try {
       if (zipFiles.length) {
         if (zipFiles.length !== 1 || files.length !== 1) throw new Error("Select one bundle ZIP, or select its unpacked folder instead.");
-        await importLoudZip(zipFiles[0]);
+        await importLoudZip(zipFiles[0], run);
       } else if (hasManifest) {
         importPhase = "preparing";
-        importUploadFraction = 0;
-        const bundle = await buildImportBundle(files, (fraction) => { importUploadFraction = fraction; });
-        if (syncServerUrl !== importServer || syncTokenDraft !== importToken) {
-          throw new Error("The server connection changed while preparing the bundle. Select it again for the current server.");
-        }
-        await importLoudZip(bundle);
+        const bundle = await buildImportBundle(files, (fraction) => {
+          if (currentImportRun(run)) importUploadFraction = fraction;
+        }, run.controller.signal);
+        if (!currentImportRun(run)) return;
+        await importLoudZip(bundle, run);
       } else {
         const audio = files.filter((file) => /\.mp3$/i.test(file.name));
         if (audio.length !== files.length) throw new Error("Select MP3 files, a bundle ZIP, or a manifest with its audio and artwork files.");
+        importPhase = "idle";
         await importPlainAudio(audio);
       }
     } catch (error) {
-      errorMessage = error instanceof Error ? error.message : String(error);
-      if (importPhase === "preparing") importPhase = "failed";
+      if (importRun !== run) return;
+      importPhase = run.controller.signal.aborted ? "cancelled" : "failed";
+      importMessage = run.controller.signal.aborted ? "The upload was stopped. Select the bundle again to retry." : error instanceof Error ? error.message : String(error);
+      if (!run.controller.signal.aborted) errorMessage = importMessage;
     } finally {
-      importing = false;
+      if (importRun === run) {
+        importing = false;
+        if (importPhase !== "processing") importRun = null;
+      }
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Bundle import jobs: the zip goes to the server once, the server unpacks
-  // and applies it in the background, and progress is polled by job id — so
-  // the banner survives closing the modal, switching views, or a refresh.
-  // ---------------------------------------------------------------------------
-
-  const IMPORT_JOB_STORAGE_KEY = "codec.importJob";
-
+  // The upload must finish before the server can import. Once acknowledged,
+  // retain its job ID per server and keep checking after navigation or reload.
+  type ImportRun = { server: string; token: string; controller: AbortController; storageKey: string };
+  let importRun: ImportRun | null = null;
+  let importMonitor: ReturnType<typeof monitorImportJob> | null = null;
   let importJob: ImportJobStatus | null = null;
   let importUploadFraction = 0;
-  let importPhase: "idle" | "preparing" | "uploading" | "processing" | "done" | "failed" = "idle";
-  let importJobTimer: number | null = null;
+  let importMessage = "";
+  let importConnectionError = "";
+  let importPhase: "idle" | "preparing" | "uploading" | "processing" | "done" | "failed" | "cancelled" = "idle";
   $: importBusy = importing || importPhase === "preparing" || importPhase === "uploading" || importPhase === "processing";
 
-  async function importLoudZip(zipFile: Blob) {
-    if (!syncServerUrl) {
-      return;
-    }
-    importPhase = "uploading";
-    importUploadFraction = 0;
-    importJob = null;
-    try {
-      const jobId = await uploadBundle(syncServerUrl, zipFile, (fraction) => {
-        importUploadFraction = fraction;
-      });
-      writeStoredValue(IMPORT_JOB_STORAGE_KEY, jobId);
-      importPhase = "processing";
-      watchImportJob(jobId);
-    } catch (error) {
-      importPhase = "failed";
-      errorMessage = error instanceof Error ? error.message : String(error);
-    }
+  function createImportRun(): ImportRun {
+    const server = normalizeServerUrl(syncServerUrl);
+    return { server, token: syncTokenDraft, controller: new AbortController(), storageKey: importJobStorageKey(server) };
   }
 
-  function watchImportJob(jobId: string) {
+  function currentImportRun(run: ImportRun): boolean {
+    return importRun === run && !run.controller.signal.aborted && !guestMode
+      && run.server === normalizeServerUrl(syncServerUrl) && run.token === syncTokenDraft;
+  }
+
+  async function importLoudZip(zipFile: Blob, run: ImportRun) {
+    importPhase = "uploading";
+    importUploadFraction = 0;
+    const jobId = await uploadBundle(run.server, zipFile, (fraction) => {
+      if (currentImportRun(run)) importUploadFraction = fraction;
+    }, { signal: run.controller.signal });
+    if (!currentImportRun(run)) return;
+    writeStoredValue(run.storageKey, jobId);
+    importPhase = "processing";
+    watchImportJob(jobId, run);
+  }
+
+  function watchImportJob(jobId: string, run: ImportRun) {
     stopWatchingImportJob();
-    const poll = async () => {
-      if (!syncServerUrl) {
-        return;
-      }
-      try {
-        const status = await fetchImportJob(syncServerUrl, jobId);
-        if (!status) {
-          // Server restarted mid-job; nothing to resume.
-          importPhase = "failed";
-          errorMessage = "The import job was lost (server restarted). Import the bundle again.";
-          finishImportJob();
-          return;
-        }
+    importMonitor = monitorImportJob({
+      read: (signal) => fetchImportJob(run.server, jobId, fetch, signal),
+      onStatus: (status) => {
+        if (!currentImportRun(run)) return;
+        importConnectionError = "";
         importJob = status;
-        if (status.state === "running") {
-          importPhase = "processing";
-          return;
-        }
+        if (status.state === "running") return;
         importPhase = status.state;
         if (status.state === "failed") {
-          errorMessage = status.error ? `Import failed: ${status.error}` : "Import failed.";
+          importMessage = status.error ? `Import failed: ${status.error}` : "Import failed.";
+          errorMessage = importMessage;
         } else {
-          await loadRemoteLibrary(true);
-          syncMessage = bundleImportSummary(status);
-          if (status.artwork_warnings?.length) errorMessage = status.artwork_warnings.slice(0, 3).join(" · ");
+          importMessage = bundleImportSummary(status);
+          if (status.artwork_warnings?.length) importMessage += ` · ${status.artwork_warnings.slice(0, 3).join(" · ")}`;
+          syncMessage = importMessage;
+          // Import is finished even if the independent library refresh fails.
+          void loadRemoteLibrary(true);
         }
-        finishImportJob();
-      } catch {
-        // Transient; keep polling.
+        finishImportJob(run, jobId);
+      },
+      onMissing: () => {
+        if (!currentImportRun(run)) return;
+        importPhase = "failed";
+        importMessage = "This import job is no longer available; the server may have restarted. Select the bundle again. Existing music will be kept.";
+        errorMessage = importMessage;
+        finishImportJob(run, jobId);
+      },
+      onError: (error) => {
+        if (currentImportRun(run)) importConnectionError = error instanceof Error ? error.message : String(error);
       }
-    };
-    void poll();
-    importJobTimer = window.setInterval(() => void poll(), 1000);
+    });
   }
 
   function stopWatchingImportJob() {
-    if (importJobTimer) {
-      window.clearInterval(importJobTimer);
-      importJobTimer = null;
-    }
+    importMonitor?.stop();
+    importMonitor = null;
   }
 
-  function finishImportJob() {
+  function finishImportJob(run: ImportRun, jobId: string) {
     stopWatchingImportJob();
-    removeStoredValue(IMPORT_JOB_STORAGE_KEY);
+    if (readStoredValue(run.storageKey) === jobId) removeStoredValue(run.storageKey);
+    if (importRun === run) { importRun = null; importing = false; }
+  }
+
+  function cancelImportUpload() {
+    if (importPhase === "preparing" || importPhase === "uploading") importRun?.controller.abort();
+  }
+
+  function retryImportProgress() {
+    importMonitor?.retry();
   }
 
   function dismissImportBanner() {
     importPhase = "idle";
     importJob = null;
+    importMessage = "";
+    importConnectionError = "";
   }
 
-  // A refresh mid-import picks the job back up.
-  $: if (syncServerUrl && syncServerReady && importPhase === "idle" && !importJobTimer) {
-    const pending = readStoredValue(IMPORT_JOB_STORAGE_KEY);
+  // Late responses must never alter the next connection or inherit its token.
+  $: if (importRun && (importRun.server !== normalizeServerUrl(syncServerUrl) || importRun.token !== syncTokenDraft || guestMode)) {
+    importRun.controller.abort();
+    stopWatchingImportJob();
+    importRun = null;
+    importing = false;
+    dismissImportBanner();
+  }
+
+  $: if (syncServerUrl && syncServerReady && !guestMode && importPhase === "idle" && !importRun) {
+    const run = createImportRun();
+    const pending = readStoredValue(run.storageKey);
     if (pending) {
+      importRun = run;
       importPhase = "processing";
-      watchImportJob(pending);
+      watchImportJob(pending, run);
     }
   }
 
@@ -3809,7 +3870,13 @@
   <title>Codec</title>
 </svelte:head>
 
-{#if !library && !loading && !bootstrapping}
+{#if auxBridge}
+  <AuxLibraryBridge envelope={auxBridge} initialToken={syncServerUrl === window.location.origin ? syncTokenDraft : ""}/>
+{:else if auxInvitation}
+  <AuxJoin invitation={auxInvitation} onJoin={attachAux} onCancel={() => auxInvitation = null}/>
+{:else if auxConnection && audioEl}
+  {#key auxConnection.session_id}<AuxWorkspace bind:this={auxWorkspace} connection={auxConnection} initialState={auxState} invite={auxInviteSecret} audio={audioEl} {deviceId} inheritedFingerprint={auxInheritedFingerprint} onPrepareAudio={prepareAuxAudio} onLeave={() => void leaveAux()} onPersonalAction={(kind,track) => auxPersonal = {kind,track}}/>{/key}
+{:else if !library && !loading && !bootstrapping}
   <SetupScreen
     {theme}
     isNative={hasNativeBridge()}
@@ -3831,7 +3898,7 @@
       {auxCode}
       onSelectView={selectView}
       onOpenSettings={() => (settingsModalOpen = true)}
-      onShowAux={() => (auxModalOpen = true)}
+      onShowAux={() => void startAux()}
     />
 
     <TopBar bind:this={topBar} bind:searchQuery />
@@ -3848,7 +3915,7 @@
         {:else}<h1 class:codec-title={selectedView === "home"}>{selectedView === "home" ? "Codec" : titleForView(selectedView,null)}</h1>{/if}
         {#if selectedView === "home"}
           <div class="mobile-toolbar-actions">
-            {#if auxCode}<button class="mobile-aux-chip" type="button" aria-label="Aux session" onclick={() => auxModalOpen = true}><Radio size={16}/>{auxCode}</button>{/if}
+            {#if auxCode}<button class="mobile-aux-chip" type="button" aria-label="Aux session" onclick={() => void startAux()}><Radio size={16}/>{auxCode}</button>{/if}
             <button class="mobile-icon-button" type="button" aria-label="Palettes" onclick={openThemeModal}><Palette size={24} /></button>
             <button class="mobile-icon-button" type="button" aria-label="Settings" onclick={() => { syncServerDraft = syncServerUrl; settingsModalOpen = true; }}><MobileSymbol name="settings" size={24} /></button>
           </div>
@@ -3860,32 +3927,9 @@
     {/if}
 
     <section class="content" class:mobile-visualizer={selectedView === "visualizer"} bind:this={contentEl} use:mobileViewMotion={{ view: selectedView, tab: mobileTab, enabled: mobileLayout }}>
-      {#if importPhase !== "idle"}
-        <section class="import-banner" class:done={importPhase === "done"} class:failed={importPhase === "failed"} aria-live="polite">
-          <div class="import-banner-copy">
-            {#if importPhase === "preparing" || importPhase === "uploading"}
-              <strong>{importPhase === "preparing" ? "Preparing bundle" : "Uploading bundle"}</strong>
-              <span>{Math.round(importUploadFraction * 100)}%</span>
-            {:else if importPhase === "processing"}
-              <strong>Importing{importJob?.total ? ` ${importJob.done}/${importJob.total}` : ""}</strong>
-              <span>{importJob?.current ?? "Unpacking bundle…"}</span>
-            {:else if importPhase === "done"}
-              <strong>Import finished</strong>
-              <span>{syncMessage}</span>
-            {:else}
-              <strong>Import failed</strong>
-              <span>{errorMessage}</span>
-            {/if}
-          </div>
-          {#if importPhase === "preparing" || importPhase === "uploading" || importPhase === "processing"}
-            <div class="import-banner-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
-              aria-valuenow={(importPhase === "preparing" || importPhase === "uploading") ? Math.round(importUploadFraction * 100) : (importJob?.total ? Math.round((importJob.done / importJob.total) * 100) : 0)}>
-              <i style={`width: ${(importPhase === "preparing" || importPhase === "uploading") ? importUploadFraction * 100 : (importJob?.total ? (importJob.done / importJob.total) * 100 : 0)}%`}></i>
-            </div>
-          {:else}
-            <button class="ui-button compact" type="button" onclick={dismissImportBanner}>Dismiss</button>
-          {/if}
-        </section>
+      {#if !settingsModalOpen}
+        <ImportProgress phase={importPhase} fraction={importUploadFraction} job={importJob} message={importMessage} connectionError={importConnectionError}
+          onCancel={cancelImportUpload} onRetry={retryImportProgress} onDismiss={dismissImportBanner}/>
       {/if}
 
       {#if loading || (bootstrapping && !library)}
@@ -3927,16 +3971,15 @@
             onOpenAlbum={openFromBrowseGrid}
             onPlayTrack={(track) => void playTrackRow(track, 0)}
             {auxCode}
-            onShowAux={() => { auxModalOpen = true; }}
+            onShowAux={() => { void startAux(); }}
           />
         {:else if selectedView === "library" && !globalSearch}
           {#key syncReadGeneration}
           <MobileLibrary
             playlists={userPlaylists} {playlistArtwork}
             songCount={stats.trackCount} likedCount={stats.likedCount} downloadedCount={downloadedIDs.size} onOpenDownloaded={() => selectView("downloaded")}
-            albums={albums.filter((album) => album.trackCount >= 2)} {artists}
             canCreate={Boolean(syncServerUrl && syncServerReady && isRemoteRoot(rootPath) && !guestMode)}
-            onOpen={selectView} onOpenAlbum={openMobileAlbum} onOpenArtist={openMobileArtist}
+            onOpen={selectView}
             onCreate={() => { newPlaylistTrack = null; newPlaylistOpen = true; createPlaylistError = ""; }}
             onDelete={deleteUserPlaylist}
           />
@@ -4075,7 +4118,7 @@
     {/if}
 
     {#if playlistModalTrack && library}
-      {#if mobileLayout}<MobilePlaylistMembership track={playlistModalTrack} playlists={library.playlists} bind:selectedIds={playlistModalSelectionIds} saving={savingPlaylistMemberships} onClose={closePlaylistMembershipModal} onSave={() => void savePlaylistMemberships()} onCreate={() => { newPlaylistTrack = playlistModalTrack; void savePlaylistMemberships(); newPlaylistOpen = true; }}/>
+      {#if mobileLayout}<MobilePlaylistMembership track={playlistModalTrack} playlists={library.playlists} bind:selectedIds={playlistModalSelectionIds} saving={savingPlaylistMemberships} onSave={() => void savePlaylistMemberships()} onCreate={() => { newPlaylistTrack = playlistModalTrack; void savePlaylistMemberships(); newPlaylistOpen = true; }}/>
       {:else}<PlaylistModal
         track={playlistModalTrack}
         playlists={library.playlists}
@@ -4096,16 +4139,18 @@
     {/if}
 
     {#if settingsModalOpen}
-      {#if mobileLayout}<MobileSettings importing={importBusy} {syncMessage} onImportFiles={(files) => void importAudioFiles(files)} bind:server={syncServerDraft} bind:token={syncTokenDraft} connected={syncServerReady} {loading} error={errorMessage} {auxCode} {auxBusy} {guestMode}
+      {#if mobileLayout}<MobileSettings importing={importBusy} {syncMessage} importPhase={importPhase} importFraction={importUploadFraction} importJob={importJob} importMessage={importMessage} importConnectionError={importConnectionError} onCancelImport={cancelImportUpload} onRetryImport={retryImportProgress} onDismissImport={dismissImportBanner} onImportFiles={(files) => void importAudioFiles(files)} bind:server={syncServerDraft} bind:token={syncTokenDraft} connected={syncServerReady} {loading} error={errorMessage} {auxCode} {auxBusy} {guestMode}
         onClose={() => settingsModalOpen = false} onReconnect={() => { void loadRemoteLibrary(false).then(() => { if(syncServerReady) settingsModalOpen = false; }); }}
         onDisconnect={() => { settingsModalOpen = false; disconnectSyncServer(); }} onStartAux={() => { settingsModalOpen = false; void startAux(); }}
-        onShowAux={() => { settingsModalOpen = false; auxModalOpen = true; }} onEndAux={() => void endAux()} onJoinAux={(code) => { settingsModalOpen = false; void joinAuxAsGuest(code,false); }}/>
+        onShowAux={() => { settingsModalOpen = false; void startAux(); }} onEndAux={() => void endAux()} onJoinAux={(code) => { settingsModalOpen = false; void joinAuxAsGuest(code,false); }}/>
       {:else}<SettingsModal
         activeThemeName={activeTheme.name}
         {syncing}
         canUpload={Boolean(library) && hasNativeBridge() && !isRemoteRoot(rootPath)}
         {syncMessage}
         importing={importBusy}
+        importPhase={importPhase} importFraction={importUploadFraction} importJob={importJob} importMessage={importMessage} importConnectionError={importConnectionError}
+        onCancelImport={cancelImportUpload} onRetryImport={retryImportProgress} onDismissImport={dismissImportBanner}
         importDisabled={!hasNativeBridge() || isRemoteRoot(rootPath)}
         {auxCode}
         {auxBusy}
@@ -4127,20 +4172,10 @@
         onStartAux={() => void startAux()}
         onShowAux={() => {
           settingsModalOpen = false;
-          auxModalOpen = true;
+          void startAux();
         }}
         onEndAux={() => void endAux()}
         onClose={() => (settingsModalOpen = false)}
-      />{/if}
-    {/if}
-
-    {#if auxModalOpen && auxCode}
-      {#if mobileLayout}<MobileAux code={auxCode} link={auxLink()} {guestMode} onClose={() => auxModalOpen = false} onEnd={() => void endAux()}/>{:else}<AuxModal
-        {auxCode}
-        auxLink={auxLink()}
-        onCopyLink={() => void copyAuxLink()}
-        onEnd={() => void endAux()}
-        onClose={() => (auxModalOpen = false)}
       />{/if}
     {/if}
 
@@ -4163,6 +4198,10 @@
       <MobileDeletePlaylist playlist={deletePlaylistCandidate} onDelete={deleteUserPlaylist} onClose={() => deletePlaylistCandidate = null} />
     {/if}
     <DownloadStatus />
+
+  </main>
+{/if}
+
     <audio
       bind:this={audioEl}
       crossorigin="anonymous"
@@ -4174,5 +4213,11 @@
       ontimeupdate={syncTime}
       onvolumechange={syncMediaVolume}
     ></audio>
-  </main>
+
+{#if auxCreateOpen && library}
+  <AuxCreate {library} server={syncServerUrl} token={syncTokenDraft} deviceId={activePlaybackDeviceId || deviceId} currentFingerprint={currentTrack?.fingerprint ?? ""} currentPlaylist={sourcePlaylistID ?? ""} onCreated={createdAux} onClose={() => auxCreateOpen = false}/>
+{/if}
+
+{#if auxPersonal && auxConnection}
+  <AuxPersonal connection={auxConnection} kind={auxPersonal.kind} track={auxPersonal.track} defaultServer={syncServerReady ? syncServerUrl : ""} onComplete={result => void auxWorkspace?.personalResult(result)} onClose={() => auxPersonal = null}/>
 {/if}

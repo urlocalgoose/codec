@@ -6,7 +6,7 @@
   import MobileSheet from "./MobileSheet.svelte";
   import MobileDeletePlaylist from "./MobileDeletePlaylist.svelte";
   import { formatCount } from "$lib/library";
-  import type { AlbumSummary, ArtistSummary, Playlist } from "$lib/types";
+  import type { Playlist } from "$lib/types";
 
   let { playlists, playlistArtwork, songCount, likedCount, downloadedCount = 0, canCreate,
     onOpen, onOpenDownloaded, onCreate, onDelete }: {
@@ -20,11 +20,6 @@
     onOpenDownloaded?: () => void;
     onCreate: () => void;
     onDelete?: (playlist: Playlist) => Promise<void>;
-    // Accepted while the shared page still passes desktop browse data.
-    albums?: AlbumSummary[];
-    artists?: ArtistSummary[];
-    onOpenAlbum?: (album: AlbumSummary) => void;
-    onOpenArtist?: (artist: ArtistSummary) => void;
   } = $props();
   let openPlaylistID = $state("");
   let menuPlaylistID = $state("");

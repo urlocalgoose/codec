@@ -72,7 +72,7 @@ browser viewport and tab bottom at 702, leaving the intended 12 pixels. Those
 navigation checks used programmatic button activation; the automated input
 focus did not show a software keyboard in this simulator, so keyboard resize
 coverage remains the synthetic browser fixture rather than an iOS keyboard
-claim. Physical-device verification is still required before release.
+claim. Physical-device verification remains an outstanding check.
 
 Build the frontend, then run with Playwright available:
 

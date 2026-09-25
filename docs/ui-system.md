@@ -24,11 +24,11 @@ app's native language — not the other way around. (The older tape-deck
 
 ## Web
 
-Browser and PWA UI lives in `src/lib/components/`; global styling lives in
-`src/app.css`.
+Browser and PWA UI lives in `src/lib/components/`; shared styling lives in
+`src/app.css` and the `src/mobile*.css` files.
 
-Mobile Safari and Home Screen mode share visible-viewport geometry from
-`mobile-viewport.ts`. Detect installation through display mode or
+Mobile Safari and Home Screen mode share layout and keyboard geometry from
+`mobile-viewport.ts`; see [the viewport contract](mobile-web-viewport.md). Detect installation through display mode or
 `navigator.standalone`; do not infer it from screen size or a user-agent string.
 Apply safe-area insets once inside controls and extend backgrounds through the
 home-indicator area. Preserve layout during pinch zoom. Reserve scroll clearance
@@ -110,8 +110,8 @@ The bottom player is part of the shell's chrome:
   transport, and side controls.
 - Transport controls are bare glyphs: skip keys in text color, play/pause
   the biggest glyph, shuffle/repeat subtle and tinted accent when latched.
-- Progress and volume are native-style sliders: a thin (6px) rounded track,
-  solid accent fill up to `--fill`, and a round white thumb.
+- Progress uses a thin rounded track and a white thumb. The web player has
+  no volume slider; device/browser controls own its volume.
 - The device picker is a native pop-up button: surface fill, small chevrons,
   text color.
 
@@ -156,14 +156,16 @@ Home tiles and the browse grids share one language, taken from the iOS Home:
 
 ### Visualizer
 
-The Visualizer view (`VisualizerView.svelte`, nav id `visualizer`) is a
-stylized scrolling spectrograph on a canvas filling the content window:
-exponential frequency bands, scanline gaps, accent color with text-color
-peaks, all read from the live theme tokens. It taps the `<audio>` element
-through a lazily-built Web Audio graph (`ensureAnalyser` in `+page.svelte`);
-the element carries `crossorigin="anonymous"` and both servers send CORS
-headers on media so the analyser never silences playback. It only shows
-signal when audio plays on this device.
+The Visualizer view (`VisualizerView.svelte`, nav id `visualizer`) draws a
+scrolling spectrograph with exponential frequency bands and scanline gaps.
+Colors come from the playing song's artwork, with the theme as a fallback.
+Each history column retains its original palette when the song changes; see
+[artwork visualizer behavior](artwork-visualizer.md).
+
+A lazy Web Audio graph samples audio playing on this device. Remote playback
+must not start a competing audio session. Hidden or paused views stop drawing
+while retaining history; hiding a page must not stop its local audio. Keep
+media CORS behavior intact when changing the graph or transport.
 
 ### Modals
 
@@ -186,11 +188,13 @@ Rules:
   `.title-icon-button` close button.
 - Footer actions use `.ui-button compact`, with primary action last.
 - Keep modal bodies scrollable when content can grow.
-- Styling stays in `src/app.css`, not `<style>` blocks.
+- Styling stays in the shared CSS files, not component `<style>` blocks.
 
 ### Aux
 
-Aux is the Codec equivalent of Jam.
+This describes the existing pass UI. Guest security and playback changes are
+planned separately in [the Aux review](aux-security-review.md); UI restrictions
+do not replace server authorization.
 
 - Host starts Aux from Settings and gets a 4-character code plus QR.
 - Guests can browse, stream, register as a playback device, and control the
@@ -226,8 +230,7 @@ the edge.
   sheets, and alerts where they fit.
 - Use `.buttonStyle(.plain)` for icon controls that should disappear into the
   player.
-- Use custom deck button styles only for explicit action clusters, like Aux
-  Share/Copy.
+- Use the existing flat themed or system button styles for action clusters.
 - Use haptics on important transport state changes.
 - Keep SF Symbols consistent in weight and size.
 

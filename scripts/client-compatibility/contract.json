@@ -1,0 +1,12 @@
+{
+  "version": "1.4",
+  "build": "7",
+  "bundleIdentifier": "sh.codie.codec.mobile",
+  "sourceCommit": "7b7bd23fefefebfeb6ddcd7e6b1170c08ab48127",
+  "provenance": "SHA-256 verified against source-manifest.json recorded with the uploaded App Store build on 2026-09-22. These files are unmodified copies of that commit.",
+  "files": {
+    "Sources/CodecKit/CodecClient.swift": "a88ecc63ac37a113f931cd6e96b16fd22f47c3362cd8af02dba79ed7738477be",
+    "Sources/CodecKit/Models.swift": "474b1db2c40ed49ea3151174e903fe95c9b9db32056a9229305c7b1160aec299",
+    "Sources/CodecKit/PlaybackModels.swift": "68d99dec542943c6f8e5c345964e9521ec3a5f3f66bf84c3f5764034e2e6c46b"
+  }
+}

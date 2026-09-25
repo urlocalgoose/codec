@@ -1,8 +1,8 @@
-# Mobile continuity and caching — September 21, 2026
+# Mobile continuity and caching
 
-This pass follows the reported native lock/notification hiccups and mobile web
-sync delays, repeated cover loading, narrow Now Playing drag target, and Home
-Screen bottom gap. Existing interface styling is retained.
+This reference covers interruption ordering, live sync, artwork reuse and
+mobile browser controls. See the dedicated [native continuity guide](native-playback-continuity.md)
+and [web continuity guide](web-playback-continuity.md) for transport behavior.
 
 ## Native interruption ordering
 
@@ -12,13 +12,15 @@ could seek the player before the controller marked it interrupted. The
 handlers now run synchronously on the main actor. A regression using real
 NotificationCenter delivery failed before this correction and passes after it.
 
-The dedicated simulator passed 42 continuity, lifecycle, spectrum, and real
-AVPlayer tests. A generated WAV with the actual spectrum tap survived three
-injected interruption pairs with the same player/item and no rewind. Physical
+The app-hosted suite uses generated audio and the actual spectrum tap to check
+that injected interruptions preserve the player/item without rewind. Physical
 lock-button and audible notification behavior require separate device checks.
 
 ## Web sync and responsiveness
 
+- Shared playback ownership survives a stale presence heartbeat; observing
+  native playback sends no transport commands and requests no local audio.
+  A delayed saved-session reply cannot overwrite newer playback state.
 - Device discovery runs independently of playback reads. A slow presence
   endpoint cannot delay the current track, timeline, or ownership.
 - Returning to the foreground cancels and supersedes a suspended snapshot
@@ -94,20 +96,11 @@ and generated media. They do not control production playback. Local timings
 are not cellular performance measurements. Web publishing replaces assets,
 HTML, and the service worker without restarting the music server.
 
-## Verification
+Browser reports should record the candidate build, request counts, actual
+engine/viewport and observed failures. Retained artwork cases verify that warm
+navigation reuses covers, credential changes isolate caches, and a versioned
+cover replacement fetches only the new content. Gesture, handoff and audio
+fixtures cover the behaviors above.
 
-- 185 frontend tests pass; Svelte check reports zero errors/warnings; production
-  build and `git diff --check` pass.
-- 50 WebKit gesture/viewport checks and 11 handoff/recovery checks pass.
-- Seven artwork/browser checks pass. Four covers load during warmup; three
-  full navigation tours then produce zero cover requests and zero unloaded
-  visible-cover frames. Auth rotation adds no requests; a versioned cover
-  replacement adds exactly one.
-- Real browser audio continues through routine sync and hidden-page changes.
-  An intentional seek still works. Remote ownership suspends sampling and the
-  browser audio context, and returning ownership resumes both.
-- The existing visualizer artwork regression still passes with the shared
-  cache, retained canvas, and artwork colors.
-
-See [native performance](native-performance.md) for reusable measurement guidance
-and the limits of simulator results.
+See [native performance](native-performance.md) for measurement guidance and
+the limits of simulator results.

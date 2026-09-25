@@ -91,60 +91,16 @@ func (s *Server) isAuxGuestToken(token string) bool {
 // auxGuestAllowed is the whole guest permission surface: browse + stream +
 // shared playback. Everything else (sync, uploads, playlists, likes, aux
 // management) stays host-only.
-func auxGuestAllowed(r *http.Request) bool {
-	path := r.URL.Path
-	switch {
-	case path == "/health":
-		return true
-	case r.Method == http.MethodGet && path == "/api/v1/library":
-		return true
-	case r.Method == http.MethodGet && strings.HasPrefix(path, "/api/v1/tracks/"):
-		return true
-	case strings.HasPrefix(path, "/api/v2/playback"):
-		return r.Method == http.MethodGet || path == "/api/v2/playback/commands"
-	case strings.HasPrefix(path, "/api/v1/playback/devices"):
-		return r.Method == http.MethodGet || r.Method == http.MethodPut
-	case r.Method == http.MethodGet && !strings.HasPrefix(path, "/api/"):
-		// The web app shell itself, so a join link opens the player.
-		return true
-	default:
-		return false
-	}
-}
+func auxGuestAllowed(r *http.Request) bool { return false }
 
 // MARK: handlers
 
 func (s *Server) handleCreateAux(w http.ResponseWriter, r *http.Request) {
-	session, err := s.createAuxSession(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"schema":      auxSchema,
-		"code":        session.Code,
-		"guest_token": session.GuestToken,
-		"created_at":  session.CreatedAt,
-	})
+	auxV2Error(w, http.StatusGone, "aux_update_required: use a client supporting codec.aux.v2")
 }
 
 func (s *Server) handleListAux(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.QueryContext(r.Context(), `SELECT code, created_at FROM aux_sessions ORDER BY created_at DESC`)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	defer rows.Close()
-	sessions := []AuxSession{}
-	for rows.Next() {
-		var session AuxSession
-		if err := rows.Scan(&session.Code, &session.CreatedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		sessions = append(sessions, session)
-	}
-	writeJSON(w, http.StatusOK, sessions)
+	auxV2Error(w, http.StatusGone, "aux_update_required: use a client supporting codec.aux.v2")
 }
 
 func (s *Server) handleEndAux(w http.ResponseWriter, r *http.Request) {
@@ -161,23 +117,7 @@ func (s *Server) handleEndAux(w http.ResponseWriter, r *http.Request) {
 
 // handleJoinAux is deliberately public: the short-lived code IS the secret.
 func (s *Server) handleJoinAux(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Code string `json:"code"`
-	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
-	}
-	session, err := s.auxSessionByCode(r.Context(), req.Code)
-	if err != nil {
-		writeError(w, http.StatusNotFound, errors.New("that aux code is not live"))
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"schema":      auxSchema,
-		"code":        session.Code,
-		"guest_token": session.GuestToken,
-	})
+	auxV2Error(w, http.StatusGone, "aux_update_required: use a client supporting codec.aux.v2")
 }
 
 // MARK: media grants (cross-server aux)

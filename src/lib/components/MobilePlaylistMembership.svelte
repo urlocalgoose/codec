@@ -2,7 +2,7 @@
  import { Check, Plus } from "lucide-svelte";
  import MobileSheet from "./MobileSheet.svelte";
  import type {Playlist,Track} from "$lib/types";
- let { track, playlists, selectedIds = $bindable(), saving, onClose, onSave, onCreate }: {track:Track;playlists:Playlist[];selectedIds:string[];saving:boolean;onClose:()=>void;onSave:()=>void;onCreate:()=>void} = $props();
+ let { track, playlists, selectedIds = $bindable(), saving, onSave, onCreate }: {track:Track;playlists:Playlist[];selectedIds:string[];saving:boolean;onSave:()=>void;onCreate:()=>void} = $props();
 </script>
 <div class="native-membership-sheet"><MobileSheet title="Add to Playlist" onClose={onSave}>
   <div class="native-memberships"><p>{track.title}</p><div class="native-form-group">

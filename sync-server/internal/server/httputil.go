@@ -157,6 +157,8 @@ func (recorder *statusRecorder) Write(body []byte) (int, error) {
 	return written, err
 }
 
+func (recorder *statusRecorder) Unwrap() http.ResponseWriter { return recorder.ResponseWriter }
+
 func (recorder *statusRecorder) Flush() {
 	if recorder.status == 0 {
 		recorder.status = http.StatusOK
@@ -170,6 +172,9 @@ func (recorder *statusRecorder) Flush() {
 // those routes too, but never buffer SSE, media/ranges, exports, or credentials.
 func compressibleJSONRequest(r *http.Request) bool {
 	path := r.URL.Path
+	if path == "/api/v2/aux/join" || path == "/api/v2/aux/invitation" || strings.HasPrefix(path, "/api/v2/aux/grants") || strings.HasSuffix(path, "/copy-grant") || (auxV2PrincipalFor(r).Owner && strings.HasPrefix(path, "/api/v2/aux/sessions")) {
+		return false
+	}
 	if !strings.HasPrefix(path, "/api/") || r.Method == http.MethodHead || r.Header.Get("Range") != "" {
 		return false
 	}
@@ -377,7 +382,43 @@ func withAuth(next http.Handler, token string, s *Server) http.Handler {
 		// have to be able to load the app before they hold a token. Every
 		// /api route (library, media, playback) stays protected.
 		publicShell := r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/api/")
-		if publicShell || r.URL.Path == "/api/v1/aux/join" || authorizedRequest(r, token) {
+		if publicShell || r.URL.Path == "/api/v1/aux/join" || auxV2Public(r) || auxTransferPublicRequest(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		presented := presentedToken(r)
+		// Preserve arbitrary configured owner credentials, including strings
+		// that happen to begin with a capability prefix.
+		if token != "" && authorizedRequest(r, token) {
+			r = r.WithContext(context.WithValue(r.Context(), auxV2PrincipalKey{}, auxV2Principal{Owner: true}))
+			next.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(presented, "auxp_") {
+			p, valid := s.auxV2Authenticate(r, presented)
+			if !valid {
+				auxV2Error(w, 401, "Aux participant expired or removed")
+				return
+			}
+			if !auxV2GuestRoute(r, p) {
+				auxV2Error(w, 403, "Aux participants cannot access this endpoint")
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), auxV2PrincipalKey{}, p))
+			next.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(presented, "auxm_") {
+			if !s.auxV2MediaTokenAllows(r, presented) {
+				auxV2Error(w, 401, "Aux media authorization expired")
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), auxV2PrincipalKey{}, auxV2Principal{Owner: true}))
+			next.ServeHTTP(w, r)
+			return
+		}
+		if authorizedRequest(r, token) {
+			r = r.WithContext(context.WithValue(r.Context(), auxV2PrincipalKey{}, auxV2Principal{Owner: true}))
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -397,15 +438,8 @@ func withAuth(next http.Handler, token string, s *Server) http.Handler {
 			return
 		}
 
-		// Aux guests: scoped tokens minted per session, valid only for the
-		// guest surface, dead the moment the host ends the session.
 		if guest := presentedToken(r); guest != "" && s.isAuxGuestToken(guest) {
-			if auxGuestAllowed(r) {
-				r = r.WithContext(context.WithValue(r.Context(), streamAuthorizationKey{}, func() bool { return s.isAuxGuestToken(guest) }))
-				next.ServeHTTP(w, r)
-				return
-			}
-			writeError(w, http.StatusForbidden, fmt.Errorf("aux guests cannot do that"))
+			auxV2Error(w, 403, "aux_update_required: legacy Aux credentials are no longer supported")
 			return
 		}
 
