@@ -242,6 +242,7 @@
   let auxConnection: AuxConnection | null = null;
   let auxState: AuxState | null = null;
   let auxInvitation: AuxInvitation | null = null;
+  let auxLinkError = "";
   let auxInviteSecret = "";
   let auxInheritedFingerprint = "";
   let auxCreateOpen = false;
@@ -524,10 +525,10 @@
     const invitationSecret = new URLSearchParams(window.location.hash.slice(1)).get("aux");
     if (!auxBridge && invitationSecret) {
       try { auxInvitation = parseAuxInvitation(invitationSecret, window.location.origin); }
-      catch (error) { errorMessage = String(error); }
+      catch (error) { auxLinkError = error instanceof Error ? error.message : String(error); }
       history.replaceState(null, "", window.location.pathname + window.location.search);
-    } else if (new URLSearchParams(window.location.search).has("aux")) {
-      errorMessage = "This Aux invitation uses an older version. Ask the host to create a new invitation.";
+    } else if (!auxBridge && new URLSearchParams(window.location.search).has("aux")) {
+      auxLinkError = "This Aux invitation uses an older version. Ask the host to create a new invitation.";
       history.replaceState(null, "", window.location.pathname);
     }
 
@@ -566,7 +567,7 @@
     // connections (including servers without auth) still reconnect at once.
     const hasSavedConnection = Boolean(readStoredValue(SYNC_SERVER_STORAGE_KEY) || syncTokenDraft || rootPath);
 
-    if (!auxInvitation && !auxBridge) {
+    if (!auxInvitation && !auxLinkError && !auxBridge) {
       const savedAux = restoreAuxConnection(syncServerUrl, syncTokenDraft);
       if (savedAux) attachAux(savedAux, null);
     }
@@ -3872,6 +3873,14 @@
 
 {#if auxBridge}
   <AuxLibraryBridge envelope={auxBridge} initialToken={syncServerUrl === window.location.origin ? syncTokenDraft : ""}/>
+{:else if auxLinkError}
+  <main class="setup-screen native-connect" data-theme={theme}>
+    <section class="native-connect-form" aria-labelledby="aux-link-error-title">
+      <div class="native-connect-brand"><img src="/favicon.png" alt=""/><strong>Codec</strong></div>
+      <div class="native-connect-copy"><h1 id="aux-link-error-title">Check your Aux invitation</h1><p role="alert">{auxLinkError}</p></div>
+      <div class="native-connect-submit"><button type="button" onclick={() => auxLinkError = ""}>Return to Codec</button></div>
+    </section>
+  </main>
 {:else if auxInvitation}
   <AuxJoin invitation={auxInvitation} onJoin={attachAux} onCancel={() => auxInvitation = null}/>
 {:else if auxConnection && audioEl}

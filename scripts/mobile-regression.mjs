@@ -95,6 +95,22 @@ function fixtures(origin) {
     clock: { position_seconds: 42, started_at_ms: null, updated_at_ms: Date.now() }, volume: 0.5, server_time_ms: Date.now() };
   const commands = [];
   const mutations = [];
+  const auxRequests = [], auxCommands = [];
+  const auxSecret = 'fixture-invitation-secret-at-least-128-bits';
+  const auxSession = '/api/v2/aux/sessions/fixture-session';
+  const auxTracks = tracks.slice(0, 4).map(track => ({
+    fingerprint: track.fingerprint, title: track.title, artist: track.artist, album: track.album,
+    duration_seconds: track.duration_seconds, media_url: `${origin}${auxSession}/tracks/${track.fingerprint}/audio`, artwork_url: ''
+  }));
+  let auxJoined = false;
+  let auxState = { schema: 'codec.aux.v2', session_id: 'fixture-session', mode: 'shared_speaker',
+    host_name: 'Fixture host', role: 'guest', participant_id: 'fixture-participant',
+    expires_at: Math.floor(Date.now() / 1000) + 3600, revision: 1, server_time_ms: Date.now(),
+    anchor_time_ms: Date.now(), position_seconds: 0, status: 'paused',
+    current: { entry_id: 'current', participant_id: 'host', track: auxTracks[0] },
+    queue: [{ entry_id: 'host-request', participant_id: 'host', track: auxTracks[1] },
+      { entry_id: 'own-request', participant_id: 'fixture-participant', track: auxTracks[2] }],
+    allow_saves: false, allow_contributions: false };
   const wave = Buffer.alloc(44 + 1600);
   wave.write('RIFF',0); wave.writeUInt32LE(wave.length-8,4); wave.write('WAVEfmt ',8);
   wave.writeUInt32LE(16,16); wave.writeUInt16LE(1,20); wave.writeUInt16LE(1,22);
@@ -109,7 +125,8 @@ function fixtures(origin) {
   let release;
   let gate;
   return {
-    tracks, library, commands, mutations,
+    tracks, library, commands, mutations, auxRequests, auxCommands, auxSecret,
+    get auxState() { return auxState; },
     get audioRequests() { return audioRequests; },
     get maxActiveAudio() { return maxActiveAudio; },
     setAudioResponse(mode) { audioMode = mode; },
@@ -139,6 +156,64 @@ function fixtures(origin) {
       if (url.origin !== origin) return route.abort('blockedbyclient');
       if (pathname === '/health') return route.fulfill({ json: { ok: true, schema: 'loud.sync.v1', playback_schema: 'loud.playback.v2', server_id: 'fixture' } });
       if (!pathname.startsWith('/api/')) return route.continue();
+      if (pathname === '/api/v1/aux' || pathname.startsWith('/api/v1/aux/')) {
+        auxRequests.push({ path: pathname, method: request.method() });
+        return route.fulfill({ status: 410, json: { error: 'aux_update_required' } });
+      }
+      if (pathname.startsWith('/api/v2/aux/')) {
+        const authorization = request.headers().authorization ?? '';
+        auxRequests.push({ path: pathname, method: request.method(), authorization });
+        if (pathname === '/api/v2/aux/sessions' && request.method() === 'GET') {
+          return route.fulfill(authorization === 'Bearer fixture-participant-token'
+            ? { status: 403, json: { error: 'Owner access required' } } : { json: { sessions: [] } });
+        }
+        if (['/api/v2/aux/invitation', '/api/v2/aux/join'].includes(pathname)) {
+          assert.equal(authorization, '', 'Invitation exchange must never send the owner credential');
+          assert.equal(request.postDataJSON().invite_secret, auxSecret);
+          if (pathname.endsWith('/invitation')) return route.fulfill({ json: {
+            schema: 'codec.aux.v2', host_name: auxState.host_name, mode: auxState.mode, expires_at: auxState.expires_at
+          } });
+          auxJoined = true;
+          return route.fulfill({ json: { schema: 'codec.aux.v2', session_id: auxState.session_id,
+            participant_id: auxState.participant_id, participant_token: 'fixture-participant-token',
+            expires_at: auxState.expires_at, state: auxState } });
+        }
+        const authenticated = pathname.endsWith('/events')
+          ? url.searchParams.get('access_token') === 'fixture-participant-token'
+          : authorization === 'Bearer fixture-participant-token';
+        if (!auxJoined || !authenticated) return route.fulfill({ status: 401, json: { error: 'Unauthorized fixture participant' } });
+        if (pathname === `${auxSession}/state`) return route.fulfill({ json: auxState });
+        if (pathname === `${auxSession}/catalog`) return route.fulfill({ json: { tracks: auxTracks } });
+        if (pathname === `${auxSession}/events`) return route.fulfill({ contentType: 'text/event-stream', body: ': fixture\n\n' });
+        if (pathname === `${auxSession}/members/${auxState.participant_id}` && request.method() === 'DELETE') {
+          auxJoined = false;
+          return route.fulfill({ status: 204 });
+        }
+        if (pathname === `${auxSession}/commands`) {
+          const command = request.postDataJSON();
+          assert(command.command_id, 'Every Aux command needs an idempotency key');
+          if (['next', 'reorder'].includes(command.kind)) assert.equal(command.expected_revision, auxState.revision);
+          auxCommands.push(command);
+          if (command.kind === 'append') {
+            const track = auxTracks.find(track => track.fingerprint === command.fingerprint);
+            assert(track, 'Guests can append only shared fixture songs');
+            auxState.queue.push({ entry_id: `added-${auxCommands.length}`, participant_id: auxState.participant_id, track });
+          } else if (command.kind === 'remove') {
+            const entry = auxState.queue.find(entry => entry.entry_id === command.entry_id);
+            assert(entry && entry.participant_id === auxState.participant_id, 'Guests can remove only their own requests');
+            auxState.queue = auxState.queue.filter(entry => entry.entry_id !== command.entry_id);
+          } else if (command.kind === 'reorder') {
+            assert.deepEqual([...command.entry_ids].sort(), auxState.queue.map(entry => entry.entry_id).sort());
+            auxState.queue = command.entry_ids.map(id => auxState.queue.find(entry => entry.entry_id === id));
+          } else if (command.kind === 'resume') auxState.status = 'playing';
+          else if (command.kind === 'pause') auxState.status = 'paused';
+          else if (command.kind === 'next') auxState.current = auxState.queue.shift() ?? null;
+          else assert.fail(`Unexpected Aux command: ${command.kind}`);
+          auxState = { ...auxState, revision: auxState.revision + 1, server_time_ms: Date.now() };
+          return route.fulfill({ json: auxState });
+        }
+        return route.fulfill({ status: 404, json: { error: 'Unknown fixture Aux route' } });
+      }
       if (pathname.startsWith('/api/fixture/artwork/')) {
         artworkRequests += 1;
         const color = ['#ed6237', '#5c82b7', '#cca34b', '#68966b'][Number(pathname.split('/').at(-1)) % 4] ?? '#a76ac0';
@@ -160,7 +235,7 @@ function fixtures(origin) {
         state = { ...state, revision: state.revision + 1, track: command.track ?? state.track, context: command.context ?? state.context, server_time_ms: Date.now() };
         return route.fulfill({ json: state });
       }
-      if (pathname.includes('/playback/devices') || pathname === '/api/v1/aux') return route.fulfill({ json: [] });
+      if (pathname.includes('/playback/devices')) return route.fulfill({ json: [] });
       if (pathname.includes('/audio')) {
         audioRequests += 1; activeAudio++; maxActiveAudio = Math.max(maxActiveAudio, activeAudio);
         const mode = audioMode, gate = audioGate;
@@ -204,7 +279,6 @@ function fixtures(origin) {
         updateMemberships();
         return route.fulfill({ json: {} });
       }
-      if(pathname.startsWith('/api/v1/aux/')) return route.fulfill({json:{code:'ABCD',guest_token:'fixture-guest'}});
       return route.fulfill({ json: {} });
     }
   };
@@ -236,6 +310,7 @@ try {
       : await browser.newContext(contextOptions);
     scenario.storageContext = profileDirectory ? 'isolated temporary persistent profile' : 'isolated nonpersistent context';
     await context.addInitScript(({ theme, displayMode, profileOnly, viewportOnly, downloadOnly, songGestureOnly, mobile }) => {
+      if (!['http:', 'https:'].includes(location.protocol)) return;
       localStorage.setItem('codec.theme', theme);
       localStorage.setItem('codec.syncServer', location.origin);
       localStorage.setItem('codec.deviceId', 'fixture-browser');
@@ -296,6 +371,95 @@ try {
       scenario.screenshots.push(filename);
     };
     const mobileTab = async (name) => page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('button', { name, exact: true }).click();
+    const auxGuestChecks = async ({ gesture = false } = {}) => {
+      const personalConnection = () => page.evaluate(() => ({ server: localStorage.getItem('codec.syncServer'), token: localStorage.getItem('codec.syncToken') }));
+      const beforeConnection = await personalConnection();
+      const beforeMutations = fixture.mutations.length, beforeCommands = fixture.receivedCommands, beforeAudio = fixture.audioRequests;
+      const beforePlayback = JSON.stringify(fixture.state);
+      const savedAudio = () => page.evaluate(async () => (await (await caches.open('codec-audio-downloads-v1')).keys()).map(request => request.url));
+      const beforeDownloads = gesture ? await savedAudio() : null;
+
+      await page.goto(`${baseURL}/?aux=ABCD`);
+      await page.getByText('This Aux invitation uses an older version. Ask the host to create a new invitation.', { exact: true }).waitFor();
+      assert.equal(new URL(page.url()).search, '', 'Retired invitation must leave the visible URL');
+      assert.equal(fixture.auxRequests.filter(request => request.path.startsWith('/api/v1/aux') || request.path.endsWith('/join')).length, 0, 'Retired links must not exchange a legacy or v2 participant credential');
+      assert.deepEqual(await personalConnection(), beforeConnection, 'Retired invitation must preserve the personal connection');
+      await page.getByRole('button', { name: 'Return to Codec', exact: true }).click();
+      await page.locator('.app-shell').waitFor();
+
+      // Start a fresh document: replacing only the hash is same-document
+      // navigation and would not exercise the app's invitation entry point.
+      await page.goto('about:blank');
+      await page.goto(`${baseURL}/#aux=${fixture.auxSecret}`);
+      const join = page.getByRole('button', { name: 'Join in this browser', exact: true });
+      await join.waitFor();
+      assert.equal(fixture.auxRequests.filter(request => request.path.endsWith('/join')).length, 0, 'Invitation preview must not silently join');
+      assert.equal(new URL(page.url()).hash, '', 'Invitation secret must leave visible browser history');
+      assert.equal(await page.getByRole('link', { name: 'Open in Codec', exact: false }).count(), 1);
+      await page.getByLabel('Your name', { exact: true }).fill('Fixture guest');
+      await join.click();
+      const workspace = page.locator('.aux-workspace');
+      await workspace.getByRole('button', { name: 'Leave Aux', exact: true }).waitFor();
+      assert.equal(await page.locator('footer.player, .mobile-navigation, .track-row').count(), 0, 'Aux must use its scoped workspace instead of the owner library/player');
+      assert.equal(await workspace.getByRole('button', { name: 'Manage Aux', exact: true }).count(), 0);
+      assert.equal(await workspace.getByRole('button', { name: 'Listen on this device', exact: true }).count(), 0, 'Shared speaker guests must not start local audio');
+      for (const label of ['Like', 'Unlike', 'Download', 'New playlist', 'Add to Playlist']) {
+        assert.equal(await workspace.getByRole('button', { name: label, exact: true }).count(), 0, `Aux must not expose owner action ${label}`);
+      }
+      assert.equal(await page.getByText('Weekend Records', { exact: true }).count(), 0, 'Private playlist names must not appear in the guest workspace');
+      assert.equal(await workspace.locator('[data-aux-entry="host-request"]').getByRole('button', { name: /^Remove / }).count(), 0, 'A guest must not remove a host request');
+      await workspace.getByRole('button', { name: 'Resume Aux', exact: true }).click();
+      await workspace.getByRole('button', { name: 'Pause Aux', exact: true }).click();
+      await waitUntil(() => fixture.auxState.status === 'paused', 'Guest transport must update the Aux timeline');
+      await workspace.getByRole('button', { name: 'Shared music', exact: true }).click();
+      const catalog = workspace.getByRole('region', { name: 'Shared music', exact: true });
+      await catalog.getByRole('button', { name: 'Add Sample track 0004 to queue', exact: true }).waitFor();
+      assert.equal(await catalog.locator('.aux-row').count(), 4, 'Catalog must contain only the four explicitly shared songs');
+      const beforeAppend = fixture.auxCommands.length;
+      if (gesture) {
+        const row = catalog.locator('[data-swipe-id="catalog:sample-3"]');
+        await row.locator('.aux-row').click({ trial: true });
+        const box = await row.boundingBox();
+        const x = box.x + 24, y = box.y + box.height / 2;
+        await page.mouse.move(x, y); await page.mouse.down();
+        await page.mouse.move(x + 115, y + 2, { steps: 9 }); await page.mouse.up();
+        await row.getByRole('button', { name: 'Add to queue', exact: true }).click();
+      } else await catalog.getByRole('button', { name: 'Add Sample track 0004 to queue', exact: true }).click();
+      await waitUntil(() => fixture.auxState.queue.length === 3, 'Guest append must update only the Aux queue');
+      assert.equal(fixture.auxCommands.length, beforeAppend + 1, 'A queue action must issue exactly one scoped command');
+      assert.equal(fixture.auxState.current.track.fingerprint, 'sample-0', 'Appending must preserve the current Aux song');
+      await workspace.getByRole('button', { name: /^Up next/ }).click();
+      const move = workspace.getByRole('button', { name: 'Move Sample track 0004; use arrow keys or drag', exact: true });
+      await move.focus(); await page.keyboard.press('ArrowUp');
+      await waitUntil(() => fixture.auxState.queue[1].track.fingerprint === 'sample-3', 'Guest keyboard reorder must preserve queue membership');
+      await workspace.getByRole('button', { name: 'Remove Sample track 0003', exact: true }).click();
+      await waitUntil(() => fixture.auxState.queue.length === 2, 'Guest must be able to remove their own request');
+      assert(fixture.auxState.queue.some(entry => entry.entry_id === 'host-request'));
+      await workspace.getByRole('button', { name: 'Skip song', exact: true }).click();
+      await waitUntil(() => fixture.auxState.current.track.fingerprint === 'sample-1', 'Explicit skip must advance the Aux timeline');
+      await shot(gesture ? 'song-aux-v2-guest' : 'aux-v2-guest');
+
+      await page.reload();
+      await workspace.getByRole('button', { name: 'Leave Aux', exact: true }).waitFor();
+      await workspace.getByRole('heading', { name: 'Sample track 0002', exact: true }).waitFor();
+      assert.equal(fixture.auxRequests.filter(request => request.path.endsWith('/join')).length, 1, 'Reload must restore the participant without joining again');
+      assert.deepEqual(await personalConnection(), beforeConnection, 'Aux must not replace the personal server or token');
+      const persisted = await page.evaluate(() => JSON.parse(localStorage.getItem('codec.aux.v2.connection')));
+      assert.equal(persisted.token, 'fixture-participant-token'); assert.equal(persisted.role, 'guest');
+      if (gesture) assert.deepEqual(await savedAudio(), beforeDownloads, 'Aux must preserve the owner download cache');
+      await workspace.getByRole('button', { name: 'Leave Aux', exact: true }).click();
+      await workspace.waitFor({ state: 'detached' });
+      await page.locator('.app-shell').waitFor();
+      assert.equal(await page.evaluate(() => localStorage.getItem('codec.aux.v2.connection')), null, 'Leaving must remove the participant credential');
+      assert(fixture.auxRequests.some(request => request.path.endsWith('/members/fixture-participant') && request.method === 'DELETE'));
+      assert.deepEqual(await personalConnection(), beforeConnection, 'Leaving must restore the existing personal connection');
+      assert.equal(fixture.mutations.length, beforeMutations, 'Guest operations must not mutate owner likes or playlists');
+      assert.equal(fixture.receivedCommands, beforeCommands, 'Aux operations must not issue global owner transport commands');
+      assert.equal(JSON.stringify(fixture.state), beforePlayback, 'Aux must preserve the personal playback state');
+      assert.equal(fixture.audioRequests, beforeAudio, 'Shared speaker guests must not request local audio');
+      assert.deepEqual(scenario.errors, [], 'Unhandled browser errors');
+      scenario.checks.auxV2Guest = 'Retired-link guidance without joining; explicit scoped join; shared catalog; transport, append, reorder and own-request removal; reload and leave preserve personal credentials, playback and downloads';
+    };
     const openSongs = async () => {
       if (mobile) {
         await mobileTab('Library');
@@ -952,31 +1116,8 @@ try {
       assert.equal(fixture.state.track.id, 'sample-6', 'Deleting a playlist must retain current playback');
       scenario.checks.playlistDelete = 'Full swipe only reveals; cancel sends nothing; failed confirmation preserves playlist; successful retry removes only playlist, retaining all 2000 tracks and queue';
 
-      const beforeGuestMutations = fixture.mutations.length;
-      await page.goto(`${baseURL}/?aux=ABCD`);
-      await page.getByRole('button', { name: /^Open Now Playing:/ }).waitFor();
-      await openSongs();
-      assert.equal(await page.evaluate(async () => (await (await caches.open('codec-audio-downloads-v1')).keys()).length), 1, 'Guest fixture retains the owner download while testing restricted actions');
-      before = fixture.receivedCommands;
-      const guestOrder = [...queueIDs()];
-      await swipe(2); await action(2, 'Play Last').click();
-      await waitUntil(() => JSON.stringify(queueIDs()) === JSON.stringify([...guestOrder, 'sample-1']), 'Guest swipe queue action must work');
-      assert.equal(fixture.receivedCommands, before + 1, 'Guest queue action must issue one command');
-      assert.equal(fixture.state.track.id, 'sample-6', 'Guest queue swipe must retain the current song');
-      before = fixture.receivedCommands;
-      await swipe(3, { direction: -1 });
-      await nextFrames();
-      assert.equal(await wrapper(3).getByRole('button', { name: /^(?:Like|Unlike|Download|Remove) / }).count(), 0, 'Guest rows must not expose owner swipe actions');
-      assert.equal(fixture.receivedCommands, before, 'Guest unavailable left swipe must not accidentally play');
-      await row(3).click({ button: 'right' });
-      const guestMenu = page.getByRole('dialog', { name: title(3), exact: true });
-      await guestMenu.getByRole('button', { name: 'Play Next', exact: true }).waitFor();
-      for (const label of ['Like', 'Unlike', 'Download', 'Remove Download', 'Add to Playlist', 'Remove from Playlist']) {
-        assert.equal(await guestMenu.getByRole('button', { name: label, exact: true }).count(), 0, `Guest menu must hide ${label}`);
-      }
-      assert.equal(fixture.mutations.length, beforeGuestMutations, 'Guest gestures must not mutate likes or playlists');
-      await shot('song-guest-menu');
-      scenario.checks.songGuestActions = 'Guests can queue by swipe, while owner swipe/menu actions stay absent';
+      await auxGuestChecks({ gesture: true });
+      scenario.checks.songGuestActions = 'Aux v2 guests queue by swipe; owner mutations stay outside the scoped workspace';
       assert.deepEqual(scenario.errors, [], 'Unhandled browser errors');
     };
 
@@ -1073,14 +1214,8 @@ try {
       restorePlayback(); await refresh(); await footer.getByText(title, { exact: true }).waitFor();
       scenario.checks.desktopFooterEmpty = 'No Like or playlist button when there is no current song';
 
-      const beforeGuestMutations = fixture.mutations.length;
-      const joined = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v1/aux/join');
-      await page.goto(`${baseURL}/?aux=ABCD`); await joined;
-      await footer.getByText(title, { exact: true }).waitFor();
-      assert.equal(await ownerActions().count(), 0, 'Aux guests must not receive owner-only footer mutation buttons');
-      assert.equal(fixture.mutations.length, beforeGuestMutations);
-      await shot('desktop-footer-guest');
-      scenario.checks.desktopFooterGuest = 'Aux guest footer hides Like and playlist actions without mutating the library';
+      await auxGuestChecks();
+      scenario.checks.desktopFooterGuest = 'Aux v2 uses a separate guest workspace; leaving restores the personal player';
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, 'Desktop footer actions must not cause horizontal page overflow');
       assert.deepEqual(scenario.errors, [], 'Unhandled browser errors');
     };
@@ -1257,24 +1392,7 @@ try {
         await page.getByRole('dialog',{name:'Sample track 0002',exact:true}).getByRole('button',{name:'Remove Download',exact:true}).click();
         await waitUntil(async()=>await page.locator('.track-row').count()===0,'Removed download remains in Downloaded');
         scenario.checks.downloads='real CacheStorage download, count, collection and removal';
-        if(width===390){
-          const beforeMutations=fixture.mutations.length;
-          await page.goto(`${baseURL}/?aux=ABCD`);
-          await page.getByRole('button',{name:/^Open Now Playing:/}).waitFor();
-          await mobileTab('Home');
-          await page.getByRole('button',{name:'Aux session',exact:true}).waitFor();
-          await libraryRoot();
-          assert.equal(await page.getByRole('button',{name:'New playlist',exact:true}).count(),0,'Guest must not create playlists');
-          await page.locator('.mobile-playlist-row').filter({hasText:'Weekend Records'}).click();
-          assert.equal(await page.locator('.native-collection-toolbar button').count(),0,'Guest must not edit playlist, cover or membership');
-          await page.locator('.track-row').first().dispatchEvent('contextmenu');
-          const actions=page.getByRole('dialog').last();
-          for(const label of ['Like','Unlike','Download','Add to Playlist'])assert.equal(await actions.getByRole('button',{name:label,exact:true}).count(),0,`Guest action ${label} must be hidden`);
-          assert.equal(await actions.getByRole('button',{name:'Play Next',exact:true}).count(),1);
-          assert.equal(fixture.mutations.length,beforeMutations,'Guest navigation must not mutate playlists');
-          await page.keyboard.press('Escape');
-          scenario.checks.guest='Guest library and row controls omit owner mutations';
-        }
+        if(width===390) await auxGuestChecks();
       }
       if (!mobile) {
         if (width <= 1140) {
